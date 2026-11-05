@@ -23,6 +23,7 @@ from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.media import (
     coerce_media_url_or_data_uri,
+    is_public_https_domain_url,
     prepare_media_data_uri,
     resolve_media_location,
 )
@@ -134,6 +135,9 @@ class LTXVideoUpscale(PublicVideoUrlMixin, GriptapeProxyNode):
 
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
+    # Griptape Cloud downloads a URL input (up to 200 MB) to check and bill it while handling the
+    # create call, allowing up to 150 s for that download, so wait longer than that for the response.
+    SUBMIT_TIMEOUT_SECONDS = 200
     DEFAULT_MAX_ATTEMPTS = 240
 
     def __init__(self, **kwargs: Any) -> None:
@@ -375,6 +379,7 @@ class LTXVideoUpscale(PublicVideoUrlMixin, GriptapeProxyNode):
         # Tier 1: upload to Griptape Cloud and send LTX a public URL it fetches server-side.
         # Tier 2: base64 data URI with a size guard.
         video_uri = await self._resolve_video_uri(video)
+        self._warn_if_proxy_downloads_external_url(video, video_uri)
 
         # The model is fixed by the endpoint, so no `model` field is sent.
         payload: dict[str, Any] = {
@@ -383,6 +388,27 @@ class LTXVideoUpscale(PublicVideoUrlMixin, GriptapeProxyNode):
         }
 
         return payload
+
+    def _warn_if_proxy_downloads_external_url(self, video: Any, video_uri: str) -> None:
+        """Tell the user submission may be slow when the proxy must fetch a third-party URL first.
+
+        Griptape Cloud downloads a URL input to check and bill it before submitting. Local files are
+        uploaded to Griptape storage, which serves quickly, but an already-public URL is passed through
+        and fetched from its own host, which can take minutes for a large file on a slow server.
+        """
+        # The mixin passes an already-public https URL through unchanged and uploads anything else,
+        # so the proxy fetches from a third-party host exactly when the URI sent is the user's own URL.
+        connected = coerce_media_url_or_data_uri(video, kind="video")
+        if not connected or video_uri != connected or not is_public_https_domain_url(video_uri):
+            return
+        message = (
+            "The input video is a link to another website. Griptape Cloud downloads it to check its "
+            "length and size before starting, which can take up to about 2.5 minutes for a large file "
+            "on a slow server. Connect a local file instead for a faster start."
+        )
+        logger.warning("%s: %s", self.name, message)
+        # An in-progress message: leaves the success flag that routes the node untouched.
+        self.status_component.clear_execution_status(initial_message=message)
 
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video. LTX returns the media as the response body itself."""

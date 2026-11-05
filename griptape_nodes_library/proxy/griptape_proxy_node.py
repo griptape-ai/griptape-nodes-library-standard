@@ -128,6 +128,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
     DEFAULT_POLL_INTERVAL = 5
     DEFAULT_MAX_ATTEMPTS = 120  # 10 minutes with 5s intervals
 
+    # Seconds to wait for the create call. The proxy validates and bills a URL input while handling it,
+    # so a node whose inputs the proxy downloads first (large URL inputs) sets this higher.
+    SUBMIT_TIMEOUT_SECONDS: float = 60
+
     # Subclasses that download media set this to the destination for saved output.
     _output_file: ProjectFileParameter
 
@@ -501,7 +505,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                 if self._user_auth_info:
                     request_headers["X-GTC-PROXY-AUTH-INFO"] = self._user_auth_info
                 self._log_auth_header_summary("Submitting generation request", request_headers)
-                response = await client.post(proxy_url, json=payload, headers=request_headers, timeout=60)
+                response = await client.post(
+                    proxy_url, json=payload, headers=request_headers, timeout=self.SUBMIT_TIMEOUT_SECONDS
+                )
                 response.raise_for_status()
                 response_json = response.json()
                 self._log("Request submitted successfully")

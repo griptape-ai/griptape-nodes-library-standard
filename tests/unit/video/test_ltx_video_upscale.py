@@ -339,3 +339,32 @@ def test_fps_below_1_fails(probe: Callable[..., None]) -> None:
 )
 def test_parse_frame_rate(raw: str | None, expected: float | None) -> None:
     assert _parse_frame_rate(raw) == expected
+
+
+# --- Submission wait for large URL inputs --------------------------------------------------------
+
+
+def test_waits_longer_than_the_proxys_url_download_for_the_create_call() -> None:
+    # Griptape Cloud allows up to 150 s to download a URL input while handling the create call.
+    assert LTXVideoUpscale.SUBMIT_TIMEOUT_SECONDS > 150
+
+
+@pytest.mark.parametrize(
+    ("connected", "sent", "warns"),
+    [
+        # A public https link the node passes through: the proxy fetches it from its own host.
+        ("https://videos.example.com/clip.mp4", "https://videos.example.com/clip.mp4", True),
+        # A local file the node uploaded first: the proxy fetches Griptape storage, which is fast.
+        ("/workspace/clip.mp4", "https://storage.example.net/uploads/abc.mp4", False),
+        # A base64 fallback: nothing to download.
+        ("/workspace/clip.mp4", "data:video/mp4;base64,AAAA", False),
+    ],
+)
+def test_warns_only_when_the_proxy_downloads_the_users_own_link(connected: str, sent: str, *, warns: bool) -> None:
+    node = LTXVideoUpscale(name="Upscale")
+    node.status_component.clear_execution_status(initial_message="")
+
+    node._warn_if_proxy_downloads_external_url(VideoUrlArtifact(value=connected), sent)
+
+    details = node.get_parameter_value("result_details") or ""
+    assert ("link to another website" in details) is warns
