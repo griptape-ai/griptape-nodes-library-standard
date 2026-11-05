@@ -11,6 +11,7 @@
 // are the preview's pixels, scale is preview pixels per source pixel, and the output size is in source pixels.
 
 import { applyLut, blendByte, gaussianBlur, luma } from "./_pixels.js";
+import { VIDEO_OPERATIONS } from "./_video_operations.js";
 
 const num = (value, fallback) => {
   const n = Number(value);
@@ -381,4 +382,10 @@ export const OPERATIONS = {
   bloom,
   resize,
   extend_canvas: extendCanvas,
+  video_eq: VIDEO_OPERATIONS.video_eq,
+  video_blur: VIDEO_OPERATIONS.video_blur,
+  vignette: VIDEO_OPERATIONS.vignette,
+  rgb_shift: VIDEO_OPERATIONS.rgb_shift,
+  curves: VIDEO_OPERATIONS.curves,
+  film_grain: VIDEO_OPERATIONS.film_grain,
 };

@@ -21,6 +21,7 @@ from griptape_nodes.retained_mode.events.artifact_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.video_utils import (
@@ -31,7 +32,7 @@ from griptape_nodes_library.utils.video_utils import (
 )
 
 
-class BaseVideoProcessor(SuccessFailureNode, ABC):
+class BaseVideoProcessor(ImagePreviewMixin, SuccessFailureNode, ABC):
     """Base class for video processing nodes with common functionality."""
 
     # Default video properties constants
@@ -55,6 +56,9 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
     # Frame rate tolerance for comparison (in fps)
     FRAME_RATE_TOLERANCE: ClassVar[float] = 0.01
 
+    # A subclass that names a PREVIEW_OPERATION previews it on a frame of the video it can scrub through
+    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {"video": "video_url"}
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
         self.add_parameter(
@@ -69,6 +73,8 @@ class BaseVideoProcessor(SuccessFailureNode, ABC):
                 converters=[self._convert_video_input],
             )
         )
+
+        self._add_preview_parameter()
 
         self._setup_custom_parameters()
 

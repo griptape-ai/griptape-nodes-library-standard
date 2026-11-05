@@ -1,4 +1,4 @@
-"""Tests for the live preview ImagePreviewMixin gives image nodes that name a preview operation."""
+"""Tests for the live preview ImagePreviewMixin gives image and video nodes that name a preview operation."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 
 from griptape_nodes_library.image.adjust_image_eq import AdjustImageEQ
 from griptape_nodes_library.image.adjust_image_levels import AdjustImageLevels
@@ -19,6 +20,13 @@ from griptape_nodes_library.image.image_blend_compositor import ImageBlendCompos
 from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.image.rescale_image import RescaleImage
 from griptape_nodes_library.image.rotate_image import RotateImage
+from griptape_nodes_library.video.add_color_curves import AddColorCurves
+from griptape_nodes_library.video.add_film_grain import AddFilmGrain
+from griptape_nodes_library.video.add_rgb_shift import AddRGBShift
+from griptape_nodes_library.video.add_vignette import AddVignette
+from griptape_nodes_library.video.adjust_video_eq import AdjustVideoEQ
+from griptape_nodes_library.video.blur_video import BlurVideo
+from griptape_nodes_library.video.flip_video import FlipVideo
 
 PREVIEWED = [
     AdjustImageEQ,
@@ -30,6 +38,13 @@ PREVIEWED = [
     GrayscaleImage,
     RescaleImage,
     RotateImage,
+    AddColorCurves,
+    AddFilmGrain,
+    AddRGBShift,
+    AddVignette,
+    AdjustVideoEQ,
+    BlurVideo,
+    FlipVideo,
 ]
 
 OPERATIONS_JS = Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" / "_operations.js"
@@ -57,15 +72,17 @@ def test_widget_knows_the_operation(node_class: type[ImagePreviewMixin]) -> None
 
 
 @pytest.mark.parametrize("node_class", PREVIEWED)
-def test_setting_the_input_image_gives_the_preview_its_url(node_class: type[ImagePreviewMixin]) -> None:
+def test_setting_the_source_gives_the_preview_its_url(node_class: type[ImagePreviewMixin]) -> None:
     node = node_class(name="test_node")
+    [(parameter_name, key)] = node_class.PREVIEW_IMAGES.items()
+    if key == "video_url":
+        media = VideoUrlArtifact(value="https://example.com/cat.mp4")
+    else:
+        media = ImageUrlArtifact(value="https://example.com/cat.png")
 
-    node.set_parameter_value("input_image", ImageUrlArtifact(value="https://example.com/cat.png"))
+    node.set_parameter_value(parameter_name, media)
 
-    assert node.get_parameter_value("preview") == {
-        "operation": node_class.PREVIEW_OPERATION,
-        "image_url": "https://example.com/cat.png",
-    }
+    assert node.get_parameter_value("preview") == {"operation": node_class.PREVIEW_OPERATION, key: media.value}
 
 
 def test_a_node_without_an_operation_has_no_preview() -> None:

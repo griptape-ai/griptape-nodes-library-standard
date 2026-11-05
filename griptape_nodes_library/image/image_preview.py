@@ -34,13 +34,14 @@ class ImagePreviewMixin(BaseNode):
         return super().after_value_set(parameter, value)
 
     def _add_preview_parameter(self) -> None:
-        """Add the preview widget. It shows the input image, so the plain input row would be a second copy."""
+        """Add the preview widget. It shows its images, so their plain input rows would be second copies."""
         if self.PREVIEW_OPERATION is None:
             return
 
-        input_image = self.get_parameter_by_name("input_image")
-        if input_image is not None:
-            input_image.hide_property = True
+        for parameter_name in self.PREVIEW_IMAGES:
+            shown = self.get_parameter_by_name(parameter_name)
+            if shown is not None:
+                shown.hide_property = True
 
         self.add_parameter(
             ParameterDict(

@@ -1298,7 +1298,7 @@
     {
       "name": "ImageProcessorPreview",
       "path": "widgets/ImageProcessorPreview/ImageProcessorPreview.js",
-      "description": "Live preview for the image nodes (rotate, flip, grayscale, levels, EQ, blur, bloom, resize, extend canvas), drawn on a canvas that scales with the node."
+      "description": "Live preview for the image and video processor nodes, drawn on the image or on a frame of the video picked with a scrubber, on a canvas that scales with the node."
     },
     {
       "name": "CropVideoEditor",

@@ -1,11 +1,13 @@
-// Live preview for the image processor nodes. The node names its operation in the widget's value
-// and lists its settings as synced_parameters, so they arrive in `value` while the user drags. The
-// result is drawn in the browser; the node processes the real image with Pillow when it runs.
+// Live preview for the image and video processor nodes. The node names its operation in the widget's
+// value and lists its settings as synced_parameters, so they arrive in `value` while the user drags.
+// The result is drawn in the browser on the image, or on a frame of the video picked with the scrubber;
+// the node processes the real media when it runs.
 
 import { OPERATIONS } from "./_operations.js";
 
-const WIDGET_VERSION = "1.0.0";
+const WIDGET_VERSION = "1.1.0";
 const CHECKER = 10;
+const SCRUB_STEPS = 1000;
 
 export default function ImageProcessorPreview(container, props) {
   if (container._imagePreview?.wrapper?.isConnected) {
@@ -15,9 +17,9 @@ export default function ImageProcessorPreview(container, props) {
   if (container._imagePreview) delete container._imagePreview;
 
   let value = props.value || {};
-  let imageUrl = "";
-  let imageLoaded = false;
-  // The scaled input's pixels, kept so a colour operation only redoes its own math while dragging.
+  let sourceUrl = "";
+  let sourceReady = false;
+  // The scaled source's pixels, kept so a colour operation only redoes its own math while dragging.
   let sourcePixels = null;
   let pixelsBlocked = false;
 
@@ -37,6 +39,21 @@ export default function ImageProcessorPreview(container, props) {
   const ctx = canvas.getContext("2d");
   canvasWrap.appendChild(canvas);
 
+  // Scrubber for video sources: picks the frame the preview is drawn on.
+  const scrubRow = document.createElement("div");
+  scrubRow.style.cssText = "display:none;align-items:center;gap:8px;padding:0 2px;";
+  const scrub = document.createElement("input");
+  scrub.type = "range";
+  scrub.min = "0";
+  scrub.max = String(SCRUB_STEPS);
+  scrub.value = "0";
+  scrub.style.cssText = "flex:1;min-width:0;";
+  const scrubTime = document.createElement("span");
+  scrubTime.style.cssText = "font-size:10px;font-family:monospace;color:var(--muted-foreground);white-space:nowrap;";
+  for (const type of ["pointerdown", "mousedown"]) scrub.addEventListener(type, (e) => e.stopPropagation());
+  scrubRow.appendChild(scrub);
+  scrubRow.appendChild(scrubTime);
+
   const statusBar = document.createElement("div");
   statusBar.style.cssText = [
     "font-size:11px", "color:var(--muted-foreground)", "padding:4px 8px",
@@ -51,13 +68,43 @@ export default function ImageProcessorPreview(container, props) {
   statusBar.appendChild(statusR);
 
   wrapper.appendChild(canvasWrap);
+  wrapper.appendChild(scrubRow);
   wrapper.appendChild(statusBar);
   container.appendChild(wrapper);
 
   const img = new Image();
   img.crossOrigin = "anonymous";
-  img.onload = () => { imageLoaded = true; sourcePixels = null; pixelsBlocked = false; render(); };
-  img.onerror = () => { imageLoaded = false; render(); };
+  img.onload = () => { sourceReady = true; sourcePixels = null; pixelsBlocked = false; render(); };
+  img.onerror = () => { sourceReady = false; render(); };
+
+  const video = document.createElement("video");
+  video.crossOrigin = "anonymous";
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.addEventListener("loadeddata", () => { seekTo(Number(scrub.value) / SCRUB_STEPS); });
+  video.addEventListener("seeked", () => { sourceReady = true; sourcePixels = null; pixelsBlocked = false; render(); });
+  video.addEventListener("error", () => { sourceReady = false; render(); });
+
+  let isVideo = false;
+  const source = () => (isVideo ? video : img);
+  const sourceSize = () => (isVideo ? [video.videoWidth, video.videoHeight] : [img.naturalWidth, img.naturalHeight]);
+
+  function formatTime(seconds) {
+    if (!Number.isFinite(seconds)) return "0:00.0";
+    const m = Math.floor(seconds / 60);
+    const s = (seconds - m * 60).toFixed(1).padStart(4, "0");
+    return `${m}:${s}`;
+  }
+
+  function seekTo(fraction) {
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    // Stay a hair inside the end, where some browsers have no frame to show.
+    video.currentTime = Math.max(0, Math.min(duration - 0.001, fraction * duration));
+    scrubTime.textContent = `${formatTime(video.currentTime)} / ${formatTime(duration)}`;
+  }
+
+  scrub.addEventListener("input", () => { if (isVideo) seekTo(Number(scrub.value) / SCRUB_STEPS); });
 
   function drawChecker(w, h) {
     ctx.fillStyle = "#3a3a3a";
@@ -84,14 +131,14 @@ export default function ImageProcessorPreview(container, props) {
     statusL.textContent = status;
   }
 
-  // Runs a colour operation on the input scaled to the preview. Falls back to the plain image when the
-  // browser won't hand over the pixels, which happens for image hosts that don't allow it.
+  // Runs a colour operation on the source scaled to the preview. Falls back to the plain source when the
+  // browser won't hand over the pixels, which happens for media hosts that don't allow it.
   function drawPixels(operation, view) {
     if (!sourcePixels || sourcePixels.width !== view.width || sourcePixels.height !== view.height) {
       const scratch = document.createElement("canvas");
       scratch.width = view.width; scratch.height = view.height;
       const sctx = scratch.getContext("2d", { willReadFrequently: true });
-      sctx.drawImage(img, 0, 0, view.width, view.height);
+      sctx.drawImage(source(), 0, 0, view.width, view.height);
       try {
         sourcePixels = sctx.getImageData(0, 0, view.width, view.height);
         pixelsBlocked = false;
@@ -101,7 +148,7 @@ export default function ImageProcessorPreview(container, props) {
       }
     }
     if (pixelsBlocked) {
-      ctx.drawImage(img, 0, 0, view.width, view.height);
+      ctx.drawImage(source(), 0, 0, view.width, view.height);
       return;
     }
     const result = new ImageData(new Uint8ClampedArray(sourcePixels.data), view.width, view.height);
@@ -119,12 +166,13 @@ export default function ImageProcessorPreview(container, props) {
       showMessage("No preview for this node", "");
       return;
     }
-    if (!imageLoaded) {
-      showMessage("Connect an image to preview the result", "No image connected");
+    if (!sourceReady) {
+      const what = isVideo ? "a video" : "an image";
+      showMessage(`Connect ${what} to preview the result`, isVideo ? "No video connected" : "No image connected");
       return;
     }
 
-    const w = img.naturalWidth, h = img.naturalHeight;
+    const [w, h] = sourceSize();
     const size = operation.size ? operation.size(value, w, h) : { width: w, height: h };
     if (size.error) {
       showMessage(size.error, size.error);
@@ -148,23 +196,36 @@ export default function ImageProcessorPreview(container, props) {
     drawChecker(view.width, view.height);
 
     if (operation.pixels) drawPixels(operation, view);
-    else operation.draw(ctx, img, value, view);
+    else operation.draw(ctx, source(), value, view);
 
     const label = operation.label ? `${operation.label(value)}  →  ` : "";
-    const note = pixelsBlocked && operation.pixels ? "  (preview unavailable for this image source)" : "";
+    const note = pixelsBlocked && operation.pixels ? "  (preview unavailable for this source)" : "";
     statusL.textContent = `${label}${size.width} × ${size.height} px${note}`;
   }
 
   function handleUpdate(newProps) {
     value = newProps.value || {};
+    const nextIsVideo = Boolean(value.video_url);
+    const newUrl = (nextIsVideo ? value.video_url : value.image_url) || "";
     const base = (u) => (u ? u.split("?")[0] : "");
-    const newUrl = value.image_url || "";
-    if (base(newUrl) !== base(imageUrl)) {
-      imageUrl = newUrl;
-      imageLoaded = false;
+    if (nextIsVideo !== isVideo || base(newUrl) !== base(sourceUrl)) {
+      isVideo = nextIsVideo;
+      sourceUrl = newUrl;
+      sourceReady = false;
       sourcePixels = null;
-      if (newUrl) img.src = newUrl;
-      else render();
+      scrubRow.style.display = isVideo ? "flex" : "none";
+      if (!newUrl) {
+        render();
+        return;
+      }
+      if (isVideo) {
+        scrub.value = "0";
+        video.src = newUrl;
+        video.load();
+      } else {
+        img.src = newUrl;
+      }
+      render();
       return;
     }
     render();
@@ -177,6 +238,10 @@ export default function ImageProcessorPreview(container, props) {
 
   function cleanup() {
     ro.disconnect();
+    // Release the media player; browsers cap how many a page can hold.
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
     wrapper.remove();
     delete container._imagePreview;
   }
