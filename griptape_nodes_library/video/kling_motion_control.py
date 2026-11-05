@@ -169,10 +169,13 @@ class KlingMotionControl(GriptapeProxyNode):
         try:
             await super().aprocess()
         finally:
-            # Always cleanup uploaded artifacts
-            await adelete_uploaded_artifacts(
-                (self._public_image_url_parameter, self._public_video_url_parameter), node_name=self.name
+            # Always cleanup uploaded artifacts (a polling timeout holds them until the
+            # generation reaches a final state, so a queued job does not lose its video).
+            helpers = self._hold_deferred_uploads_if_timed_out(
+                [self._public_image_url_parameter, self._public_video_url_parameter]
             )
+            if helpers:
+                await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.

@@ -212,9 +212,13 @@ class WanAnimateGeneration(GriptapeProxyNode):
         try:
             await super()._process_generation()
         finally:
-            await adelete_uploaded_artifacts(
-                (self._public_image_url_parameter, self._public_video_url_parameter), node_name=self.name
+            # Cleanup uploaded artifacts (a polling timeout holds them until the generation
+            # reaches a final state, so a queued job does not lose its inputs).
+            helpers = self._hold_deferred_uploads_if_timed_out(
+                [self._public_image_url_parameter, self._public_video_url_parameter]
             )
+            if helpers:
+                await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     async def _get_parameters(self) -> dict[str, Any]:
         # The DashScope Animate endpoint requires a real video URL, so the

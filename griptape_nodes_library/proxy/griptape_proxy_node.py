@@ -6,7 +6,7 @@ import logging
 import re
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -26,6 +26,7 @@ from griptape_nodes.utils.budget_refusal import BudgetExceededError, refusal_fro
 from griptape_nodes.utils.budget_refusal import describe as describe_budget_refusal
 from griptape_nodes.utils.budget_refusal import log_line as budget_log_line
 
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts
 from griptape_nodes_library.proxy.hosted_artifacts import (
     HostedArtifact,
     HostedArtifactError,
@@ -52,6 +53,9 @@ from griptape_nodes_library.utils.node_error_utils import (
 )
 
 if TYPE_CHECKING:
+    from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+        PublicArtifactUrlParameter,
+    )
     from griptape_nodes.retained_mode.managers.authorization_checkpoint import CheckpointDenial
 
 logger = logging.getLogger("griptape_nodes")
@@ -141,6 +145,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # starts so a stale list is not reused across them, while a node reading several
         # artifacts of one generation still lists them once.
         self._hosted_artifact_lists: dict[str, list[HostedArtifact]] = {}
+        # Uploads the provider fetches by URL, held back from the run's own cleanup
+        # because polling timed out. The provider may not have fetched them yet, so
+        # they must outlive the run until the generation reaches a final state.
+        self._deferred_uploads: list[PublicArtifactUrlParameter] = []
+        # Set while a poll loop is unwinding from a timeout, so the node's own cleanup holds the
+        # provider-fetched uploads; cleared when a new run starts.
+        self._poll_timed_out = False
         self._user_auth_info: str | None = None
         self._api_key_provider: ProxyAuthProviderParameter | None = None
         self._initialize_api_key_provider()
@@ -860,6 +871,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         # Timeout reached — preserve generation_id so the user can recover via Refresh
         self._log("Polling timed out waiting for result")
+        # The run's own cleanup runs while the provider may still be queued, so tell the node to
+        # hold any URL upload the provider fetches by URL; the base deletes it when the generation
+        # reaches a final state or the node runs again.
+        self._poll_timed_out = True
         self._set_safe_defaults()
         self.parameter_output_values["generation_id"] = generation_id
         self.parameter_output_values["generation_status"] = STATUS_TIMED_OUT
@@ -1062,6 +1077,41 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
 
         return generation_id
 
+    def _hold_deferred_uploads_if_timed_out(
+        self, helpers: Iterable[PublicArtifactUrlParameter]
+    ) -> list[PublicArtifactUrlParameter]:
+        """Return the helpers to delete now, deferring the URL uploads a live provider still needs.
+
+        When polling timed out, the provider may not have fetched an upload yet, so deleting it
+        now would pull the file out from under a queued job and fail it with no useful reason.
+        Those helpers are recorded for the deferred path instead: the base deletes them once the
+        generation reaches a final state (a Refresh sees it completed or failed) or the node is
+        run again. Returns the helpers that should still be deleted now (the empty list when
+        nothing was uploaded), so a node's cleanup can pass its uploads through unchanged.
+        """
+        if not getattr(self, "_poll_timed_out", False):
+            return list(helpers)
+        remaining = [helper for helper in helpers if helper is not None]
+        if remaining:
+            self._deferred_uploads.extend(remaining)
+        self._log(
+            f"Polling timed out, so {len(remaining)} upload(s) the provider fetches by URL stay "
+            "available until the generation finishes or the node runs again."
+        )
+        return []
+
+    async def _delete_deferred_uploads(self) -> None:
+        """Delete the URL uploads a timed-out run left behind, if any.
+
+        Called when a Refresh finds the generation reached a final state, and at the start of a
+        run, so a leftover from a never-refreshed timeout is not left in the bucket forever.
+        A helper already recorded for this run is deleted once, not twice.
+        """
+        if not self._deferred_uploads:
+            return
+        helpers, self._deferred_uploads = self._deferred_uploads, []
+        await adelete_uploaded_artifacts(helpers, node_name=self.name)
+
     async def _process_generation(self) -> None:
         """Main processing logic that orchestrates the generation flow.
 
@@ -1072,6 +1122,10 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         4. Status polling
         5. Result fetching and parsing
         """
+        # A run that timed out earlier may have held its URL uploads back. The provider either
+        # fetched them by now or the job is stale either way, so the new run takes them over.
+        self._poll_timed_out = False
+        await self._delete_deferred_uploads()
         # Clear execution status at the start
         self._clear_execution_status()
         # A node's cancellation flag is only cleared by BaseNode.clear_node(), which the
@@ -1189,6 +1243,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Refresh is a button press, not a run, so a budget halt is shown on the node rather than
         raised; there is no flow to stop.
         """
+        # The generation is finished, so a provider-fetched upload a timeout held back is done.
+        await self._delete_deferred_uploads()
         try:
             result_json = await self._fetch_generation_result(generation_id)
         except BudgetExceededError as e:
@@ -1226,9 +1282,11 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             result_details=f"Refreshed: generation `{generation_id}` completed and result was retrieved.",
         )
 
-    def _refresh_render_status(self, generation_id: str, status: str, status_json: dict[str, Any]) -> None:
+    async def _refresh_render_status(self, generation_id: str, status: str, status_json: dict[str, Any]) -> None:
         """Update result_details for non-completed states."""
         if status in (STATUS_FAILED, STATUS_ERRORED):
+            # The generation is finished, so a provider-fetched upload a timeout held back is done.
+            await self._delete_deferred_uploads()
             error_message = self._provider_failure_message(
                 self._extract_error_message(status_json), "The provider gave no reason."
             )
@@ -1296,7 +1354,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             await self._refresh_completed(generation_id)
             return
 
-        self._refresh_render_status(generation_id, status, status_json)
+        await self._refresh_render_status(generation_id, status, status_json)
 
     async def aprocess(self) -> None:
         """Async processing entry point."""

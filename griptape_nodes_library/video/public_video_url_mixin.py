@@ -65,7 +65,9 @@ class PublicVideoUrlMixin:
         """Delete uploaded Griptape Cloud artifacts and remove their scratch parameters.
 
         Each scratch parameter name is unique per upload, so leaving them would accumulate
-        parameters on the node across runs.
+        parameters on the node across runs. On a polling timeout the base holds the artifacts
+        back (the provider may not have fetched them yet) and deletes them when the generation
+        reaches a final state; the scratch parameters still go now, so they never accumulate.
         """
         pending = getattr(self, "_pending_video_uploads", [])
         self._pending_video_uploads = []
@@ -75,7 +77,9 @@ class PublicVideoUrlMixin:
                 self.remove_parameter_element_by_name(scratch_name)  # type: ignore[attr-defined]
             # Removing the parameter leaves its value behind, which the next run would replay.
             self.parameter_values.pop(scratch_name, None)  # type: ignore[attr-defined]
-        await adelete_uploaded_artifacts((helper for helper, _ in pending), node_name=self.name)  # type: ignore[attr-defined]
+        helpers = self._hold_deferred_uploads_if_timed_out((helper for helper, _ in pending))  # type: ignore[attr-defined]
+        if helpers:
+            await adelete_uploaded_artifacts(helpers, node_name=self.name)  # type: ignore[attr-defined]
 
     async def _resolve_video_uri(self, video_input: Any) -> str:
         """Return the value for the proxy ``video_uri`` field (public URL or base64 data URI)."""
