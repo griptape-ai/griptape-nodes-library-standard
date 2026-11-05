@@ -326,7 +326,7 @@ class ReadImageMetadataNode(SuccessFailureNode):
 
         # Load image
         try:
-            image_data = load_image_from_artifact(image, self.name)
+            image_data = load_image_from_artifact(image, self.name, turn_upright=False)
         except (TypeError, ValueError) as e:
             self._fail(e, raise_on_failure=raise_on_failure)
             return

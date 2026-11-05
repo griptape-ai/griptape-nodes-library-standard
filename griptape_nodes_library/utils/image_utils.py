@@ -46,6 +46,9 @@ _GRAY_ALPHA_CHANNELS = 2
 _RGB_CHANNELS = 3
 _RGBA_CHANNELS = 4
 
+# EXIF orientation of an image stored as it is displayed
+_UPRIGHT_ORIENTATION = 1
+
 # Pillow's ITU-R 601 luma weights, in 16-bit fixed point
 _LUMA_WEIGHTS = (19595, 38470, 7471)
 
@@ -298,8 +301,23 @@ def _is_svg(image_bytes: bytes) -> bool:
     return "<svg" in image_bytes[:_SVG_SNIFF_BYTES].decode("utf-8", errors="ignore").lower()
 
 
-def open_image_bytes(image_bytes: bytes, source: str = "image bytes") -> GriptapeImage:
+def upright(image: GriptapeImage) -> GriptapeImage:
+    """Return ``image`` turned as its EXIF orientation tag says to display it, with the tag reset.
+
+    An image already upright is returned as it is, so encoding it can still splice its metadata.
+    """
+    exif = image.metadata.exif
+    if exif is None or exif.orientation == _UPRIGHT_ORIENTATION:
+        return image
+    return GriptapeImagePipeline(image).exif_transpose().end()
+
+
+def open_image_bytes(image_bytes: bytes, source: str = "image bytes", *, turn_upright: bool = True) -> GriptapeImage:
     """Open encoded image bytes, reading the header so a bad image fails here.
+
+    With ``turn_upright``, a photo whose EXIF orientation tag says to turn it is turned, so nodes
+    edit the pixels as they are displayed. Pass False to keep the file's own pixels and tag, for
+    nodes that read or pass the file through rather than edit it.
 
     Raises:
         ValueError: If the bytes are SVG or not an image that can be read
@@ -314,11 +332,11 @@ def open_image_bytes(image_bytes: bytes, source: str = "image bytes") -> Griptap
     except (OSError, ValueError) as e:
         msg = f"Failed to load image from: {source}\nError: {e}"
         raise ValueError(msg) from e
-    return image
+    return upright(image) if turn_upright else image
 
 
-def load_image_from_url(url: str) -> GriptapeImage:
-    """Load image from URL or local file path via File.
+def load_image_from_url(url: str, *, turn_upright: bool = True) -> GriptapeImage:
+    """Load image from URL or local file path via File, turned upright as ``open_image_bytes`` describes.
 
     Note: SVG files are not supported, as vector graphics can't be decoded to pixels.
     TODO: Add SVG support by rasterizing SVG files: https://github.com/griptape-ai/griptape-nodes/issues/3721
@@ -333,15 +351,18 @@ def load_image_from_url(url: str) -> GriptapeImage:
         msg = f"Failed to load image from: {url}\nError: {e}"
         raise ValueError(msg) from e
 
-    return open_image_bytes(image_bytes, url)
+    return open_image_bytes(image_bytes, url, turn_upright=turn_upright)
 
 
-def load_image_from_artifact(image: ImageUrlArtifact | ImageArtifact | str, context_name: str) -> GriptapeImage:
+def load_image_from_artifact(
+    image: ImageUrlArtifact | ImageArtifact | str, context_name: str, *, turn_upright: bool = True
+) -> GriptapeImage:
     """Load an image from various artifact types.
 
     Args:
         image: ImageUrlArtifact, ImageArtifact, or str URL
         context_name: Name for log lines (e.g., node name)
+        turn_upright: Turn the image as its EXIF orientation says, as ``open_image_bytes`` describes
 
     Returns:
         The image
@@ -355,10 +376,10 @@ def load_image_from_artifact(image: ImageUrlArtifact | ImageArtifact | str, cont
         raise TypeError(error_msg)
 
     if isinstance(image, ImageUrlArtifact):
-        return load_image_from_url(image.value)
+        return load_image_from_url(image.value, turn_upright=turn_upright)
     if isinstance(image, ImageArtifact):
-        return open_image_bytes(image.value, context_name)
-    return load_image_from_url(image)
+        return open_image_bytes(image.value, context_name, turn_upright=turn_upright)
+    return load_image_from_url(image, turn_upright=turn_upright)
 
 
 def image_artifact_from_bytes(image_bytes: bytes, source: str = "image bytes") -> ImageArtifact:
@@ -367,7 +388,7 @@ def image_artifact_from_bytes(image_bytes: bytes, source: str = "image bytes") -
     Raises:
         ValueError: If the bytes are not an image that can be read
     """
-    with open_image_bytes(image_bytes, source) as image:
+    with open_image_bytes(image_bytes, source, turn_upright=False) as image:
         image_format = image.format or ImageFormat.PNG
         return ImageArtifact(image_bytes, format=image_format.lower(), width=image.width, height=image.height)
 
@@ -401,8 +422,8 @@ def load_image_from_url_artifact(image_url_artifact: ImageUrlArtifact) -> ImageA
 def extract_channel_from_image(image: GriptapeImage, channel: str, context_name: str = "image") -> GriptapeImage:
     """Extract one channel of an image as an 8-bit gray image.
 
-    Gray images give their gray for every color channel. An image without alpha gives opaque
-    alpha.
+    Gray images without alpha give their gray for every channel, alpha included. A color image
+    without alpha gives opaque alpha.
 
     Args:
         image: Image to extract channel from
@@ -424,7 +445,7 @@ def extract_channel_from_image(image: GriptapeImage, channel: str, context_name:
         case "blue":
             index = 2 if has_color else 0
         case "alpha":
-            index = -1
+            index = -1 if image.channels != 1 else 0
         case _:
             msg = f"Unknown {context_name} channel: {channel!r}"
             raise ValueError(msg)
@@ -569,8 +590,11 @@ def create_grid_layout(  # noqa: PLR0913
                 final_x = base_x + (total_width - row_width) // 2
             case "right" if images_in_row < columns:
                 final_x = base_x + total_width - row_width
-            case _:
+            case "left" | "center" | "right":
                 final_x = base_x
+            case _:
+                msg = f"Unknown justification: {justification!r}"
+                raise ValueError(msg)
 
         final_y = row * (cell_height + spacing) + spacing + resized_result.y_offset
         grid.composite(cell_image, final_x, final_y)
@@ -764,7 +788,7 @@ def get_image_format_from_artifact(image_artifact: ImageUrlArtifact | ImageArtif
 
     if isinstance(image_artifact, ImageUrlArtifact):
         try:
-            image = load_image_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value, turn_upright=False)
         except Exception:
             return "UNKNOWN"
         else:
@@ -792,7 +816,7 @@ def get_image_dimensions_from_artifact(
 
     if isinstance(image_artifact, ImageUrlArtifact):
         try:
-            image = load_image_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value, turn_upright=False)
         except Exception:
             logger.warning("Could not determine image dimensions from ImageUrlArtifact")
             return (0, 0)

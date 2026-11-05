@@ -93,7 +93,7 @@ class WriteImageMetadataNode(SuccessFailureNode):
             self._validate_metadata_keys(metadata_dict)
 
             # Load image
-            loaded_image = load_image_from_artifact(image, self.name)
+            loaded_image = load_image_from_artifact(image, self.name, turn_upright=False)
 
             # Write metadata
             image_bytes = self._write_metadata_to_image(loaded_image, metadata_dict)

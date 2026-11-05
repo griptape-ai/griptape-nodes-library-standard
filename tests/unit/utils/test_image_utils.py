@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.image import GriptapeImage, ImageFormat, ImageMetadata
+from griptape_nodes.image import Exif, GriptapeImage, ImageFormat, ImageMetadata
 
 from griptape_nodes_library.utils import image_utils
 from griptape_nodes_library.utils.image_utils import (
@@ -23,11 +23,13 @@ from griptape_nodes_library.utils.image_utils import (
     load_image_from_artifact,
     load_image_from_url,
     luma,
+    open_image_bytes,
     pixels_of,
     premultiply_rgba,
     resize_image_for_resolution,
     shrink_image_to_size,
     unpremultiply_rgba,
+    upright,
     validate_image_format,
 )
 
@@ -48,6 +50,19 @@ def gray_values(image: GriptapeImage) -> list[int]:
 
 def png_bytes(pixels: np.ndarray) -> bytes:
     return GriptapeImage.from_array(pixels).encode(ImageFormat.PNG)
+
+
+_ORIENTATION_TAG = 0x0112
+_ROTATE_90_CLOCKWISE = 6
+
+
+def rotated_jpeg(width: int, height: int) -> bytes:
+    """A JPEG whose left half is red, tagged to display turned 90 degrees clockwise."""
+    pixels = np.zeros((height, width, 3), dtype=np.uint8)
+    pixels[:, : width // 2] = (255, 0, 0)
+    exif = Exif()
+    exif[_ORIENTATION_TAG] = _ROTATE_90_CLOCKWISE
+    return GriptapeImage.from_array(pixels, ImageMetadata(exif=exif)).encode(ImageFormat.JPEG, quality=95)
 
 
 class TestExtractImageUrl:
@@ -165,7 +180,7 @@ class TestExtractChannelFromImage:
         mask = extract_channel_from_image(GriptapeImage.new(2, 2, (9, 77)), channel)
         assert gray_values(mask) == [expected]
 
-    @pytest.mark.parametrize(("channel", "expected"), [("red", 9), ("green", 9), ("blue", 9), ("alpha", 255)])
+    @pytest.mark.parametrize(("channel", "expected"), [("red", 9), ("green", 9), ("blue", 9), ("alpha", 9)])
     def test_channels_of_gray_image(self, channel: str, expected: int) -> None:
         mask = extract_channel_from_image(GriptapeImage.new(2, 2, (9,)), channel)
         assert gray_values(mask) == [expected]
@@ -179,6 +194,34 @@ class TestExtractChannelFromImage:
     def test_unknown_channel_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown mask channel: 'cyan'"):
             extract_channel_from_image(GriptapeImage.new(2, 2, (1, 2, 3)), "cyan", "mask")
+
+
+class TestUpright:
+    def test_opening_turns_the_pixels_upright_and_resets_the_tag(self) -> None:
+        image = open_image_bytes(rotated_jpeg(40, 20), "test")
+        assert (image.width, image.height) == (20, 40)
+        # Turned clockwise, the red left half is on top
+        red, _, blue = pixel(image, 10, 5)
+        assert red > 200 > blue  # noqa: PLR2004
+        assert image.metadata.exif is not None
+        assert image.metadata.exif.orientation == 1
+
+    def test_header_reads_keep_the_stored_pixels(self) -> None:
+        image = open_image_bytes(rotated_jpeg(40, 20), "test", turn_upright=False)
+        assert (image.width, image.height) == (40, 20)
+        assert image.metadata.exif is not None
+        assert image.metadata.exif.orientation == _ROTATE_90_CLOCKWISE
+
+    def test_an_upright_image_is_returned_as_is(self) -> None:
+        image = GriptapeImage.open(png_bytes(np.zeros((2, 2, 3), dtype=np.uint8)))
+        assert upright(image) is image
+
+    def test_reencoded_edit_displays_upright(self) -> None:
+        image = open_image_bytes(rotated_jpeg(40, 20), "test")
+        reread = GriptapeImage.open(image.encode(ImageFormat.PNG))
+        # A viewer honoring the tag shows what the node edited
+        assert reread.metadata.exif is None or reread.metadata.exif.orientation == 1
+        assert (reread.width, reread.height) == (20, 40)
 
 
 class TestLuma:
