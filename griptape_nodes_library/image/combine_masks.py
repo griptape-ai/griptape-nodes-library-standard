@@ -45,7 +45,7 @@ class CombineMasks(ImagePreviewMixin, DataNode):
                 default_value=None,
                 tooltip="List of mask images to combine into a single mask (union/max).",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={"display_name": "Masks"},
+                ui_options={"display_name": "Masks", "hide_property": True},
             )
         )
 
