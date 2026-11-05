@@ -106,6 +106,9 @@ class HostedArtifact:
     url: str
     content_type: str | None = None
     size_bytes: int | None = None
+    # True for a signed provider URL taken from the generation result rather than hosted by the
+    # proxy. It authenticates itself, so it is downloaded without any Griptape credential.
+    direct: bool = False
 
     @classmethod
     def from_payload(cls, payload: Any) -> HostedArtifact | None:
