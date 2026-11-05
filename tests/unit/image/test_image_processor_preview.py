@@ -33,13 +33,6 @@ PREVIEWED = [
 OPERATIONS_JS = Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" / "_operations.js"
 
 
-@pytest.fixture(autouse=True)
-def no_immediate_processing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the nodes' engine-side previews from fetching the test image URL."""
-    for node_class in PREVIEWED:
-        monkeypatch.setattr(node_class, "_process_image_immediately", lambda *_args, **_kwargs: None, raising=False)
-
-
 @pytest.mark.parametrize("node_class", PREVIEWED)
 def test_preview_syncs_the_nodes_own_settings(node_class: type[BaseImageProcessor]) -> None:
     node = node_class(name="test_node")

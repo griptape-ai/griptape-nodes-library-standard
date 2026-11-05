@@ -8,10 +8,6 @@ from griptape_nodes.traits.slider import Slider
 from PIL import Image
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
-from griptape_nodes_library.utils.image_utils import (
-    dict_to_image_url_artifact,
-    load_pil_from_url,
-)
 
 
 class AdjustImageLevels(BaseImageProcessor):
@@ -93,39 +89,6 @@ class AdjustImageLevels(BaseImageProcessor):
             )
             output_highlights_param.add_trait(Slider(min_val=self.MIN_OUTPUT_LEVEL, max_val=self.MAX_OUTPUT_LEVEL))
             self.add_parameter(output_highlights_param)
-
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Handle live preview when parameters change."""
-        if parameter.name in ["shadows", "midtones", "highlights", "output_shadows", "output_highlights"]:
-            image_value = self.get_parameter_value("input_image")
-            if image_value is not None:
-                self._process_image_immediately(image_value)
-        return super().after_value_set(parameter, value)
-
-    def _process_image_immediately(self, image_value: Any) -> None:
-        """Process image immediately for live preview."""
-        try:
-            # Convert to ImageUrlArtifact if needed
-            if isinstance(image_value, dict):
-                image_artifact = dict_to_image_url_artifact(image_value)
-            else:
-                image_artifact = image_value
-
-            # Load PIL image
-            pil_image = load_pil_from_url(image_artifact.value)
-
-            # Process with current levels settings
-            processed_image = self._process_image(pil_image, **self._get_custom_parameters())
-
-            # Save and set output
-            output_artifact = self._save_image_artifact(processed_image, "png")
-
-            self.set_parameter_value("output", output_artifact)
-            self.publish_update_to_parameter("output", output_artifact)
-
-        except Exception as e:
-            # Log error but don't fail the node
-            logger.warning(f"{self.name}: Live preview failed: {e}")
 
     def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
         """Apply levels adjustment to the image."""
