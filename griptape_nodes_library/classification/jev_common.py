@@ -14,6 +14,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File, FileLoadError
 from PIL import Image, ImageOps
 
+from griptape_nodes_library.utils.image_utils import grayscale_to_eight_bit
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -44,7 +46,6 @@ IMAGE_MAX_SIDE = 1568
 IMAGE_MIN_PIXELS = 280 * 280
 IMAGE_JPEG_QUALITY = 95
 IMAGE_BACKGROUND = (255, 255, 255)
-SIXTEEN_BIT_TO_EIGHT_BIT = 1 / 256
 MAX_IMAGE_PAYLOAD_BYTES = 30 * 1024 * 1024
 
 
@@ -109,10 +110,7 @@ async def _read_image_bytes(image: Any, reference: str) -> bytes:
 def _to_rgb(image: Image.Image) -> Image.Image:
     """Convert an image to upright 8-bit RGB, flattening transparency onto white."""
     image = ImageOps.exif_transpose(image)
-    if image.mode == "I" or image.mode.startswith("I;16"):
-        image = image.convert("I").point(lambda value: value * SIXTEEN_BIT_TO_EIGHT_BIT).convert("L")
-    elif image.mode == "F":
-        image = image.point(lambda value: value * 255).convert("L")
+    image = grayscale_to_eight_bit(image)
     if image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info:
         rgba = image.convert("RGBA")
         flattened = Image.new("RGB", rgba.size, IMAGE_BACKGROUND)
