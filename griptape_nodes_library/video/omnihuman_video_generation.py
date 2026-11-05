@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import io
 import json as _json
 import logging
 from typing import Any, ClassVar
@@ -23,7 +22,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
-from PIL import Image
+from griptape_nodes.image import GriptapeImage
 
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
@@ -280,8 +279,8 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         exceeds_size = size_bytes > MAX_IMAGE_SIZE_BYTES
 
         # Check resolution
-        img = Image.open(io.BytesIO(file_contents))
-        width, height = img.size
+        img = GriptapeImage.open(file_contents)
+        width, height = img.width, img.height
         exceeds_resolution = width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION
 
         # If neither constraint is exceeded, use original

@@ -25,15 +25,17 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
+from griptape_nodes.image import GriptapeImage, ImageFormat
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from PIL import Image
 
 from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    load_image_from_url,
+    pixels_of,
 )
 from griptape_nodes_library.utils.video_utils import (
     detect_video_format,
@@ -295,13 +297,13 @@ class VideoColorMatch(SuccessFailureNode):
             return self.DEFAULT_FRAME_RATE, (self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT), False
 
     def _apply_color_match_to_frame(
-        self, frame_pil: Image.Image, ref_pil: Image.Image, transfer_algorithm: str, strength: float
-    ) -> Image.Image:
+        self, frame: GriptapeImage, ref: GriptapeImage, transfer_algorithm: str, strength: float
+    ) -> GriptapeImage:
         """Apply color matching to a single frame.
 
         Args:
-            frame_pil: The video frame to process
-            ref_pil: The reference image
+            frame: The video frame to process
+            ref: The reference image
             transfer_algorithm: Color matching algorithm
             strength: Blending strength
 
@@ -310,17 +312,11 @@ class VideoColorMatch(SuccessFailureNode):
         """
         # Skip processing if strength is 0
         if strength == 0:
-            return frame_pil
+            return frame
 
-        # Convert images to RGB if necessary
-        if frame_pil.mode != "RGB":
-            frame_pil = frame_pil.convert("RGB")
-        if ref_pil.mode != "RGB":
-            ref_pil = ref_pil.convert("RGB")
-
-        # Convert to float32 numpy arrays in 0-1 range
-        frame_np = np.array(frame_pil, dtype=np.float32) / 255.0
-        ref_np = np.array(ref_pil, dtype=np.float32) / 255.0
+        # Convert to RGB float32 numpy arrays in 0-1 range
+        frame_np = pixels_of(frame, ImageMode.RGB).astype(np.float32) / 255.0
+        ref_np = pixels_of(ref, ImageMode.RGB).astype(np.float32) / 255.0
 
         # Ensure C-contiguous arrays
         if not frame_np.flags["C_CONTIGUOUS"]:
@@ -339,9 +335,9 @@ class VideoColorMatch(SuccessFailureNode):
         # Clamp values to valid range
         result = np.clip(result, 0, 1)
 
-        # Convert back to PIL Image
+        # Convert back to an 8-bit RGB image
         result_uint8 = (result * 255).astype(np.uint8)
-        return Image.fromarray(result_uint8, mode="RGB")
+        return GriptapeImage.from_array(result_uint8, metadata=frame.metadata)
 
     def _generate_hald_clut(self, ffmpeg_path: str, output_path: str) -> None:
         """Generate a HALD CLUT identity image using ffmpeg.
@@ -374,7 +370,7 @@ class VideoColorMatch(SuccessFailureNode):
     def _process_video_with_haldclut(
         self,
         input_url: str,
-        ref_pil: Image.Image,
+        ref: GriptapeImage,
         output_path: str,
         transfer_algorithm: str,
         strength: float,
@@ -384,7 +380,7 @@ class VideoColorMatch(SuccessFailureNode):
 
         Args:
             input_url: Input video URL/path
-            ref_pil: Reference image for color matching
+            ref: Reference image for color matching
             output_path: Output video path
             transfer_algorithm: Color matching algorithm
             strength: Blending strength
@@ -403,11 +399,9 @@ class VideoColorMatch(SuccessFailureNode):
 
             # Step 2: Apply color matching to HALD CLUT
             logger.debug(f"{self.name}: Applying color matching to HALD CLUT")
-            hald_identity_pil = Image.open(hald_identity_path)
-            hald_matched_pil = self._apply_color_match_to_frame(
-                hald_identity_pil, ref_pil, transfer_algorithm, strength
-            )
-            hald_matched_pil.save(hald_matched_path, "PNG")
+            hald_identity = GriptapeImage.open(hald_identity_path)
+            hald_matched = self._apply_color_match_to_frame(hald_identity, ref, transfer_algorithm, strength)
+            hald_matched_path.write_bytes(hald_matched.encode(ImageFormat.PNG))
 
             # Step 3: Apply HALD CLUT to video with ffmpeg
             logger.debug(f"{self.name}: Applying HALD CLUT to video")
@@ -454,7 +448,7 @@ class VideoColorMatch(SuccessFailureNode):
     def _process_video_frame_by_frame(
         self,
         input_url: str,
-        ref_pil: Image.Image,
+        ref: GriptapeImage,
         output_path: str,
         transfer_algorithm: str,
         strength: float,
@@ -465,7 +459,7 @@ class VideoColorMatch(SuccessFailureNode):
 
         Args:
             input_url: Input video URL/path
-            ref_pil: Reference image for color matching
+            ref: Reference image for color matching
             output_path: Output video path
             transfer_algorithm: Color matching algorithm
             strength: Blending strength
@@ -518,12 +512,12 @@ class VideoColorMatch(SuccessFailureNode):
 
             # Process each frame (90% of total progress)
             for i, frame_file in enumerate(frame_files, 1):
-                frame_pil = Image.open(frame_file)
-                processed_frame = self._apply_color_match_to_frame(frame_pil, ref_pil, transfer_algorithm, strength)
+                frame = GriptapeImage.open(frame_file)
+                processed_frame = self._apply_color_match_to_frame(frame, ref, transfer_algorithm, strength)
 
                 # Save processed frame
                 output_frame_path = processed_dir / frame_file.name
-                processed_frame.save(output_frame_path, "PNG")
+                output_frame_path.write_bytes(processed_frame.encode(ImageFormat.PNG))
 
                 # Update progress (0-90% range)
                 current_progress = int((i / total_frames) * 90)
@@ -675,7 +669,7 @@ class VideoColorMatch(SuccessFailureNode):
                 raise ValueError(msg)
 
             # Load reference image
-            ref_pil = load_pil_from_url(ref_image.value)
+            ref = load_image_from_url(ref_image.value)
 
             # Detect video format
             detected_format = detect_video_format(target_video)
@@ -699,11 +693,11 @@ class VideoColorMatch(SuccessFailureNode):
                 # Process video asynchronously using selected transfer method
                 if transfer_method == "ffmpeg-haldclut":
                     yield lambda: self._process_video_with_haldclut(
-                        input_url, ref_pil, str(output_path), transfer_algorithm, strength, has_audio
+                        input_url, ref, str(output_path), transfer_algorithm, strength, has_audio
                     )
                 else:  # frame-by-frame
                     yield lambda: self._process_video_frame_by_frame(
-                        input_url, ref_pil, str(output_path), transfer_algorithm, strength, frame_rate, has_audio
+                        input_url, ref, str(output_path), transfer_algorithm, strength, frame_rate, has_audio
                     )
 
                 # Read processed video
@@ -723,7 +717,7 @@ class VideoColorMatch(SuccessFailureNode):
                     f"Transfer Method: {transfer_method}\n"
                     f"Color Algorithm: {transfer_algorithm}, Strength: {strength}\n"
                     f"Video: {resolution[0]}x{resolution[1]} @ {frame_rate}fps\n"
-                    f"Reference: {ref_pil.width}x{ref_pil.height}"
+                    f"Reference: {ref.width}x{ref.height}"
                 )
                 self._set_status_results(was_successful=True, result_details=f"SUCCESS: {success_details}")
 

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 
 [[package]]
@@ -664,17 +664,14 @@ wheels = [
 ]
 
 [package.optional-dependencies]
-loaders-image = [
-    { name = "pillow" },
-]
 loaders-pdf = [
     { name = "pypdf" },
 ]
 
 [[package]]
 name = "griptape-nodes-engine"
-version = "0.107.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.108.0"
+source = { git = "https://github.com/griptape-ai/griptape-nodes-engine?branch=feat%2Fimage-pipeline-operations#d452a1efe5d291ce9a726d2635d39ac0dba0785f" }
 dependencies = [
     { name = "anyio" },
     { name = "asyncio-thread-runner" },
@@ -688,8 +685,9 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "json-repair" },
     { name = "mcp" },
+    { name = "numpy" },
+    { name = "openimageio" },
     { name = "packaging" },
-    { name = "pillow" },
     { name = "portalocker" },
     { name = "pydantic" },
     { name = "pydantic-ai-harness", extra = ["skills"] },
@@ -709,10 +707,6 @@ dependencies = [
     { name = "websockets" },
     { name = "xdg-base-dirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/72/9a/7bc32e723c00b2f39dc850e83f1469e45baddae4ade0194a99778f01f888/griptape_nodes_engine-0.107.0.tar.gz", hash = "sha256:851e89e98f9a9af3cb02cb4e01bd73b23b0090695e2eb5aaa6f1e6e0baa59351", size = 1678170, upload-time = "2026-11-06T20:34:43.409Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/09/5f2f8e60808aa33938df14237635c800f5c1237bd097b527dbe04e847d54/griptape_nodes_engine-0.107.0-py3-none-any.whl", hash = "sha256:1152cbaed4a9a9807eb5617208e562c5a53fdb47fed2abc3de52b18e7064332d", size = 1963218, upload-time = "2026-11-06T20:34:41.856Z" },
-]
 
 [[package]]
 name = "griptape-nodes-library-standard"
@@ -724,12 +718,11 @@ dependencies = [
     { name = "dateparser" },
     { name = "ddgs" },
     { name = "exa-py" },
-    { name = "griptape", extra = ["loaders-image", "loaders-pdf"] },
+    { name = "griptape", extra = ["loaders-pdf"] },
     { name = "jmespath" },
     { name = "json-repair" },
     { name = "lxml" },
     { name = "numpy" },
-    { name = "pillow" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "bedrock", "cohere", "mcp", "openai"] },
     { name = "scikit-learn" },
     { name = "static-ffmpeg" },
@@ -757,12 +750,11 @@ requires-dist = [
     { name = "dateparser", specifier = ">=1.2.0" },
     { name = "ddgs", specifier = ">=9.0.0" },
     { name = "exa-py", specifier = ">=2.0.0" },
-    { name = "griptape", extras = ["loaders-image", "loaders-pdf"], specifier = ">=1.11.0" },
+    { name = "griptape", extras = ["loaders-pdf"], specifier = ">=1.11.0" },
     { name = "jmespath", specifier = ">=1.0.1" },
     { name = "json-repair", specifier = ">=0.46.1" },
     { name = "lxml", specifier = ">=5.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },
-    { name = "pillow", specifier = ">=11.2.1" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "bedrock", "cohere", "mcp", "openai"], specifier = ">=2.48.0" },
     { name = "scikit-learn", specifier = ">=1.3.0" },
     { name = "static-ffmpeg", specifier = ">=2.8" },
@@ -774,7 +766,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "griptape-nodes-engine", specifier = ">=0.107.0" },
+    { name = "griptape-nodes-engine", git = "https://github.com/griptape-ai/griptape-nodes-engine?branch=feat%2Fimage-pipeline-operations" },
     { name = "lxml-stubs", specifier = ">=0.5.1" },
     { name = "pyright", specifier = ">=1.1.396" },
     { name = "pytest" },
@@ -1433,6 +1425,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/34/b6/23cddcb571d6eafe7b4bb58c7e0a068076121b7b001b776179994cca6a03/openai-3.46.0.tar.gz", hash = "sha256:fb34cd8cab6809ad0aa8dc42493fa622aaa87c814fd8e67a6fb3fa1f1e5d952d", size = 2408622, upload-time = "2026-11-05T00:55:55.463Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f4/63/454e6faad68ac903e7669932db8d0a91c95dfca829ec9476e52045b17684/openai-3.46.0-py3-none-any.whl", hash = "sha256:7b650117e9bf539029bf880c2eff94a26f281394f6572284efa5d068d4b1c98e", size = 2438918, upload-time = "2026-11-05T00:55:53.301Z" },
+]
+
+[[package]]
+name = "openimageio"
+version = "3.2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c3/7f/7a49e65b7f49f859c213e1d6ce19d32ce568d4ed15385898c2f65314e536/openimageio-3.2.2.0.tar.gz", hash = "sha256:d66c829016b4f092c443b7f7896f06d0ab6af02a103d635d1b0b841c14bfd7c1", size = 7085850, upload-time = "2026-10-28T22:12:24.71Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1c/e3/e4f92df1b584aa8cc32b1b33ba10afc59e4fa2194bc5348ba854a90c4018/openimageio-3.2.2.0-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:4df41200db33a815ebae55d4715c90ffc462b40c534fbeeef7711c0ce78af7d8", size = 8655810, upload-time = "2026-10-28T22:11:26.543Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/b0/e88c4e92f35f74cab5f1782d13473663b28d2a007e76919cd5aed03ce1a4/openimageio-3.2.2.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:301fe0490cdbf0a0293419a697012140294d69ba4f72f87e57b033ad79d11e77", size = 7889747, upload-time = "2026-10-28T22:11:28.83Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/66/f24bcfc7798052adaf62cb55d0d8c6f3b8aef612ff5184cbedf421bb1904/openimageio-3.2.2.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:57dc9d5b2d4030451bd6d7de6f711ac73978a01be7c04df3fe76e34fed8097c8", size = 8246107, upload-time = "2026-10-28T22:11:30.756Z" },
+    { url = "https://files.pythonhosted.org/packages/75/17/b4d6e121fbdd836472415cad474abc236de805103ecaae306f17bd6db77d/openimageio-3.2.2.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:acf20eac8b702a739d46ad3e3d8a537dd46571a2c5eac872f3be98ec180c266e", size = 8418270, upload-time = "2026-10-28T22:11:32.94Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/8d/8c6dc06d095352950cae586909ae45124fb840efe095db82ed6ec0258f4c/openimageio-3.2.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:c9be122221706a13deaa58ec49c44f2257e8d297d3db07d2ae2627e355e04627", size = 10050375, upload-time = "2026-10-28T22:11:35.351Z" },
 ]
 
 [[package]]

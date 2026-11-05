@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 import pytest
-from PIL import Image
+from griptape_nodes.image import GriptapeImage
 
 from griptape_nodes_library.image.crop_image import CropImage
 
@@ -76,8 +76,8 @@ def test_negative_size_fails_validation(node: CropImage, param: str) -> None:
     assert len(node._validate_parameters()) == 1
 
 
-def crop(node: CropImage, left: int, top: int, width: int, height: int) -> Image.Image:
-    """Drive the node's crop path directly, skipping image loading and file writing."""
+def crop(node: CropImage, left: int, top: int, width: int, height: int) -> tuple[int, int]:
+    """Drive the node's crop path directly, skipping image loading and file writing, and return the result's size."""
     params = {
         "left": left,
         "top": top,
@@ -87,9 +87,10 @@ def crop(node: CropImage, left: int, top: int, width: int, height: int) -> Image
         "rotate": 0.0,
         "background_color": "#00000000",
     }
-    img = Image.new("RGB", IMG_SIZE)
-    crop_area = node._calculate_crop_area(params, img.size)
-    return node._apply_crop_transformations(img, crop_area, params)
+    img = GriptapeImage.new(*IMG_SIZE, (0, 0, 0))
+    crop_area = node._calculate_crop_area(params, (img.width, img.height))
+    result = node._apply_crop_transformations(img, crop_area, params)
+    return result.width, result.height
 
 
 @pytest.mark.parametrize(
@@ -107,12 +108,12 @@ def crop(node: CropImage, left: int, top: int, width: int, height: int) -> Image
 def test_origin_past_edge_crops_to_edge_strip(
     node: CropImage, left: int, top: int, width: int, height: int, expected_size: tuple[int, int]
 ) -> None:
-    assert crop(node, left, top, width, height).size == expected_size
+    assert crop(node, left, top, width, height) == expected_size
 
 
 def test_box_overhanging_edge_is_trimmed(node: CropImage) -> None:
-    assert crop(node, 150, 50, 100, 100).size == (50, 50)
+    assert crop(node, 150, 50, 100, 100) == (50, 50)
 
 
 def test_zero_size_uses_full_image(node: CropImage) -> None:
-    assert crop(node, 0, 0, 0, 0).size == IMG_SIZE
+    assert crop(node, 0, 0, 0, 0) == IMG_SIZE

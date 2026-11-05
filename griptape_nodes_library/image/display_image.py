@@ -1,4 +1,3 @@
-from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -11,7 +10,8 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image
+
+from griptape_nodes_library.utils.image_utils import open_image_bytes
 
 
 class DisplayImage(DataNode):
@@ -70,7 +70,7 @@ class DisplayImage(DataNode):
         if isinstance(image, ImageArtifact):
             return image.width, image.height
         if isinstance(image, ImageUrlArtifact):
-            # Check if it's an SVG file - PIL cannot open SVG files
+            # Check if it's an SVG file - SVG files can't be decoded to pixels
             # TODO: Add SVG support using cairosvg or similar library to rasterize SVG files: https://github.com/griptape-ai/griptape-nodes/issues/3721
             # and determine dimensions properly
             url_lower = image.value.lower()
@@ -91,16 +91,13 @@ class DisplayImage(DataNode):
                     return 0, 0
 
                 image_data = result.content if isinstance(result.content, bytes) else result.content.encode()
-                pil_image = Image.open(BytesIO(image_data))
-            except Exception as e:
-                # If file loading fails or PIL cannot identify the image (e.g., SVG), log and return 0,0
-                if isinstance(e, FileLoadError) or "cannot identify image file" in str(e).lower():
-                    logger.debug(f"{self.name}: Cannot load or identify image file: {e}")
-                    return 0, 0
-                # Re-raise other exceptions
-                raise
+                loaded = open_image_bytes(image_data, image.value)
+            except (FileLoadError, ValueError) as e:
+                # If file loading fails or the bytes aren't a readable image (e.g., SVG), log and return 0,0
+                logger.debug(f"{self.name}: Cannot load or identify image file: {e}")
+                return 0, 0
             else:
-                return pil_image.width, pil_image.height
+                return loaded.width, loaded.height
         if image:
             logger.warning(f"{self.name}: Could not determine image dimensions, as it is not a valid image")
         return 0, 0

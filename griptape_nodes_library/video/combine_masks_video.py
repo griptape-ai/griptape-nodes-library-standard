@@ -1,9 +1,11 @@
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import static_ffmpeg.run  # type: ignore[import-untyped]
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
@@ -12,9 +14,14 @@ from griptape_nodes.exe_types.param_components.progress_bar_component import Pro
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from PIL import Image, ImageChops
+from griptape_nodes.image import GriptapeImage, ImageFormat
 
 from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
+from griptape_nodes_library.utils.image_utils import ImageMode, pixels_of
+from griptape_nodes_library.utils.video_utils import validate_url
+
+_GRAY_ALPHA_CHANNELS = 2
+_RGBA_CHANNELS = 4
 
 
 class CombineMasksVideo(DataNode):
@@ -26,7 +33,6 @@ class CombineMasksVideo(DataNode):
 
     _ALPHA_NEAR_OPAQUE_MIN = 200
     _ALPHA_NEAR_OPAQUE_RANGE = 32
-    _EXTREMA_TUPLE_LEN = 2
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -216,8 +222,6 @@ class CombineMasksVideo(DataNode):
             # Cleanup temp directories and files
             for temp_dir in temp_dirs:
                 try:
-                    import shutil
-
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 except Exception as e:
                     self.append_value_to_parameter("logs", f"Warning: Failed to cleanup temp dir: {e}\n")
@@ -239,8 +243,6 @@ class CombineMasksVideo(DataNode):
 
     def _validate_url_safety(self, url: str) -> None:
         """Validate that the URL is safe for ffmpeg processing."""
-        from griptape_nodes_library.utils.video_utils import validate_url
-
         if not validate_url(url):
             msg = f"The mask video URL is invalid or unsafe: {url}"
             raise ValueError(msg)
@@ -368,14 +370,14 @@ class CombineMasksVideo(DataNode):
         self.progress_component.initialize(100)
         last_progress = 0
 
-        # Create a black frame for padding (grayscale L mode)
-        black_frame = Image.new("L", (ref_props["width"], ref_props["height"]), 0)
+        # Create a black frame for padding (grayscale)
+        black_frame = np.zeros((ref_props["height"], ref_props["width"]), dtype=np.uint8)
 
         for frame_idx in range(1, max_frame_count + 1):
             frame_filename = f"frame_{frame_idx:06d}.png"
 
             # Load all corresponding frames (or use black frame if video is shorter)
-            frames: list[Image.Image] = []
+            frames: list[np.ndarray] = []
             for video_idx, frame_dir in enumerate(frame_dirs):
                 frame_path = frame_dir / frame_filename
 
@@ -386,21 +388,20 @@ class CombineMasksVideo(DataNode):
                         msg = f"Missing frame {frame_filename} in {frame_dir}"
                         raise ValueError(msg)
 
-                    frame_img = Image.open(frame_path)
-                    frame_l = self._mask_to_l(frame_img)
-                    frames.append(frame_l)
+                    frame_img = GriptapeImage.open(frame_path)
+                    frames.append(self._mask_to_gray(frame_img))
                 else:
                     # Video is shorter - use black frame for padding
                     frames.append(black_frame)
 
-            # Combine frames using pixel-wise max (ImageChops.lighter)
+            # Combine frames using pixel-wise max
             combined = frames[0]
             for frame in frames[1:]:
-                combined = ImageChops.lighter(combined, frame)
+                combined = np.maximum(combined, frame)
 
             # Save combined frame
             output_path = output_dir / frame_filename
-            combined.save(output_path, "PNG")
+            output_path.write_bytes(GriptapeImage.from_array(combined).encode(ImageFormat.PNG))
 
             # Update progress (0-90% range)
             current_progress = int((frame_idx / max_frame_count) * 90)
@@ -450,27 +451,20 @@ class CombineMasksVideo(DataNode):
 
         return output_video
 
-    def _mask_to_l(self, mask_pil: Image.Image) -> Image.Image:
-        """Convert mask image to single-channel (L) grayscale."""
-        result = mask_pil.convert("L")
-        if mask_pil.mode in {"RGBA", "LA"}:
-            alpha = mask_pil.getchannel("A")
-            alpha_extrema = alpha.getextrema()
-            use_alpha = True
-            if isinstance(alpha_extrema, tuple) and len(alpha_extrema) == self._EXTREMA_TUPLE_LEN:
-                alpha_min, alpha_max = alpha_extrema
-                if isinstance(alpha_min, (int, float)) and isinstance(alpha_max, (int, float)):
-                    alpha_range = alpha_max - alpha_min
-                    if alpha_min >= self._ALPHA_NEAR_OPAQUE_MIN and alpha_range <= self._ALPHA_NEAR_OPAQUE_RANGE:
-                        use_alpha = False
-            if use_alpha:
-                result = alpha
-            elif mask_pil.mode == "RGBA":
-                result = mask_pil.getchannel("R")
-            else:
-                result = mask_pil.getchannel("L")
-        elif mask_pil.mode == "L":
-            result = mask_pil
-        elif mask_pil.mode == "RGB":
-            result = mask_pil.convert("L")
-        return result
+    def _mask_to_gray(self, mask: GriptapeImage) -> np.ndarray:
+        """Convert a mask image to a height x width uint8 grayscale array.
+
+        A mask with alpha uses its alpha, unless the alpha is near-uniformly opaque, in which case
+        it uses the red (or gray) channel instead. Color masks without alpha use their luma.
+        """
+        if mask.channels in (_GRAY_ALPHA_CHANNELS, _RGBA_CHANNELS):
+            mode = ImageMode.GRAY_ALPHA if mask.channels == _GRAY_ALPHA_CHANNELS else ImageMode.RGBA
+            pixels = pixels_of(mask, mode)
+            alpha = pixels[:, :, -1]
+            alpha_min = int(alpha.min())
+            alpha_range = int(alpha.max()) - alpha_min
+            if alpha_min >= self._ALPHA_NEAR_OPAQUE_MIN and alpha_range <= self._ALPHA_NEAR_OPAQUE_RANGE:
+                return pixels[:, :, 0]
+            return alpha
+        # Gray stays as it is; color gets its luma
+        return pixels_of(mask, ImageMode.GRAY)[:, :, 0]

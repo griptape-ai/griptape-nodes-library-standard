@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -15,15 +14,18 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat, TextAlign, text_size
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
-from PIL import Image, ImageDraw, ImageFont
 
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
+    converted,
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    load_image_from_url,
+    open_image_bytes,
 )
 
 TEXT_PREVIEW_LENGTH = 50
@@ -497,44 +499,27 @@ class AddTextToExistingImage(SuccessFailureNode):
             msg = f"Could not read 'Text Color' or 'Text Background': {color_error}"
             raise RuntimeError(msg) from color_error
 
-        pil_image = self._load_pil_image(image_value)
-        pil_image = pil_image.convert("RGBA")
+        image = converted(self._load_image(image_value), ImageMode.RGBA)
 
         # If there's no text, still return a valid PNG of the original image.
         if not text.strip():
-            return self._pil_to_png_bytes(pil_image)
+            return image.encode(ImageFormat.PNG)
 
-        # Draw text/background onto a transparent overlay and alpha-composite it onto
-        # the original image. This ensures semi-transparent colors blend correctly.
-        overlay = Image.new("RGBA", pil_image.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay, "RGBA")
+        text_align = self._text_align(text_horizontal_alignment)
 
-        try:
-            font = ImageFont.load_default(size=font_size)
-        except Exception as font_error:
-            msg = f"Failed to load font: {font_error}"
-            raise RuntimeError(msg) from font_error
+        # The built-in font's text box starts at the draw origin, so it is the box's top-left.
+        text_box = text_size(text, font_size, spacing=TEXT_LINE_SPACING_PX)
+        text_width = text_box.width
+        text_height = text_box.height
 
-        text_align_for_multiline = text_horizontal_alignment
-
-        bbox_left_f, bbox_top_f, bbox_right_f, bbox_bottom_f = self._get_text_bbox(
-            draw=draw, text=text, font=font, align=text_align_for_multiline
-        )
-        bbox_left = int(bbox_left_f)
-        bbox_top = int(bbox_top_f)
-        text_width = int(bbox_right_f - bbox_left_f)
-        text_height = int(bbox_bottom_f - bbox_top_f)
-
-        # x/y here represent the desired top-left of the rendered text bounds (bbox),
-        # not the draw origin. PIL fonts can have negative bbox_top; we compensate below.
         layout_settings = _TextLayoutSettings(
             border=margin,
             text_vertical_alignment=text_vertical_alignment,
             text_horizontal_alignment=text_horizontal_alignment,
         )
         origin = self._compute_aligned_text_bbox_origin(
-            image_width=pil_image.width,
-            image_height=pil_image.height,
+            image_width=image.width,
+            image_height=image.height,
             text_width=text_width,
             text_height=text_height,
             layout_settings=layout_settings,
@@ -542,47 +527,58 @@ class AddTextToExistingImage(SuccessFailureNode):
         x = origin.x
         y = origin.y
 
-        draw_x = x - bbox_left
-        draw_y = y - bbox_top
-
         bg_left = max(0, x - TEXT_BACKGROUND_PADDING_PX)
         bg_top = max(0, y - TEXT_BACKGROUND_PADDING_PX)
-        bg_right = min(pil_image.width, x + text_width + TEXT_BACKGROUND_PADDING_PX)
-        bg_bottom = min(pil_image.height, y + text_height + TEXT_BACKGROUND_PADDING_PX)
+        bg_right = min(image.width, x + text_width + TEXT_BACKGROUND_PADDING_PX)
+        bg_bottom = min(image.height, y + text_height + TEXT_BACKGROUND_PADDING_PX)
 
+        # Each drawing step blends over the image ("over" is associative, so drawing the background
+        # and then the text matches compositing a separate overlay holding both).
         try:
-            draw.rectangle([bg_left, bg_top, bg_right, bg_bottom], fill=bg_rgba)
-            draw.multiline_text(
-                (draw_x, draw_y),
-                text,
-                fill=text_rgba,
-                font=font,
-                spacing=TEXT_LINE_SPACING_PX,
-                align=text_align_for_multiline,
+            # The right and bottom edges are included, as Pillow's rectangle included them
+            rendered = (
+                GriptapeImagePipeline(image)
+                .draw_rectangle(bg_left, bg_top, bg_right + 1, bg_bottom + 1, fill=bg_rgba)
+                .draw_text(
+                    text,
+                    x,
+                    y,
+                    size=font_size,
+                    color=text_rgba,
+                    align=text_align,
+                    spacing=TEXT_LINE_SPACING_PX,
+                )
+                .end()
             )
         except Exception as draw_error:
             msg = f"Failed to draw text: {draw_error}"
             raise RuntimeError(msg) from draw_error
 
-        pil_image = Image.alpha_composite(pil_image, overlay)
+        return rendered.encode(ImageFormat.PNG)
 
-        return self._pil_to_png_bytes(pil_image)
+    def _text_align(self, text_horizontal_alignment: str) -> TextAlign:
+        # The alignment options are the TextAlign values
+        match text_horizontal_alignment:
+            case TextAlign.LEFT:
+                return TextAlign.LEFT
+            case TextAlign.CENTER:
+                return TextAlign.CENTER
+            case TextAlign.RIGHT:
+                return TextAlign.RIGHT
+            case _:
+                msg = f"'Text Horizontal Alignment' must be one of {HORIZONTAL_ALIGN_OPTIONS}, got: {text_horizontal_alignment}"
+                raise ValueError(msg)
 
-    def _pil_to_png_bytes(self, pil_image: Image.Image) -> bytes:
-        img_bytes = BytesIO()
-        pil_image.save(img_bytes, format="PNG")
-        return img_bytes.getvalue()
-
-    def _load_pil_image(self, image_value: Any) -> Image.Image:
+    def _load_image(self, image_value: Any) -> GriptapeImage:
         if isinstance(image_value, dict):
             image_value = dict_to_image_url_artifact(image_value)
 
         if isinstance(image_value, ImageUrlArtifact):
-            return load_pil_from_url(image_value.value)
+            return load_image_from_url(image_value.value)
 
         if isinstance(image_value, ImageArtifact):
             image_bytes = self._get_artifact_bytes(image_value)
-            return Image.open(BytesIO(image_bytes))
+            return open_image_bytes(image_bytes)
 
         msg = f"'Input Image' must be an image, got {type(image_value).__name__}."
         raise ValueError(msg)
@@ -628,22 +624,6 @@ class AddTextToExistingImage(SuccessFailureNode):
         self.parameter_output_values["margin"] = 0
         self.parameter_output_values["font_size"] = 0
         self.parameter_output_values["output"] = None
-
-    def _get_text_bbox(
-        self,
-        *,
-        draw: ImageDraw.ImageDraw,
-        text: str,
-        font: Any,
-        align: str,
-    ) -> tuple[float, float, float, float]:
-        return draw.multiline_textbbox(
-            (0, 0),
-            text,
-            font=font,
-            spacing=TEXT_LINE_SPACING_PX,
-            align=align,
-        )
 
     def _compute_aligned_text_bbox_origin(
         self,

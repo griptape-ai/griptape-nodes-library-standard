@@ -1,6 +1,7 @@
 from enum import StrEnum
 from typing import Any, NamedTuple
 
+import numpy as np
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
@@ -9,15 +10,45 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.traits.options import Options
-from PIL import Image
 
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS
 from griptape_nodes_library.utils.image_utils import (
+    MAX_UINT8,
+    ImageMode,
     dict_to_image_url_artifact,
+    edited_pixels,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
 )
+
+_RGB_CHANNELS = 3
+
+
+def _rgba(color: tuple[int, ...] | None) -> tuple[int, ...]:
+    """Return a fill color as RGBA: no color is transparent black, and RGB is opaque."""
+    if color is None:
+        return (0, 0, 0, 0)
+    if len(color) == _RGB_CHANNELS:
+        return (*color, MAX_UINT8)
+    return color
+
+
+def _filled(width: int, height: int, color: tuple[int, ...]) -> np.ndarray:
+    """Return a height x width RGBA uint8 array of one color."""
+    return np.full((height, width, len(color)), color, dtype=np.uint8)
+
+
+def _paste(canvas: np.ndarray, pixels: np.ndarray, x: int, y: int) -> np.ndarray:
+    """Copy ``pixels`` into ``canvas`` with its top-left at (x, y), clipping whatever falls outside."""
+    canvas_height, canvas_width = canvas.shape[:2]
+    pixels_height, pixels_width = pixels.shape[:2]
+    left, top = max(x, 0), max(y, 0)
+    right, bottom = min(x + pixels_width, canvas_width), min(y + pixels_height, canvas_height)
+    if right > left and bottom > top:
+        canvas[top:bottom, left:right] = pixels[top - y : bottom - y, left - x : right - x]
+    return canvas
 
 
 class ImagePosition(StrEnum):
@@ -37,7 +68,7 @@ class ImagePosition(StrEnum):
 class BackgroundColorConfig(NamedTuple):
     """Configuration for background colors including image and mask colors."""
 
-    image_mode: str  # PIL image mode (RGB or RGBA)
+    image_mode: str  # Image mode of the outputs (RGB or RGBA)
     bg_color: tuple[int, int, int] | tuple[int, int, int, int] | None  # Background color or None for transparent
     mask_bg_color: tuple[int, int, int] | tuple[int, int, int, int]  # Mask background color
     mask_fg_color: tuple[int, int, int] | tuple[int, int, int, int]  # Mask foreground color
@@ -250,8 +281,8 @@ class ExtendCanvas(ControlNode):
             ratio_width, ratio_height = ASPECT_RATIO_PRESETS[aspect_ratio_preset]
 
             # Load original image to get current dimensions
-            original_image = load_pil_from_url(input_image.value)
-            original_width, original_height = original_image.size
+            original_image = load_image_from_url(input_image.value)
+            original_width, original_height = original_image.width, original_image.height
 
             # Calculate target dimensions based on original image size and ratio
             # We'll maintain the larger dimension and calculate the other based on the ratio
@@ -265,8 +296,8 @@ class ExtendCanvas(ControlNode):
                 target_width = int(original_height * ratio_width / ratio_height)
         else:
             # For custom mode, extend by explicit pixel margins
-            original_image = load_pil_from_url(input_image.value)
-            original_width, original_height = original_image.size
+            original_image = load_image_from_url(input_image.value)
+            original_width, original_height = original_image.width, original_image.height
 
             top_ext = max(0, int(self.get_parameter_value("top") or 0))
             bottom_ext = max(0, int(self.get_parameter_value("bottom") or 0))
@@ -325,8 +356,8 @@ class ExtendCanvas(ControlNode):
         position = ImagePosition(position_str)
 
         # Load original image
-        original_image = load_pil_from_url(image_artifact.value)
-        original_width, original_height = original_image.size
+        original_image = load_image_from_url(image_artifact.value)
+        original_width, original_height = original_image.width, original_image.height
 
         # Ensure we're actually extending (target should be larger than original)
         # If target is smaller, we'll use the larger of the two dimensions
@@ -336,10 +367,6 @@ class ExtendCanvas(ControlNode):
         # Get background color from parameter and look up configuration
         background_color_str = self.get_parameter_value("background_color") or "black"
         color_config = BACKGROUND_COLOR_CONFIGS[background_color_str]
-
-        # Create new canvas with the final dimensions using color configuration
-        new_image = Image.new(color_config.image_mode, (final_width, final_height), color_config.bg_color)
-        mask_image = Image.new(color_config.image_mode, (final_width, final_height), color_config.mask_bg_color)
 
         # Calculate position for original image
         if custom_offsets is not None:
@@ -354,11 +381,22 @@ class ExtendCanvas(ControlNode):
                 position,
             )
 
-        # Paste original image
-        new_image.paste(original_image, (x, y))
+        # Paste original image onto a new canvas of the final dimensions, using color configuration
+        image_mode = ImageMode(color_config.image_mode)
+        new_image = edited_pixels(
+            original_image,
+            image_mode,
+            lambda pixels: _paste(_filled(final_width, final_height, _rgba(color_config.bg_color)), pixels, x, y),
+        )
 
         # Create mask using foreground color for the original image area
-        mask_image.paste(color_config.mask_fg_color, (x, y, x + original_width, y + original_height))
+        mask_pixels = _paste(
+            _filled(final_width, final_height, _rgba(color_config.mask_bg_color)),
+            _filled(original_width, original_height, _rgba(color_config.mask_fg_color)),
+            x,
+            y,
+        )
+        mask_image = GriptapeImage.from_array(mask_pixels)
 
         # Save outputs
         extended_bytes = image_to_bytes(new_image, "PNG")
