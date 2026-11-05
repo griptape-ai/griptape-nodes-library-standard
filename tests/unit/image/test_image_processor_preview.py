@@ -16,12 +16,14 @@ from griptape_nodes_library.image.add_text_to_image import AddTextToImage
 from griptape_nodes_library.image.adjust_image_eq import AdjustImageEQ
 from griptape_nodes_library.image.adjust_image_levels import AdjustImageLevels
 from griptape_nodes_library.image.bloom_effect import BloomEffect
+from griptape_nodes_library.image.combine_masks import CombineMasks
 from griptape_nodes_library.image.create_color_bars import CreateColorBars
 from griptape_nodes_library.image.display_channel import DisplayChannel
 from griptape_nodes_library.image.display_mask import DisplayMask
 from griptape_nodes_library.image.extend_canvas import ExtendCanvas
 from griptape_nodes_library.image.flip_image import FlipImage
 from griptape_nodes_library.image.gaussian_blur_image import GaussianBlurImage
+from griptape_nodes_library.image.gaussian_edge_fade import GaussianEdgeFade
 from griptape_nodes_library.image.grayscale_image import GrayscaleImage
 from griptape_nodes_library.image.image_blend_compositor import ImageBlendCompositor
 from griptape_nodes_library.image.image_grid_splitter import ImageGridSplitter
@@ -38,6 +40,7 @@ from griptape_nodes_library.video.add_vignette import AddVignette
 from griptape_nodes_library.video.adjust_video_eq import AdjustVideoEQ
 from griptape_nodes_library.video.blur_video import BlurVideo
 from griptape_nodes_library.video.flip_video import FlipVideo
+from griptape_nodes_library.video.resize_video import ResizeVideo
 
 PREVIEWED = [
     AdjustImageEQ,
@@ -65,11 +68,14 @@ PREVIEWED = [
     DisplayChannel,
     SetColorToTransparent,
     ImageGridSplitter,
+    GaussianEdgeFade,
+    CombineMasks,
+    ResizeVideo,
 ]
 
 WITH_SOURCE = [node_class for node_class in PREVIEWED if node_class.PREVIEW_IMAGES]
 
-WITH_MODE = [InvertImage, InvertMask, DisplayMask, DisplayChannel]
+WITH_MODE = [InvertImage, InvertMask, DisplayMask, DisplayChannel, GaussianEdgeFade]
 
 OPERATIONS_JS = Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" / "_operations.js"
 
@@ -147,6 +153,17 @@ def test_grid_splitter_sends_the_detected_grid() -> None:
     preview = node.get_parameter_value("grid_preview")
     assert preview["detected_rows"] >= 1
     assert preview["detected_cols"] >= 1
+
+
+def test_combine_masks_sends_every_mask(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = CombineMasks(name="test_node")
+    masks = [ImageUrlArtifact(value="https://example.com/a.png"), ImageUrlArtifact(value="https://example.com/b.png")]
+    monkeypatch.setattr(node, "get_parameter_list_value", lambda _name: masks)
+
+    extras = node._preview_extras()
+
+    assert extras["image_urls"] == ["https://example.com/a.png", "https://example.com/b.png"]
+    assert extras["image_modes"] == ["RGB", "RGB"]
 
 
 def test_a_node_without_an_operation_has_no_preview() -> None:

@@ -1,23 +1,28 @@
 from __future__ import annotations
 
 import io
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image, ImageChops
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import (
     image_to_bytes,
     load_pil_from_url,
 )
 
 
-class CombineMasks(DataNode):
+class CombineMasks(ImagePreviewMixin, DataNode):
+    PREVIEW_OPERATION = "combine_masks"
+    # The masks are a list, so they reach the widget through _preview_extras instead
+    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {}
+
     """Combine a list of masks into a single consolidated mask (pixel-wise max)."""
 
     _ALPHA_NEAR_OPAQUE_MIN = 200
@@ -44,6 +49,8 @@ class CombineMasks(DataNode):
             )
         )
 
+        self._add_preview_parameter()
+
         self.add_parameter(
             ParameterImage(
                 name="output_mask",
@@ -56,6 +63,20 @@ class CombineMasks(DataNode):
 
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="combined_mask.png")
         self._output_file.add_parameter()
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Give the preview the masks whenever the list or one of its items changes."""
+        if parameter.name == "masks" or parameter.parent_container_name == "masks":
+            self._update_preview()
+        return super().after_value_set(parameter, value)
+
+    def _preview_extras(self) -> dict[str, Any]:
+        """Every mask's URL and mode; the mode decides whether a mask is read from its alpha."""
+        masks = self.get_parameter_list_value("masks") or []
+        return {
+            "image_urls": [self._resolve_image_url(mask) for mask in masks],
+            "image_modes": [self._mode_of(mask) for mask in masks],
+        }
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []

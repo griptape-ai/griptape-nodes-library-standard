@@ -178,3 +178,116 @@ export const gridSplit = {
     ctx.restore();
   },
 };
+
+// ── Gaussian Edge Fade ───────────────────────────────────────────────────────
+
+// The fade mask at source-pixel coordinates, as _create_square_mask / _create_rounded_mask.
+function edgeFadeMask(v, view) {
+  const { width: w, height: h, scale, sourceWidth: W, sourceHeight: H } = view;
+  const distance = num(v.fade_distance, 5);
+  const fp = Math.max(0, (v.fade_mode || "percentage") === "percentage"
+    ? Math.trunc((Math.min(W, H) * distance) / 100)
+    : Math.trunc(distance));
+  const curve = num(v.fade_curve, 2);
+  const on = (name) => v[name] !== false;
+  const mask = new Uint8ClampedArray(w * h).fill(255);
+  if (fp <= 0) return mask;
+  const rounded = v.edge_shape === "rounded";
+  const ft = on("apply_top") ? fp : 0, fb = on("apply_bottom") ? fp : 0;
+  const fl = on("apply_left") ? fp : 0, fr = on("apply_right") ? fp : 0;
+  for (let py = 0; py < h; py++) {
+    const y = Math.floor(py / scale);
+    for (let px = 0; px < w; px++) {
+      const x = Math.floor(px / scale);
+      let a = 255;
+      if (rounded) {
+        const inLeft = x < fl, inRight = x >= W - fr, inTop = y < ft, inBottom = y >= H - fb;
+        const dxl = inLeft ? x - fl : 0, dxr = inRight ? x - (W - fr - 1) : 0;
+        const dyt = inTop ? y - ft : 0, dyb = inBottom ? y - (H - fb - 1) : 0;
+        let d = 0;
+        if (inTop && inLeft) d = Math.hypot(dxl, dyt);
+        else if (inTop && inRight) d = Math.hypot(dxr, dyt);
+        else if (inBottom && inLeft) d = Math.hypot(dxl, dyb);
+        else if (inBottom && inRight) d = Math.hypot(dxr, dyb);
+        else if (inTop) d = Math.abs(dyt);
+        else if (inBottom) d = Math.abs(dyb);
+        else if (inLeft) d = Math.abs(dxl);
+        else if (inRight) d = Math.abs(dxr);
+        a = d <= 0 ? 255 : d >= fp ? 0 : Math.trunc(255 * Math.pow(1 - d / fp, curve));
+      } else {
+        // Square mode skips an edge whose fade would pass the middle of the image.
+        const ramp = (t) => Math.trunc(255 * Math.pow(t / fp, curve));
+        if (fp <= Math.floor(H / 2)) {
+          if (ft && y < Math.min(fp, H)) a = Math.min(a, ramp(y));
+          if (fb && y >= Math.max(0, H - fp)) a = Math.min(a, ramp(H - y));
+        }
+        if (fp <= Math.floor(W / 2)) {
+          if (fl && x < Math.min(fp, W)) a = Math.min(a, ramp(x));
+          if (fr && x >= Math.max(0, W - fp)) a = Math.min(a, ramp(W - x));
+        }
+      }
+      mask[py * w + px] = a;
+    }
+  }
+  return mask;
+}
+
+export const edgeFade = {
+  pixels(data, v, view) {
+    const { width: w, height: h, scale } = view;
+    const mask = edgeFadeMask(v, view);
+    const blur = num(v.blur_radius, 10);
+    if (blur > 0) {
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let p = 0; p < w * h; p++) rgba[p * 4] = mask[p];
+      gaussianBlur(rgba, w, h, blur * scale);
+      for (let p = 0; p < w * h; p++) mask[p] = rgba[p * 4];
+    }
+    // Only an RGBA image keeps its own transparency, and only when replace_mask is off.
+    const keepOwn = !v.replace_mask && modeOf(v, data) === "RGBA";
+    for (let p = 0; p < w * h; p++) {
+      const i = p * 4 + 3;
+      data[i] = keepOwn ? Math.trunc((data[i] / 255) * (mask[p] / 255) * 255) : mask[p];
+    }
+  },
+};
+
+// ── Combine Masks ────────────────────────────────────────────────────────────
+
+// _mask_to_l: alpha for RGBA/LA unless it is almost uniformly opaque, then the colour; luma for RGB.
+function maskToL(data, mode) {
+  const n = data.length / 4;
+  const out = new Uint8ClampedArray(n);
+  let useAlpha = false;
+  if (mode === "RGBA" || mode === "LA") {
+    let min = 255, max = 0;
+    for (let p = 0; p < n; p++) {
+      min = Math.min(min, data[p * 4 + 3]);
+      max = Math.max(max, data[p * 4 + 3]);
+    }
+    useAlpha = !(min >= 200 && max - min <= 32);
+  }
+  for (let p = 0; p < n; p++) {
+    const i = p * 4;
+    if (useAlpha) out[p] = data[i + 3];
+    else if (mode === "RGBA" || mode === "LA" || mode === "L") out[p] = data[i];
+    else out[p] = luma(data[i], data[i + 1], data[i + 2]);
+  }
+  return out;
+}
+
+export const combineMasks = {
+  multi: true,
+  label: (v) => `${(v.image_urls || []).length} masks`,
+  combine(datas, v) {
+    const modes = v.image_modes || [];
+    const combined = maskToL(datas[0], modes[0] || modeOf({}, datas[0]));
+    for (let k = 1; k < datas.length; k++) {
+      const mask = maskToL(datas[k], modes[k] || modeOf({}, datas[k]));
+      for (let p = 0; p < combined.length; p++) combined[p] = Math.max(combined[p], mask[p]);
+    }
+    const out = new Uint8ClampedArray(combined.length * 4);
+    for (let p = 0; p < combined.length; p++) writeGray(out, p * 4, combined[p]);
+    return out;
+  },
+};

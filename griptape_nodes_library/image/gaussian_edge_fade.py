@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from griptape.artifacts import ImageUrlArtifact
@@ -15,6 +15,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from PIL import Image, ImageFilter
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     image_to_bytes,
@@ -22,7 +23,21 @@ from griptape_nodes_library.utils.image_utils import (
 )
 
 
-class GaussianEdgeFade(DataNode):
+class GaussianEdgeFade(ImagePreviewMixin, DataNode):
+    PREVIEW_OPERATION = "edge_fade"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = [
+        "fade_mode",
+        "fade_distance",
+        "blur_radius",
+        "fade_curve",
+        "edge_shape",
+        "replace_mask",
+        "apply_top",
+        "apply_bottom",
+        "apply_left",
+        "apply_right",
+    ]
+
     """Apply Gaussian blur fade to image edges for smooth compositing."""
 
     def __init__(self, **kwargs) -> None:
@@ -41,6 +56,8 @@ class GaussianEdgeFade(DataNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
+
+        self._add_preview_parameter()
 
         # Fade mode parameter
         self.add_parameter(
@@ -144,6 +161,10 @@ class GaussianEdgeFade(DataNode):
 
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="edge_fade.png")
         self._output_file.add_parameter()
+
+    def _preview_extras(self) -> dict[str, Any]:
+        """The image's mode: only an RGBA image keeps its own transparency under the fade."""
+        return {"image_mode": self._image_mode("input_image")}
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Update UI when fade_mode changes."""

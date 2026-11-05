@@ -131,6 +131,64 @@ export default function ImageProcessorPreview(container, props) {
     statusL.textContent = `${label}${size.width} × ${size.height} px`;
   }
 
+  // Several images at once, for operations that combine them (Combine Masks).
+  let multiImages = [];
+  let multiKey = "";
+  function loadMulti(urls) {
+    const key = urls.map((u) => (u ? u.split("?")[0] : "")).join("|");
+    if (key === multiKey) return;
+    multiKey = key;
+    multiImages = urls.filter(Boolean).map((url) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => render();
+      image.onerror = () => render();
+      image.src = url;
+      return image;
+    });
+  }
+
+  function renderMulti(operation) {
+    if (!multiImages.length) {
+      showMessage("Connect masks to preview the result", "No masks connected");
+      return;
+    }
+    if (!multiImages.every((image) => image.complete && image.naturalWidth)) {
+      showMessage("Loading…", "Loading");
+      return;
+    }
+    const [w, h] = [multiImages[0].naturalWidth, multiImages[0].naturalHeight];
+    if (multiImages.some((image) => image.naturalWidth !== w || image.naturalHeight !== h)) {
+      showMessage("The masks aren't all the same size", "The masks aren't all the same size");
+      return;
+    }
+    const areaW = canvasWrap.clientWidth || 480;
+    const areaH = canvasWrap.clientHeight || 360;
+    const scale = Math.min(areaW / w, areaH / h);
+    const view = { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)), scale, sourceWidth: w, sourceHeight: h };
+    const scratch = document.createElement("canvas");
+    scratch.width = view.width; scratch.height = view.height;
+    const sctx = scratch.getContext("2d", { willReadFrequently: true });
+    let datas;
+    try {
+      datas = multiImages.map((image) => {
+        sctx.clearRect(0, 0, view.width, view.height);
+        sctx.drawImage(image, 0, 0, view.width, view.height);
+        return sctx.getImageData(0, 0, view.width, view.height).data;
+      });
+    } catch {
+      showMessage("Preview unavailable for these images", "Preview unavailable for these images");
+      return;
+    }
+    canvas.width = view.width;
+    canvas.height = view.height;
+    drawChecker(view.width, view.height);
+    sctx.putImageData(new ImageData(operation.combine(datas, value, view), view.width, view.height), 0, 0);
+    ctx.drawImage(scratch, 0, 0);
+    const label = operation.label ? `${operation.label(value)}  →  ` : "";
+    statusL.textContent = `${label}${w} × ${h} px`;
+  }
+
   let isVideo = false;
   const source = () => (isVideo ? video : img);
   const sourceSize = () => (isVideo ? [video.videoWidth, video.videoHeight] : [img.naturalWidth, img.naturalHeight]);
@@ -215,6 +273,10 @@ export default function ImageProcessorPreview(container, props) {
       renderGenerated(operation);
       return;
     }
+    if (operation.multi) {
+      renderMulti(operation);
+      return;
+    }
     if (!sourceReady) {
       const what = isVideo ? "a video" : "an image";
       showMessage(`Connect ${what} to preview the result`, isVideo ? "No video connected" : "No image connected");
@@ -260,6 +322,11 @@ export default function ImageProcessorPreview(container, props) {
   function handleUpdate(newProps) {
     value = newProps.value || {};
     loadFont(value.font_url);
+    if (Array.isArray(value.image_urls)) {
+      loadMulti(value.image_urls);
+      render();
+      return;
+    }
     const nextIsVideo = Boolean(value.video_url);
     const newUrl = (nextIsVideo ? value.video_url : value.image_url) || "";
     const base = (u) => (u ? u.split("?")[0] : "");

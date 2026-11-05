@@ -110,7 +110,10 @@ class ImagePreviewMixin(BaseNode):
         The browser decodes every image to RGBA, so nodes that treat RGB, RGBA and greyscale images
         differently send the mode with the preview.
         """
-        image = self.get_parameter_value(parameter_name)
+        return self._mode_of(self.get_parameter_value(parameter_name))
+
+    def _mode_of(self, image: Any) -> str:
+        """The Pillow mode of an image artifact or its dict form, or "" when it can't be read."""
         raw = image.get("value") if isinstance(image, dict) else getattr(image, "value", image)
         if not raw or not isinstance(raw, str):
             return ""

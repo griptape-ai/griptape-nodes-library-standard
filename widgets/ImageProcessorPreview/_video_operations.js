@@ -426,6 +426,73 @@ const filmGrain = {
   },
 };
 
+
+// ── Resize Video (scale / pad / crop as the node builds them) ────────────────
+
+const makeEven = (v) => Math.max(2, Math.floor(Math.max(1, v) / 2) * 2);
+// pad and crop centre the picture, then round the offset down to even for 4:2:0 chroma.
+const evenOffset = (space) => Math.floor(Math.trunc(space / 2) / 2) * 2;
+
+function videoResizeLayout(v, w, h) {
+  const mode = v.resize_mode || "percentage";
+  if (mode === "width") {
+    const width = makeEven(Math.trunc(num(v.target_size, 1000)));
+    return { width, height: Math.round((width * h) / (w * 2)) * 2 };
+  }
+  if (mode === "height") {
+    const height = makeEven(Math.trunc(num(v.target_size, 1000)));
+    return { width: Math.round((height * w) / (h * 2)) * 2, height };
+  }
+  if (mode === "percentage") {
+    const f = num(v.percentage, 100) / 100;
+    const width = Math.trunc((w * f) / 2) * 2, height = Math.trunc((h * f) / 2) * 2;
+    if (width < 1 || height < 1) return { error: "The result would be 0 pixels wide or tall" };
+    return { width, height };
+  }
+  if (mode !== "width and height") return { error: `Unknown resize mode "${mode}"` };
+  const ew = makeEven(Math.trunc(num(v.target_width, 1000)));
+  const eh = makeEven(Math.trunc(num(v.target_height, 1000)));
+  const fit = v.fit_mode || "fit";
+  if (fit === "stretch") return { width: ew, height: eh, fit };
+  // force_original_aspect_ratio: decrease for fit, increase for fill.
+  const tmpW = Math.round((eh * w) / h), tmpH = Math.round((ew * h) / w);
+  const pick = fit === "fill" ? Math.max : Math.min;
+  const sw = pick(tmpW, ew), sh = pick(tmpH, eh);
+  const x = fit === "fill" ? -evenOffset(sw - ew) : evenOffset(ew - sw);
+  const y = fit === "fill" ? -evenOffset(sh - eh) : evenOffset(eh - sh);
+  return { width: ew, height: eh, fit, sw, sh, x, y };
+}
+
+// _format_ffmpeg_color: 3- or 6-digit hex, anything else white.
+function padColor(color) {
+  let hex = String(color || "").replace(/^#/, "");
+  if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
+  return /^[0-9a-fA-F]{6}$/.test(hex) ? `#${hex}` : "#ffffff";
+}
+
+const resizeVideo = {
+  size: (v, w, h) => videoResizeLayout(v, w, h),
+  label: (v) => v.resize_mode || "percentage",
+  draw(ctx, img, v, view) {
+    const layout = videoResizeLayout(v, view.sourceWidth, view.sourceHeight);
+    ctx.imageSmoothingEnabled = v.scaling_algorithm !== "neighbor";
+    ctx.imageSmoothingQuality = "high";
+    if (layout.sw === undefined) {
+      ctx.drawImage(img, 0, 0, view.width, view.height);
+      return;
+    }
+    if (layout.fit === "fit") {
+      ctx.fillStyle = padColor(v.background_color);
+      ctx.fillRect(0, 0, view.width, view.height);
+    }
+    const s = view.scale;
+    // In 4:2:0 a padded picture with an odd size loses its last row or column; the offset still comes
+    // from the odd size.
+    const even = (n) => (layout.fit === "fit" ? Math.floor(n / 2) * 2 : n);
+    ctx.drawImage(img, layout.x * s, layout.y * s, even(layout.sw) * s, even(layout.sh) * s);
+  },
+};
+
 export const VIDEO_OPERATIONS = {
   video_eq: videoEq,
   video_blur: videoBlur,
@@ -433,4 +500,5 @@ export const VIDEO_OPERATIONS = {
   rgb_shift: rgbShift,
   curves,
   film_grain: filmGrain,
+  resize_video: resizeVideo,
 };
