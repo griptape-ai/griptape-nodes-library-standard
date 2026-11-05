@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -11,6 +11,20 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 class AddRGBShift(BaseVideoProcessor):
     """Add RGB shift (chromatic aberration) effect to video."""
+
+    PREVIEW_OPERATION = "rgb_shift"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = [
+        "red_horizontal",
+        "red_vertical",
+        "green_horizontal",
+        "green_vertical",
+        "blue_horizontal",
+        "blue_vertical",
+        "intensity",
+        "tear_enabled",
+        "tear_position",
+        "tear_offset",
+    ]
 
     # RGB shift constants
     MIN_SHIFT = -50

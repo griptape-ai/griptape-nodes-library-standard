@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
@@ -11,14 +11,19 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image, ImageChops
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import (
     image_to_bytes,
     load_pil_from_url,
 )
 
 
-class CombineMasks(DataNode):
+class CombineMasks(ImagePreviewMixin, DataNode):
     """Combine a list of masks into a single consolidated mask (pixel-wise max)."""
+
+    PREVIEW_OPERATION = "combine_masks"
+    # The masks are a list, so they reach the widget through _preview_extras instead
+    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {}
 
     _ALPHA_NEAR_OPAQUE_MIN = 200
     _ALPHA_NEAR_OPAQUE_RANGE = 32
@@ -40,9 +45,11 @@ class CombineMasks(DataNode):
                 default_value=None,
                 tooltip="List of mask images to combine into a single mask (union/max).",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                ui_options={"display_name": "Masks"},
+                ui_options={"display_name": "Masks", "hide_property": True},
             )
         )
+
+        self._add_preview_parameter()
 
         self.add_parameter(
             ParameterImage(
@@ -56,6 +63,29 @@ class CombineMasks(DataNode):
 
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="combined_mask.png")
         self._output_file.add_parameter()
+
+    def _is_preview_source(self, parameter_name: str) -> bool:
+        """The masks list and each of its items feed the preview."""
+        if parameter_name == "masks":
+            return True
+        parameter = self.get_parameter_by_name(parameter_name)
+        return parameter is not None and parameter.parent_container_name == "masks"
+
+    def _preview_extras(self) -> dict[str, Any]:
+        """Each mask's URL paired with its mode, which decides whether the mask is read from its alpha.
+
+        A mask the browser can't load, such as an in-memory image with no file, is left out of the
+        preview and counted in "skipped" so the widget can say so.
+        """
+        images = []
+        skipped = 0
+        for mask in self.get_parameter_list_value("masks") or []:
+            url = self._resolve_image_url(mask)
+            if not url:
+                skipped += 1
+                continue
+            images.append({"url": url, "mode": self._mode_of(mask)})
+        return {"images": images, "skipped": skipped}
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []

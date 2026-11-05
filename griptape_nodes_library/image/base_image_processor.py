@@ -14,6 +14,7 @@ from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
@@ -21,7 +22,7 @@ from griptape_nodes_library.utils.image_utils import (
 )
 
 
-class BaseImageProcessor(SuccessFailureNode, ABC):
+class BaseImageProcessor(ImagePreviewMixin, SuccessFailureNode, ABC):
     """Base class for image processing nodes with common functionality."""
 
     # Default image properties constants
@@ -67,6 +68,8 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
                 },
             )
         )
+
+        self._add_preview_parameter()
 
         self._setup_custom_parameters()
 
