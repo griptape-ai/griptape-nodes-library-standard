@@ -1,1 +1,1 @@
-- `Crop Image`'s crop editor and its sliders now stay in sync while you drag either one.
+- `Crop Image` and `Crop Video`'s crop editors and their settings now stay in sync while you drag either one.
