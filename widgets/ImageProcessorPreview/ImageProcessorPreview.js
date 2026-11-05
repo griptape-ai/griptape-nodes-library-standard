@@ -244,8 +244,13 @@ export default function ImageProcessorPreview(container, props) {
     canvas.height = view.height;
     drawChecker(view.width, view.height);
 
-    if (operation.pixels) drawPixels(operation, view);
-    else operation.draw(ctx, source(), value, view);
+    try {
+      if (operation.pixels) drawPixels(operation, view);
+      else operation.draw(ctx, source(), value, view);
+    } catch (err) {
+      showMessage(err.message, err.message);
+      return;
+    }
 
     const label = operation.label ? `${operation.label(value)}  →  ` : "";
     const note = pixelsBlocked && operation.pixels ? "  (preview unavailable for this source)" : "";

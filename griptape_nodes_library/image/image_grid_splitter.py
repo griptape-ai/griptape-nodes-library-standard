@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from io import BytesIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,6 +23,7 @@ from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils import async_utils
 from PIL import Image, ImageDraw, ImageFilter
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     load_pil_from_url,
@@ -52,7 +53,12 @@ class _GapAxisInfo:
     is_vertical: bool
 
 
-class ImageGridSplitter(DataNode):
+class ImageGridSplitter(ImagePreviewMixin, DataNode):
+    PREVIEW_OPERATION = "grid_split"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["grid_detection_mode", "rows", "cols"]
+    # "preview" is the node's own output image
+    PREVIEW_PARAMETER_NAME = "grid_preview"
+
     """Split a regular image grid into individual images.
 
     - Manual mode: user supplies rows/cols.
@@ -118,6 +124,8 @@ class ImageGridSplitter(DataNode):
                 hide_property=True,
             )
         )
+
+        self._add_preview_parameter()
 
         self.add_parameter(
             ParameterString(
@@ -227,6 +235,14 @@ class ImageGridSplitter(DataNode):
         )
         self._cell_file.add_parameter()
 
+    def _preview_extras(self) -> dict[str, Any]:
+        """The grid auto detection finds, which the preview draws when the mode is auto."""
+        pil_image = self._load_input_as_pil()
+        if pil_image is None:
+            return {}
+        rows, cols = self._detect_grid_auto(pil_image)
+        return {"detected_rows": rows, "detected_cols": cols}
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "grid_detection_mode":
             if value == "manual":
@@ -237,9 +253,6 @@ class ImageGridSplitter(DataNode):
                 self.hide_parameter_by_name("rows")
                 self.hide_parameter_by_name("cols")
                 self._set_group_visible(self._detections_group.name, visible=True)
-
-        if parameter.name in ["input_image", "grid_detection_mode", "rows", "cols"]:
-            self._refresh_preview()
 
         return super().after_value_set(parameter, value)
 
@@ -323,28 +336,6 @@ class ImageGridSplitter(DataNode):
 
         msg = f"Unsupported input_image type: {type(value).__name__}"
         raise ValueError(msg)
-
-    def _refresh_preview(self) -> None:
-        pil_image = self._load_input_as_pil()
-        if pil_image is None:
-            self.parameter_output_values["preview"] = None
-            self.parameter_output_values["detected_rows"] = None
-            self.parameter_output_values["detected_cols"] = None
-            self.parameter_output_values["detected_count"] = None
-            return
-
-        rows, cols = self._get_effective_grid(pil_image)
-        self._publish_detected(rows, cols)
-
-        preview = self._draw_preview(pil_image, rows, cols)
-        preview_buffer = BytesIO()
-        preview.save(preview_buffer, format="JPEG")
-        dest = self._preview_file.build_file()
-        saved = dest.write_bytes(preview_buffer.getvalue())
-        preview_artifact = ImageUrlArtifact(saved.location)
-
-        self.parameter_output_values["preview"] = preview_artifact
-        self.publish_update_to_parameter("preview", preview_artifact)
 
     def _publish_detected(self, rows: int, cols: int) -> None:
         count = rows * cols

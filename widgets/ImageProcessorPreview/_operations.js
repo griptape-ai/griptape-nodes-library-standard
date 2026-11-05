@@ -14,6 +14,7 @@ import { applyLut, blendByte, gaussianBlur, luma } from "./_pixels.js";
 import { VIDEO_OPERATIONS } from "./_video_operations.js";
 import { colorBars } from "./_color_bars.js";
 import { textImage, textOverlay } from "./_text.js";
+import { colorToTransparent, displayChannel, gridSplit, invert, invertMask } from "./_pixel_nodes.js";
 
 const num = (value, fallback) => {
   const n = Number(value);
@@ -393,4 +394,9 @@ export const OPERATIONS = {
   color_bars: colorBars,
   text_image: textImage,
   text_overlay: textOverlay,
+  invert,
+  invert_mask: invertMask,
+  display_channel: displayChannel,
+  color_to_transparent: colorToTransparent,
+  grid_split: gridSplit,
 };

@@ -15,6 +15,8 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.widget import Widget
 from PIL import ImageFont
 
+from griptape_nodes_library.utils.image_utils import load_pil_from_url
+
 
 class ImagePreviewMixin(BaseNode):
     """Gives an image node a live preview of its result above its settings.
@@ -101,6 +103,22 @@ class ImagePreviewMixin(BaseNode):
         if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
             return result.url
         return path
+
+    def _image_mode(self, parameter_name: str) -> str:
+        """The Pillow mode of an image parameter's image, or "" when it can't be read.
+
+        The browser decodes every image to RGBA, so nodes that treat RGB, RGBA and greyscale images
+        differently send the mode with the preview.
+        """
+        image = self.get_parameter_value(parameter_name)
+        raw = image.get("value") if isinstance(image, dict) else getattr(image, "value", image)
+        if not raw or not isinstance(raw, str):
+            return ""
+        try:
+            return load_pil_from_url(raw).mode
+        except Exception as e:
+            logger.debug(f"{self.name}: could not read the mode of {raw!r} for the preview: {e}")
+            return ""
 
     def _pillow_font_url(self) -> str:
         """URL of the font Pillow's ImageFont.load_default uses, so text previews match the node.

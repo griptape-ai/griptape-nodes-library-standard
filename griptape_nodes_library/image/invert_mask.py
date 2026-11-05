@@ -1,14 +1,15 @@
 import traceback
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from PIL import Image
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     image_to_bytes,
@@ -16,7 +17,10 @@ from griptape_nodes_library.utils.image_utils import (
 )
 
 
-class InvertMask(DataNode):
+class InvertMask(ImagePreviewMixin, DataNode):
+    PREVIEW_OPERATION = "invert_mask"
+    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {"input_mask": "image_url"}
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -30,6 +34,8 @@ class InvertMask(DataNode):
             )
         )
 
+        self._add_preview_parameter()
+
         self.add_parameter(
             ParameterImage(
                 name="output_mask",
@@ -42,13 +48,9 @@ class InvertMask(DataNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="inverted_mask.png")
         self._output_file.add_parameter()
 
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name == "input_mask" and value is not None:
-            if isinstance(value, dict):
-                value = dict_to_image_url_artifact(value)
-
-            # Invert the mask
-            self._invert_mask(value, raise_on_failure=False)
+    def _preview_extras(self) -> dict[str, Any]:
+        """The image's mode, which decides how the node reads it and which the browser can't tell."""
+        return {"image_mode": self._image_mode("input_mask")}
 
     def process(self) -> None:
         # Get input mask

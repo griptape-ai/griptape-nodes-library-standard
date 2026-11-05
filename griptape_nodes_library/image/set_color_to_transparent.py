@@ -4,7 +4,7 @@ This node takes an input image and replaces pixels matching a specified color
 (within a tolerance range) with transparent pixels, outputting a PNG image.
 """
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from griptape.artifacts import ImageUrlArtifact
@@ -17,6 +17,7 @@ from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from PIL import Image
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import (
     apply_mask_transformations,
     dict_to_image_url_artifact,
@@ -26,7 +27,10 @@ from griptape_nodes_library.utils.image_utils import (
 )
 
 
-class SetColorToTransparent(DataNode):
+class SetColorToTransparent(ImagePreviewMixin, DataNode):
+    PREVIEW_OPERATION = "color_to_transparent"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["color", "tolerance", "grow_shrink", "blur_edges"]
+
     """Replace a specific color in an image with transparency.
 
     This node is useful for removing backgrounds or specific colors from images,
@@ -54,6 +58,8 @@ class SetColorToTransparent(DataNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
+
+        self._add_preview_parameter()
 
         # Color picker parameter
         self.add_parameter(
