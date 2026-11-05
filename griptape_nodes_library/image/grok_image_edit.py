@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 from contextlib import suppress
+from functools import partial
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -13,7 +14,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
@@ -109,6 +110,9 @@ class GrokImageEdit(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="additional_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
                 default_value=[],
                 tooltip=f"Optional extra source images sent with 'Image' (up to {self.MAX_SOURCE_IMAGES - 1})",
@@ -195,17 +199,10 @@ class GrokImageEdit(GriptapeProxyNode):
         return await prepare_media_data_uri(image_input, kind="image", node_name=self.name)
 
     def _get_additional_images(self) -> list[Any]:
-        # Connected values bypass after_value_set, so normalize on read as well.
+        # Connected values bypass item_converters, so normalize on read as well.
         images = self.get_parameter_list_value("additional_images")
         normalized = normalize_artifact_list(images, ImageUrlArtifact, accepted_types=(ImageArtifact,))
         return [item for item in normalized if self._has_media_value(item)]
-
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name == "additional_images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("additional_images", updated_list)
-        return super().after_value_set(parameter, value)
 
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, 11):

@@ -264,6 +264,11 @@ class TestRowOutputs:
 
 
 class TestDisplayList:
+    @pytest.mark.xfail(
+        reason="The engine loads a copied list as a list of lists. "
+        "https://github.com/griptape-ai/griptape-nodes-engine/pull/6129",
+        strict=True,
+    )
     def test_loaded_copy_keeps_the_declared_element_type(
         self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:

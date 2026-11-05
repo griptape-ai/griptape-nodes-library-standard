@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import suppress
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +115,9 @@ class Rodin23DGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="input_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=[
                     "ImageArtifact",
                     "ImageUrlArtifact",
@@ -331,27 +335,6 @@ class Rodin23DGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        # Handle both the list parameter itself and individual child parameters
-        is_input_images = parameter.name == "input_images"
-        is_child_of_input_images = (
-            hasattr(parameter, "parent_container_name") and parameter.parent_container_name == "input_images"
-        )
-
-        if is_input_images and isinstance(value, list):
-            # Normalize the entire list when it's set as a whole
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("input_images", updated_list)
-        elif is_child_of_input_images and value is not None:
-            # Normalize individual items when they're added to the list
-            normalized_value = normalize_artifact_input(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if normalized_value != value:
-                # Update the child parameter value
-                if parameter.name in self.parameter_values:
-                    self.parameter_values[parameter.name] = normalized_value
-                self.publish_update_to_parameter(parameter.name, normalized_value)
 
     def preprocess(self) -> None:
         self._seed_parameter.preprocess()
