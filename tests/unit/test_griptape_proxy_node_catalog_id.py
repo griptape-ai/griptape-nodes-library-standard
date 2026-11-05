@@ -43,6 +43,7 @@ from griptape_nodes_library.video.ltx_text_to_video_generation import LTXTextToV
 from griptape_nodes_library.video.ltx_video_extend import LTXVideoExtend
 from griptape_nodes_library.video.ltx_video_retake import LTXVideoRetake
 from griptape_nodes_library.video.ltx_video_to_video_hdr import LTXVideoToVideoHDR
+from griptape_nodes_library.video.ltx_video_upscale import LTXVideoUpscale
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
@@ -89,6 +90,7 @@ SUFFIXED_NODES = [
     (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
     (LTXVideoRetake, "ltx-2-3-pro", "ltx-2-3-pro:retake"),
     (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
+    (LTXVideoUpscale, "ltx", "ltx:video-upscale"),
     (KlingTextToVideoGeneration, "kling-v3", "kling-v3:text2video"),
     (KlingImageToVideoGeneration, "kling-v3", "kling-v3:image2video"),
     (KlingOmniVideoGeneration, "kling-v3-omni", "kling-v3-omni:omnivideo"),
