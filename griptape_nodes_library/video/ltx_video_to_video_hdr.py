@@ -320,6 +320,10 @@ class LTXVideoToVideoHDR(PublicVideoUrlMixin, GriptapeProxyNode):
         if probed is None:
             return None
         width, height, frames = probed
+        # An input the node will reject gets its real error from `_validate_video_input`, not a size guard.
+        tier = self._pick_input_tier(width, height)
+        if tier is None or frames > tier[1]:
+            return None
         estimate = estimate_exr_zip_bytes(frames, width, height)
         return estimate or None
 

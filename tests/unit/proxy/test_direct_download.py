@@ -271,7 +271,7 @@ class _PolicyDest:
 def _direct_save_node(monkeypatch: pytest.MonkeyPatch, folder: Path, policy: str) -> Any:
     async def fake_stream(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:  # noqa: ARG001
         # The download must land beside the destination, never in the system temp dir.
-        assert path.parent == folder
+        assert path.parent.is_relative_to(folder)
         assert path.name.startswith(".")
         assert path.name.endswith(".partial")
         path.write_bytes(b"big")

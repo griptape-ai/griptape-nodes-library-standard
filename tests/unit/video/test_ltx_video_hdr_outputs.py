@@ -164,6 +164,23 @@ def test_estimate_uses_the_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     assert node._estimate_output_bytes() == estimate_exr_zip_bytes(100, 1920, 1080)
 
 
+def test_estimate_is_none_when_frames_exceed_the_tier_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The input error from `_validate_video_input` must surface before the size guard."""
+    node = _node()
+    node.set_parameter_value("video", "https://example.com/in.mp4")
+    monkeypatch.setattr(node, "_probe_video", lambda _url: (1920, 1080, 400))
+
+    assert node._estimate_output_bytes() is None
+
+
+def test_estimate_is_none_when_the_input_is_over_4k(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    node.set_parameter_value("video", "https://example.com/in.mp4")
+    monkeypatch.setattr(node, "_probe_video", lambda _url: (7680, 4320, 24))
+
+    assert node._estimate_output_bytes() is None
+
+
 def test_estimate_is_none_when_the_probe_fails_or_there_is_no_video(monkeypatch: pytest.MonkeyPatch) -> None:
     node = _node()
     assert node._estimate_output_bytes() is None
