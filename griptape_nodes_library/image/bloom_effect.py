@@ -1,16 +1,21 @@
 from typing import Any
 
+import numpy as np
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.slider import Slider
-from PIL import Image, ImageEnhance, ImageFilter
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.image_utils import (
+    MAX_UINT8,
+    ImageMode,
+    converted,
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    load_image_from_url,
+    pixels_of,
 )
 
 
@@ -71,11 +76,11 @@ class BloomEffect(BaseImageProcessor):
             else:
                 image_artifact = image_value
 
-            # Load PIL image
-            pil_image = load_pil_from_url(image_artifact.value)
+            # Load image
+            image = load_image_from_url(image_artifact.value)
 
             # Process with current bloom settings
-            processed_image = self._process_image(pil_image, **self._get_custom_parameters())
+            processed_image = self._process_image(image, **self._get_custom_parameters())
 
             # Save and set output
             output_artifact = self._save_image_artifact(processed_image, "png")
@@ -91,32 +96,32 @@ class BloomEffect(BaseImageProcessor):
         """Get description of what this processor does."""
         return "image bloom effect"
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
-        """Process the PIL image by applying bloom effect."""
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
+        """Process the image by applying bloom effect."""
         bloom_amount = kwargs.get("bloom_amount", self.DEFAULT_BLOOM_AMOUNT)
         bloom_radius = kwargs.get("bloom_radius", self.DEFAULT_BLOOM_RADIUS)
 
         if bloom_amount <= 0.0:
-            return pil_image  # No bloom effect
+            return image  # No bloom effect
 
-        # Convert to RGB if needed (bloom works best with RGB)
-        if pil_image.mode != "RGB":
-            pil_image = pil_image.convert("RGB")
+        # Convert to RGB (bloom works best with RGB)
+        rgb_image = converted(image, ImageMode.RGB)
 
-        # Create a brightened version for bloom
-        brightened = ImageEnhance.Brightness(pil_image).enhance(1.0 + bloom_amount)
-
-        # Apply Gaussian blur to create the bloom effect
-        bloomed = brightened.filter(ImageFilter.GaussianBlur(radius=bloom_radius))
+        # Create a brightened, blurred version for bloom
+        bloomed = GriptapeImagePipeline(rgb_image).brightness(1.0 + bloom_amount).gaussian_blur(bloom_radius).end()
+        bloomed_pixels = pixels_of(bloomed, ImageMode.RGB).astype(np.float32)
 
         # Blend the original image with the bloomed version
         # Use a weighted blend based on bloom amount
         blend_factor = min(bloom_amount, 1.0)  # Cap at 1.0 for reasonable blending
 
-        # Create the final image by blending
-        result = Image.blend(pil_image, bloomed, blend_factor)
+        # Create the final image by blending, truncating as Pillow's blend did
+        def blend(pixels: np.ndarray) -> np.ndarray:
+            original = pixels.astype(np.float32)
+            blended = np.trunc(original + blend_factor * (bloomed_pixels - original))
+            return np.clip(blended, 0, MAX_UINT8).astype(np.uint8)
 
-        return result
+        return GriptapeImagePipeline(rgb_image).apply(blend).end()
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate bloom parameters."""

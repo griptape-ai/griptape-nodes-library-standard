@@ -1,4 +1,3 @@
-import io
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -10,15 +9,20 @@ from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
-from PIL import Image
 
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    load_image_from_url,
+    validate_image_format,
 )
+
+# Formats with no alpha channel, where a transparent image is flattened onto white
+_OPAQUE_FORMATS = frozenset({ImageFormat.JPEG, ImageFormat.BMP})
+_WHITE = (255, 255, 255)
 
 
 class BaseImageProcessor(SuccessFailureNode, ABC):
@@ -123,8 +127,8 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         """Get a description of what this processor does. Override in subclasses."""
 
     @abstractmethod
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
-        """Process the PIL image. Override in subclasses."""
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
+        """Process the image. Override in subclasses."""
 
     def _setup_logging_group(self) -> None:
         """Setup the common logging parameter group."""
@@ -151,8 +155,8 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
 
         return exceptions if exceptions else None
 
-    def _get_image_input_data(self) -> tuple[Image.Image, str]:
-        """Get PIL image and detected format."""
+    def _get_image_input_data(self) -> tuple[GriptapeImage, str]:
+        """Get the image and its detected format."""
         image = self.parameter_values.get("input_image")
 
         if not image:
@@ -168,21 +172,27 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
             msg = "'Input Image' has no image data. Connect a valid image to 'Input Image'."
             raise ValueError(msg)
 
-        # Load PIL image using existing utility
-        pil_image = load_pil_from_url(image.value)
+        loaded = load_image_from_url(image.value)
 
         # Detect format
-        detected_format = self._detect_image_format(pil_image)
+        detected_format = self._detect_image_format(loaded)
 
-        return pil_image, detected_format
+        return loaded, detected_format
 
-    def _detect_image_format(self, pil_image: Image.Image) -> str:
-        """Detect the format of the PIL image."""
-        if pil_image.format:
-            return pil_image.format.upper()
-
-        # Default to PNG if format can't be detected
-        return "PNG"
+    def _detect_image_format(self, image: GriptapeImage) -> str:
+        """Detect the format of the image."""
+        match image.format:
+            case ImageFormat.MPO:
+                # MPO is read, not written; its first frame is a JPEG
+                return ImageFormat.JPEG
+            case ImageFormat() as image_format:
+                return image_format
+            case None:
+                # Default to PNG if format can't be detected
+                return ImageFormat.PNG
+            case _:
+                msg = f"Unknown image format: {image.format!r}"
+                raise ValueError(msg)
 
     def _get_output_format(self, input_format: str) -> str:
         """Get the output format based on user preference."""
@@ -206,155 +216,52 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
             output_path = Path(output_file.name)
         return str(output_path), output_path
 
-    def _determine_target_mode(self, current_mode: str, format_extension: str) -> str:  # noqa: PLR0911, PLR0912, C901
-        """Determine the target mode for conversion based on current mode and format.
+    def _prepared_for_format(self, image: GriptapeImage, image_format: ImageFormat) -> GriptapeImage:
+        """Return the image ready to encode as ``image_format``.
 
-        Args:
-            current_mode: The current PIL image mode
-            format_extension: The target format (e.g., "JPEG", "PNG", "WEBP")
+        A transparent image is flattened onto white for formats without alpha. Other channel
+        layouts a format can't hold are converted when the image is encoded.
+        """
+        if image_format in _OPAQUE_FORMATS and image.channels in (2, 4):
+            logger.warning(f"{self.name}: Flattening transparency onto white for {image_format} format")
+            return GriptapeImagePipeline(image).flatten(_WHITE).end()
+        return image
 
-        Returns:
-            str: The target mode to convert to
+    def _encode(self, image: GriptapeImage, format_extension: str) -> bytes:
+        """Encode the image in the named format, at the quality setting for lossy formats.
+
+        Metadata the image carries (text, EXIF, color profile, XMP) is kept where the format can
+        hold it.
 
         Raises:
-            ValueError: If the format is unknown/unsupported
+            ValueError: If the format can't be written
         """
-        format_upper = format_extension.upper()
-
-        match format_upper:
-            case "JPEG" | "JPG":
-                match current_mode:
-                    case "RGBA":
-                        return "RGB"
-                    case "LA":
-                        return "L"
-                    case "P":
-                        return "RGB"
-                    case "CMYK":
-                        return "RGB"
-
-            case "PNG":
-                match current_mode:
-                    case "CMYK":
-                        return "RGB"
-
-            case "WEBP":
-                match current_mode:
-                    case "CMYK":
-                        return "RGB"
-                    case "L":
-                        return "RGB"
-                    case "LA":
-                        return "RGBA"
-                    case "P":
-                        return "RGB"
-                    case "1":
-                        return "RGB"
-
-            case "BMP":
-                match current_mode:
-                    case "CMYK":
-                        return "RGB"
-                    case "RGBA":
-                        return "RGB"
-                    case "LA":
-                        return "L"
-
-            case "TIFF":
-                # TIFF supports almost everything, no conversions needed
-                pass
-
+        try:
+            image_format = validate_image_format(format_extension, "output_format")
+        except ValueError as e:
+            msg = f"Unsupported image format '{format_extension}'. Pick another 'Output Format'."
+            raise ValueError(msg) from e
+        prepared = self._prepared_for_format(image, image_format)
+        match image_format:
+            case ImageFormat.JPEG:
+                return prepared.encode(image_format, quality=self._get_quality_setting(), optimize=True)
+            case ImageFormat.WEBP:
+                return prepared.encode(image_format, quality=self._get_quality_setting())
+            case ImageFormat.PNG:
+                return prepared.encode(image_format, optimize=True)
             case _:
-                msg = f"Unsupported image format '{format_extension}'. Pick another 'Output Format'."
-                raise ValueError(msg)
+                return prepared.encode(image_format)
 
-        # Success path: current mode is compatible
-        return current_mode
-
-    def _create_converted_image_for_format_if_necessary(
-        self, pil_image: Image.Image, format_extension: str
-    ) -> Image.Image | None:
-        """Convert image to compatible mode if necessary for the target format.
-
-        Args:
-            pil_image: The PIL Image to check and potentially convert
-            format_extension: The target format (e.g., "JPEG", "PNG", "WEBP")
-
-        Returns:
-            Image.Image | None: A new converted image if conversion was necessary, None if original is compatible
-        """
-        current_mode = pil_image.mode
-
-        # Determine target mode for conversion
-        target_mode = self._determine_target_mode(current_mode, format_extension)
-
-        # If target mode is same as current mode, no conversion needed
-        if target_mode == current_mode:
-            return None
-
-        # Log the conversion
-        logger.warning(
-            f"{self.name}: Converting image from mode '{current_mode}' to '{target_mode}' for {format_extension.upper()} format"
-        )
-
-        # Special handling for RGBA -> RGB: composite with white background
-        if current_mode == "RGBA" and target_mode == "RGB":
-            background = Image.new("RGB", pil_image.size, (255, 255, 255))
-            background.paste(pil_image, mask=pil_image.split()[3])  # Use alpha channel as mask
-            return background
-
-        # Standard conversion for all other cases
-        converted_image = pil_image.copy()
-        return converted_image.convert(target_mode)
-
-    def _save_image_artifact(self, pil_image: Image.Image, format_extension: str) -> ImageUrlArtifact:
-        """Save PIL image and return ImageUrlArtifact."""
-        # Check if image needs conversion for the target format.
-        # This will create a copy in the new format ONLY if the source image required a conversion
-        # (does not alter the original).
-        converted_image = self._create_converted_image_for_format_if_necessary(pil_image, format_extension)
-        image_to_save = converted_image if converted_image is not None else pil_image
-
-        # Convert PIL image to bytes
-        buffer = io.BytesIO()
-        image_to_save.save(buffer, format=format_extension.upper())
-        image_bytes = buffer.getvalue()
-
+    def _save_image_artifact(self, image: GriptapeImage, format_extension: str) -> ImageUrlArtifact:
+        """Save the image and return an ImageUrlArtifact."""
+        image_bytes = self._encode(image, format_extension)
         dest = self._output_file.build_file()
         saved = dest.write_bytes(image_bytes)
         return ImageUrlArtifact(saved.location)
 
-    def _pil_to_bytes(self, pil_image: Image.Image, format_extension: str) -> bytes:
-        """Convert PIL image to bytes in the specified format."""
-        # Use existing utility for basic conversion
-        # Note: This utility doesn't support quality settings, so we keep this method
-        # for cases where we need quality control
-        output_format = format_extension.upper()
-        quality = self._get_quality_setting()
-
-        # Check if image needs conversion for the target format.
-        # This will create a copy in the new format ONLY if the source image required a conversion
-        # (does not alter the original).
-        converted_image = self._create_converted_image_for_format_if_necessary(pil_image, format_extension)
-        image_to_save = converted_image if converted_image is not None else pil_image
-
-        # Prepare save options
-        save_kwargs = {}
-
-        if output_format in ["JPEG", "JPG"]:
-            save_kwargs["quality"] = quality
-            save_kwargs["optimize"] = True
-        elif output_format == "WEBP":
-            save_kwargs["quality"] = quality
-            save_kwargs["lossless"] = False
-        elif output_format == "PNG":
-            save_kwargs["optimize"] = True
-
-        # Convert to bytes
-        buffer = io.BytesIO()
-        image_to_save.save(buffer, format=output_format, **save_kwargs)
-        buffer.seek(0)
-        return buffer.getvalue()
+    def _image_to_bytes(self, image: GriptapeImage, format_extension: str) -> bytes:
+        """Encode the image in the specified format, at the quality setting for lossy formats."""
+        return self._encode(image, format_extension)
 
     def _cleanup_temp_file(self, file_path: Path) -> None:
         """Clean up temporary file with error handling."""
@@ -363,11 +270,12 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         except Exception as e:
             self.append_value_to_parameter("logs", f"Warning: Failed to clean up temporary file: {e}\n")
 
-    def _log_image_properties(self, pil_image: Image.Image) -> None:
+    def _log_image_properties(self, image: GriptapeImage) -> None:
         """Log detected image properties."""
         self.append_value_to_parameter(
             "logs",
-            f"Processing image: {pil_image.width}x{pil_image.height}, mode: {pil_image.mode}, format: {pil_image.format}\n",
+            f"Processing image: {image.width}x{image.height}, channels: {image.channels}, "
+            f"pixel type: {image.pixel_type}, format: {image.format}\n",
         )
 
     def _log_format_detection(self, detected_format: str) -> None:
@@ -400,12 +308,12 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         """Validate custom parameters. Override in subclasses if needed."""
         return None
 
-    def _process(self, pil_image: Image.Image, detected_format: str, **kwargs) -> None:
+    def _process(self, image: GriptapeImage, detected_format: str, **kwargs) -> None:
         """Common processing wrapper."""
         self.append_value_to_parameter("logs", f"{self._get_processing_description()}\n")
 
         # Process image using the custom implementation
-        processed_image = self._process_image(pil_image, **kwargs)
+        processed_image = self._process_image(image, **kwargs)
 
         # Get output format
         output_format = self._get_output_format(detected_format)
@@ -446,9 +354,9 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
 
         try:
             # Get image input data
-            pil_image, detected_format = self._get_image_input_data()
+            image, detected_format = self._get_image_input_data()
             self._log_format_detection(detected_format)
-            self._log_image_properties(pil_image)
+            self._log_image_properties(image)
 
             # Get custom parameters from subclasses
             custom_params = self._get_custom_parameters()
@@ -458,11 +366,13 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
 
             # Run the image processing
             self.append_value_to_parameter("logs", "[Started image processing..]\n")
-            yield lambda: self._process(pil_image, detected_format, **custom_params)
+            yield lambda: self._process(image, detected_format, **custom_params)
             self.append_value_to_parameter("logs", "[Finished image processing.]\n")
 
             # Success case
-            success_details = f"Successfully processed image: {self._get_processing_description()} ({pil_image.width}x{pil_image.height})"
+            success_details = (
+                f"Successfully processed image: {self._get_processing_description()} ({image.width}x{image.height})"
+            )
             self._set_status_results(was_successful=True, result_details=f"SUCCESS: {success_details}")
             logger.info(f"{self.__class__.__name__} '{self.name}': {success_details}")
 

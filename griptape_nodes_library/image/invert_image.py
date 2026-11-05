@@ -5,14 +5,18 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.image import GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
+    converted,
     dict_to_image_url_artifact,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
 )
+
+_RGBA_CHANNELS = 4
 
 
 class InvertImage(DataNode):
@@ -72,26 +76,12 @@ class InvertImage(DataNode):
         """
         try:
             # Load image
-            image_pil = load_pil_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value)
 
-            # Invert the image based on its mode
-            match image_pil.mode:
-                case "RGBA":
-                    # For RGBA images, invert RGB channels but keep alpha
-                    rgb_image = image_pil.convert("RGB")
-                    inverted_rgb = Image.eval(rgb_image, lambda x: 255 - x)
-                    # Convert back to RGBA and preserve original alpha
-                    inverted_image = inverted_rgb.convert("RGBA")
-                    # Copy original alpha channel
-                    original_alpha = image_pil.getchannel("A")
-                    inverted_image.putalpha(original_alpha)
-                case "RGB":
-                    # Already RGB, invert directly
-                    inverted_image = Image.eval(image_pil, lambda x: 255 - x)
-                case _:
-                    # Convert to RGB for other modes
-                    image_to_invert = image_pil.convert("RGB")
-                    inverted_image = Image.eval(image_to_invert, lambda x: 255 - x)
+            # Invert the image based on its channels: RGBA keeps its alpha, other modes become RGB
+            mode = ImageMode.RGBA if image.channels == _RGBA_CHANNELS else ImageMode.RGB
+            image_to_invert = converted(image, mode)
+            inverted_image = GriptapeImagePipeline(image_to_invert).invert().end()
 
             # Save output image and create URL artifact
             image_bytes = image_to_bytes(inverted_image, "PNG")

@@ -7,13 +7,13 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
 )
 
 
@@ -70,7 +70,7 @@ class BaseAlphaConversion(DataNode, ABC):
         self._output_file.add_parameter()
 
     @abstractmethod
-    def _convert(self, image: Image.Image, *, invert: bool) -> Image.Image: ...
+    def _convert(self, image: GriptapeImage, *, invert: bool) -> GriptapeImage: ...
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
@@ -97,7 +97,7 @@ class BaseAlphaConversion(DataNode, ABC):
         if run_key == self._last_run_key and self.get_parameter_value("output") is not None:
             return
 
-        result = self._convert(load_pil_from_url(input_image.value), invert=invert)
+        result = self._convert(load_image_from_url(input_image.value), invert=invert)
         saved = self._output_file.build_file().write_bytes(image_to_bytes(result, "PNG"))
         output_artifact = ImageUrlArtifact(saved.location)
         self.set_parameter_value("output", output_artifact)

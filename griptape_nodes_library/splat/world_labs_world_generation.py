@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -18,8 +17,8 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.files.file import File, FileDestination, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.traits.options import Options
-from PIL import Image
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.splat.parameter_splat import ParameterSplat
@@ -652,8 +651,12 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         """Detect media file extension from bytes."""
         try:
             # Try as image first
-            with Image.open(BytesIO(media_bytes)) as img:
-                image_format = (img.format or "").upper()
+            with GriptapeImage.open(media_bytes) as img:
+                image_format = img.format
+                # A container no image format names (a movie a video plugin can read) isn't an image
+                if image_format is None:
+                    msg = "Not an image format"
+                    raise ValueError(msg)  # noqa: TRY301
                 format_map = {
                     "JPEG": "jpg",
                     "JPG": "jpg",

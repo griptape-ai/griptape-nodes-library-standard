@@ -11,15 +11,20 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from PIL import Image, ImageFilter
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     dict_to_image_url_artifact,
+    edited_pixels,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
 )
+
+# Channel counts that carry an alpha channel
+_ALPHA_CHANNEL_COUNTS = frozenset({2, 4})
 
 
 class GaussianEdgeFade(DataNode):
@@ -219,21 +224,15 @@ class GaussianEdgeFade(DataNode):
     ) -> ImageUrlArtifact:
         """Apply Gaussian-blurred alpha fade to specified edges."""
         # Load original image
-        original_image = load_pil_from_url(image_artifact.value)
+        original_image = load_image_from_url(image_artifact.value)
 
-        # Store original alpha channel if preserving it
-        original_alpha = None
-        if not replace_mask and original_image.mode == "RGBA":
-            original_alpha = original_image.getchannel("A")
+        # Preserve the original alpha channel if the image has one
+        preserve_alpha = not replace_mask and original_image.channels in _ALPHA_CHANNEL_COUNTS
 
-        # Convert to RGBA to support alpha channel
-        if original_image.mode != "RGBA":
-            original_image = original_image.convert("RGBA")
-
-        width, height = original_image.size
+        width, height = original_image.width, original_image.height
 
         # Create alpha mask (initially fully opaque - white)
-        alpha_mask = Image.new("L", (width, height), 255)
+        alpha_mask = np.full((height, width), 255, dtype=np.uint8)
 
         # Calculate fade distance in pixels
         if fade_mode == "percentage":
@@ -250,8 +249,8 @@ class GaussianEdgeFade(DataNode):
 
         # Create gradients for each edge if selected
         if fade_pixels > 0:
-            # Convert to numpy array for easier manipulation
-            mask_array = np.array(alpha_mask, dtype=np.float32)
+            # Work in float for easier manipulation
+            mask_array = alpha_mask.astype(np.float32)
 
             if edge_shape == "square":
                 # Square edges - independent fade for each edge
@@ -290,30 +289,34 @@ class GaussianEdgeFade(DataNode):
                 # Rounded edges - calculate distance from rounded rectangle
                 mask_array = self._create_rounded_mask(width, height, fade_pixels, fade_curve, apply_edges)
 
-            # Convert back to PIL Image
-            alpha_mask = Image.fromarray(mask_array.astype(np.uint8), mode="L")
+            # Convert back to 8-bit
+            alpha_mask = mask_array.astype(np.uint8)
 
         # Apply Gaussian blur to the mask for smooth transitions
         if blur_radius > 0:
-            alpha_mask = alpha_mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+            blurred = GriptapeImagePipeline(GriptapeImage.from_array(alpha_mask)).gaussian_blur(blur_radius).end()
+            alpha_mask = blurred.to_array()[:, :, 0]
 
-        # Combine with original alpha channel if preserve mode
-        if not replace_mask and original_alpha is not None:
-            # Convert both to numpy arrays for multiplication
-            original_alpha_array = np.array(original_alpha, dtype=np.float32)
-            new_alpha_array = np.array(alpha_mask, dtype=np.float32)
+        def apply_alpha(pixels: np.ndarray) -> np.ndarray:
+            result = pixels.copy()
+            new_alpha = alpha_mask
 
-            # Multiply the alpha channels (normalized to 0-1 range)
-            combined_alpha_array = (original_alpha_array / 255.0) * (new_alpha_array / 255.0) * 255.0
+            # Combine with original alpha channel if preserve mode
+            if preserve_alpha:
+                # Multiply the alpha channels (normalized to 0-1 range)
+                original_alpha_array = pixels[:, :, 3].astype(np.float32)
+                new_alpha_array = alpha_mask.astype(np.float32)
+                combined_alpha_array = (original_alpha_array / 255.0) * (new_alpha_array / 255.0) * 255.0
+                new_alpha = combined_alpha_array.astype(np.uint8)
 
-            # Convert back to PIL Image
-            alpha_mask = Image.fromarray(combined_alpha_array.astype(np.uint8), mode="L")
+            # Apply the alpha mask to the image
+            result[:, :, 3] = new_alpha
+            return result
 
-        # Apply the alpha mask to the original image
-        original_image.putalpha(alpha_mask)
+        result_image = edited_pixels(original_image, ImageMode.RGBA, apply_alpha)
 
         # Save and return result
-        image_bytes = image_to_bytes(original_image, "PNG")
+        image_bytes = image_to_bytes(result_image, "PNG")
         dest = self._output_file.build_file()
         saved = dest.write_bytes(image_bytes)
         result_artifact = ImageUrlArtifact(saved.location)

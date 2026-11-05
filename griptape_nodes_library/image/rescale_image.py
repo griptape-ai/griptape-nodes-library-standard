@@ -4,13 +4,17 @@ from typing import Any
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ResizeFilter
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from PIL import Image
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
+from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact, load_image_from_url
+
+# Channel counts that carry an alpha channel
+_ALPHA_CHANNEL_COUNTS = frozenset({2, 4})
 
 
 class RescaleImage(BaseImageProcessor):
@@ -237,8 +241,8 @@ class RescaleImage(BaseImageProcessor):
             msg = f"Invalid aspect ratio '{ratio_str}'. Provide a ratio (e.g. '16:9') or a scalar (e.g. '1.77')."
             raise ValueError(msg) from None
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
-        """Process the PIL image by rescaling it."""
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
+        """Process the image by rescaling it."""
         resize_mode = kwargs.get("resize_mode", self.RESIZE_MODE_PERCENTAGE)
         target_size = kwargs.get("target_size", self.DEFAULT_TARGET_SIZE)
         percentage_scale = kwargs.get("percentage_scale", self.DEFAULT_PERCENTAGE_SCALE)
@@ -249,28 +253,28 @@ class RescaleImage(BaseImageProcessor):
         background_color = kwargs.get("background_color", "transparent")
         resample_filter = kwargs.get("resample_filter", "lanczos")
 
-        # Get the resample filter constant
-        resample_constant = self._get_resample_constant(resample_filter)
+        # Get the resize filter
+        resize_filter = self._get_resize_filter(resample_filter)
 
         # Calculate new dimensions based on resize mode
         if resize_mode == self.RESIZE_MODE_WIDTH:
             # Resize by width, maintain aspect ratio
-            ratio = target_size / pil_image.width
+            ratio = target_size / image.width
             new_width = target_size
-            new_height = int(pil_image.height * ratio)
-            resized_image = pil_image.resize((new_width, new_height), resample_constant)
+            new_height = int(image.height * ratio)
+            resized_image = GriptapeImagePipeline(image).resize(new_width, new_height, resize_filter).end()
         elif resize_mode == self.RESIZE_MODE_HEIGHT:
             # Resize by height, maintain aspect ratio
-            ratio = target_size / pil_image.height
-            new_width = int(pil_image.width * ratio)
+            ratio = target_size / image.height
+            new_width = int(image.width * ratio)
             new_height = target_size
-            resized_image = pil_image.resize((new_width, new_height), resample_constant)
+            resized_image = GriptapeImagePipeline(image).resize(new_width, new_height, resize_filter).end()
         elif resize_mode == self.RESIZE_MODE_PERCENTAGE:
             # Resize by percentage scale
             scale_factor = percentage_scale / 100.0
-            new_width = int(pil_image.width * scale_factor)
-            new_height = int(pil_image.height * scale_factor)
-            resized_image = pil_image.resize((new_width, new_height), resample_constant)
+            new_width = int(image.width * scale_factor)
+            new_height = int(image.height * scale_factor)
+            resized_image = GriptapeImagePipeline(image).resize(new_width, new_height, resize_filter).end()
         elif resize_mode == self.RESIZE_MODE_WIDTH_HEIGHT:
             # Resize to specific width and height with fit mode
             resize_config = {
@@ -278,74 +282,69 @@ class RescaleImage(BaseImageProcessor):
                 "target_height": target_height,
                 "fit_mode": fit_mode,
                 "background_color": background_color,
-                "resample_constant": resample_constant,
+                "resize_filter": resize_filter,
             }
-            resized_image = self._resize_with_fit_mode(pil_image, resize_config)
+            resized_image = self._resize_with_fit_mode(image, resize_config)
         elif resize_mode == self.RESIZE_MODE_ASPECT_RATIO:
             # Derive target dimensions from the desired ratio, then apply fit mode
             target_ratio = self._parse_aspect_ratio(aspect_ratio_str)
             if target_ratio >= 1:
                 # Landscape/square — keep width, compute height
-                tw = pil_image.width
-                th = max(1, round(pil_image.width / target_ratio))
+                tw = image.width
+                th = max(1, round(image.width / target_ratio))
             else:
                 # Portrait — keep height, compute width
-                th = pil_image.height
-                tw = max(1, round(pil_image.height * target_ratio))
+                th = image.height
+                tw = max(1, round(image.height * target_ratio))
             resize_config = {
                 "target_width": tw,
                 "target_height": th,
                 "fit_mode": fit_mode,
                 "background_color": background_color,
-                "resample_constant": resample_constant,
+                "resize_filter": resize_filter,
             }
-            resized_image = self._resize_with_fit_mode(pil_image, resize_config)
+            resized_image = self._resize_with_fit_mode(image, resize_config)
         else:
             msg = f"Unknown resize mode: {resize_mode!r}"
             raise ValueError(msg)
 
         return resized_image
 
-    def _get_resample_constant(self, filter_name: str) -> int:
-        """Get the PIL resample constant for the given filter name."""
-        filter_map = {
-            "nearest": Image.Resampling.NEAREST,
-            "box": Image.Resampling.BOX,
-            "bilinear": Image.Resampling.BILINEAR,
-            "hamming": Image.Resampling.HAMMING,
-            "bicubic": Image.Resampling.BICUBIC,
-            "lanczos": Image.Resampling.LANCZOS,
-        }
-        return filter_map.get(filter_name, Image.Resampling.LANCZOS)
+    def _get_resize_filter(self, filter_name: str) -> ResizeFilter:
+        """Get the resize filter for the given filter name, defaulting to Lanczos."""
+        try:
+            return ResizeFilter(filter_name)
+        except ValueError:
+            return ResizeFilter.LANCZOS
 
-    def _resize_with_fit_mode(self, pil_image: Image.Image, config: dict) -> Image.Image:
+    def _resize_with_fit_mode(self, image: GriptapeImage, config: dict) -> GriptapeImage:
         """Resize image to target dimensions using the specified fit mode."""
         target_width = max(1, config["target_width"])
         target_height = max(1, config["target_height"])
         fit_mode = config["fit_mode"]
         background_color = config["background_color"]
-        resample_constant = config["resample_constant"]
+        resize_filter = config["resize_filter"]
 
         if fit_mode == self.FIT_MODE_STRETCH:
             # Stretch to exact dimensions, ignoring aspect ratio
-            return pil_image.resize((target_width, target_height), resample_constant)
+            return GriptapeImagePipeline(image).resize(target_width, target_height, resize_filter).end()
 
         # Calculate scale factors for fit and fill modes
-        scale_x = target_width / pil_image.width
-        scale_y = target_height / pil_image.height
+        scale_x = target_width / image.width
+        scale_y = target_height / image.height
 
         if fit_mode == self.FIT_MODE_FIT:
             # Fit mode: maintain aspect ratio, fit entirely within target, output exactly target_w x target_h
             scale = min(scale_x, scale_y)
-            new_width = int(pil_image.width * scale)
-            new_height = int(pil_image.height * scale)
+            new_width = int(image.width * scale)
+            new_height = int(image.height * scale)
 
             # Ensure minimum dimensions
             new_width = max(1, new_width)
             new_height = max(1, new_height)
 
             # Resize the image
-            resized_image = pil_image.resize((new_width, new_height), resample_constant)
+            resized_image = GriptapeImagePipeline(image).resize(new_width, new_height, resize_filter).end()
 
             # Create canvas with target dimensions and background color
             canvas = self._create_canvas(target_width, target_height, background_color)
@@ -354,30 +353,25 @@ class RescaleImage(BaseImageProcessor):
             pad_x = (target_width - new_width) // 2
             pad_y = (target_height - new_height) // 2
 
-            # Ensure canvas mode matches image mode for proper blending
-            if resized_image.mode == "RGBA" and canvas.mode != "RGBA":
-                canvas = canvas.convert("RGBA")
+            # Give an opaque canvas an alpha channel so a transparent image keeps its transparency
+            if resized_image.channels in _ALPHA_CHANNEL_COUNTS and canvas.channels not in _ALPHA_CHANNEL_COUNTS:
+                canvas = GriptapeImagePipeline(canvas).to_rgba().end()
 
-            # Paste the resized image onto the canvas
-            if resized_image.mode == "RGBA":
-                canvas.paste(resized_image, (pad_x, pad_y), resized_image)
-            else:
-                canvas.paste(resized_image, (pad_x, pad_y))
-
-            return canvas
+            # Composite the resized image onto the canvas
+            return GriptapeImagePipeline(canvas).composite(resized_image, pad_x, pad_y).end()
 
         if fit_mode == self.FIT_MODE_FILL:
             # Fill mode: maintain aspect ratio, fill target dimensions (may crop)
             scale = max(scale_x, scale_y)
-            new_width = int(pil_image.width * scale)
-            new_height = int(pil_image.height * scale)
+            new_width = int(image.width * scale)
+            new_height = int(image.height * scale)
 
             # Ensure minimum dimensions
             new_width = max(1, new_width)
             new_height = max(1, new_height)
 
             # Resize the image
-            resized_image = pil_image.resize((new_width, new_height), resample_constant)
+            resized_image = GriptapeImagePipeline(image).resize(new_width, new_height, resize_filter).end()
 
             # Crop to target dimensions from center
             if new_width != target_width or new_height != target_height:
@@ -385,16 +379,16 @@ class RescaleImage(BaseImageProcessor):
                 top = (new_height - target_height) // 2
                 right = left + target_width
                 bottom = top + target_height
-                return resized_image.crop((left, top, right, bottom))
+                return GriptapeImagePipeline(resized_image).crop(left, top, right, bottom).end()
 
             return resized_image
         msg = f"Unknown fit mode: {fit_mode!r}"
         raise ValueError(msg)
 
-    def _create_canvas(self, width: int, height: int, background_color: str) -> Image.Image:
+    def _create_canvas(self, width: int, height: int, background_color: str) -> GriptapeImage:
         """Create a canvas with the specified background color."""
         if background_color == "transparent":
-            return Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            return GriptapeImage.new(width, height, (0, 0, 0, 0))
 
         # Parse hex color
         if background_color.startswith("#"):
@@ -407,19 +401,19 @@ class RescaleImage(BaseImageProcessor):
                 pass
             else:
                 # Invalid hex, default to white
-                return Image.new("RGB", (width, height), (255, 255, 255))
+                return GriptapeImage.new(width, height, (255, 255, 255))
 
             try:
                 r = int(hex_color[0:2], 16)
                 g = int(hex_color[2:4], 16)
                 b = int(hex_color[4:6], 16)
-                return Image.new("RGB", (width, height), (r, g, b))
+                return GriptapeImage.new(width, height, (r, g, b))
             except ValueError:
                 # Invalid hex, default to white
-                return Image.new("RGB", (width, height), (255, 255, 255))
+                return GriptapeImage.new(width, height, (255, 255, 255))
 
         # Default to white for other formats
-        return Image.new("RGB", (width, height), (255, 255, 255))
+        return GriptapeImage.new(width, height, (255, 255, 255))
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate rescale parameters."""
@@ -498,20 +492,16 @@ class RescaleImage(BaseImageProcessor):
         button_details: ButtonDetailsMessagePayload,
     ) -> NodeMessageResult | None:
         """Detect the input image's aspect ratio and populate the aspect_ratio parameter."""
-        from griptape_nodes_library.utils.image_utils import load_pil_from_url
-
         image = self.get_parameter_value("input_image")
         if image is None:
             return NodeMessageResult(success=False, details="No input image connected.", response=button_details)
 
         try:
             if hasattr(image, "to_dict"):
-                from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact
-
                 image = dict_to_image_url_artifact(image.to_dict())
 
-            pil_image = load_pil_from_url(image.value)
-            w, h = pil_image.width, pil_image.height
+            loaded = load_image_from_url(image.value)
+            w, h = loaded.width, loaded.height
             divisor = gcd(w, h)
             ratio_str = f"{w // divisor}:{h // divisor}"
             self.set_parameter_value("aspect_ratio", ratio_str)

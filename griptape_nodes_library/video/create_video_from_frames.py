@@ -24,12 +24,14 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageMetadata
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
-from PIL import Image
 
 # static_ffmpeg is dynamically installed by the library loader at runtime
 from static_ffmpeg import run  # type: ignore[import-untyped]
+
+from griptape_nodes_library.utils.image_utils import validate_image_format
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -37,6 +39,8 @@ __all__ = ["CreateVideoFromFrames"]
 
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 DEFAULT_FRAME_RATE = 30.0
+# Transparent pixels are composited over this, since frames are written as RGB
+FRAME_BACKGROUND = (255, 255, 255)
 
 # Token pattern that matches ####, @@@@, %04d, %d, etc.
 _SEQUENCE_TOKEN_RE = re.compile(r"(#+|@+|%\d*d)")
@@ -445,8 +449,9 @@ class CreateVideoFromFrames(SuccessFailureNode):
             logger.warning("%s skipping empty image file: %s", self.name, image_path)
             return False
         try:
-            with Image.open(image_path) as img:
-                img.verify()
+            with GriptapeImage.open(image_path) as img:
+                # Decoding fails for a file that isn't an image or is cut short
+                img.to_array()
             return True
         except Exception as e:
             logger.warning("%s skipping invalid/corrupted image file %s: %s", self.name, image_path, e)
@@ -457,7 +462,7 @@ class CreateVideoFromFrames(SuccessFailureNode):
         if not image_path.exists():
             return ("PNG", ".png")
         try:
-            with Image.open(image_path) as img:
+            with GriptapeImage.open(image_path) as img:
                 actual_format = img.format
                 if actual_format:
                     format_to_ext = {
@@ -478,20 +483,14 @@ class CreateVideoFromFrames(SuccessFailureNode):
 
     def _normalize_image_for_ffmpeg(self, image_path: Path, output_path: Path, target_format: str) -> None:
         """Convert image to RGB and save in target_format for FFmpeg compatibility."""
-        with Image.open(image_path) as img:
-            if img.mode in ("RGBA", "LA", "P"):
-                rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-                if img.mode == "P":
-                    img = img.convert("RGBA")
-                rgb_img.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
-                img = rgb_img
-            elif img.mode != "RGB":
-                img = img.convert("RGB")
+        image_format = validate_image_format(target_format, "target_format")
+        with GriptapeImage.open(image_path) as img:
+            rgb_img = GriptapeImagePipeline(img).to_uint8().flatten(FRAME_BACKGROUND).end()
 
-            save_kwargs: dict[str, Any] = {}
+            quality = None
             if target_format in ("JPEG", "WEBP"):
-                save_kwargs["quality"] = 95
-            img.save(output_path, target_format, **save_kwargs)
+                quality = 95
+            output_path.write_bytes(rgb_img.encode(image_format, quality=quality, metadata=ImageMetadata()))
 
     def _process_respect_frame_numbers(self, frame_paths: list[Path]) -> list[Path]:
         """Duplicate frames to fill gaps in frame numbering."""

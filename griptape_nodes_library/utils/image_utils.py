@@ -1,33 +1,29 @@
+"""Shared image helpers, built on the engine's ``GriptapeImage`` and ``GriptapeImagePipeline``.
+
+Images are ``GriptapeImage`` objects. Pixel work NumPy does better than a pipeline step goes
+through ``edited_pixels``, which keeps the image's metadata.
+"""
+
 import base64
-import io
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from io import BytesIO
+from enum import StrEnum
+from math import gcd
 from typing import Any, NamedTuple
 from urllib.error import URLError
 from urllib.parse import urlparse
 
 import numpy as np
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape.loaders import ImageLoader
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
-from PIL import Image, ImageDraw, ImageFilter
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat, PixelType, ResizeFilter
 from requests.exceptions import RequestException
 
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS
 
 logger = logging.getLogger("griptape_nodes")
-
-# OpenCV is faster for morphological operations, so we use it if it's available.
-# If it's not available, we use PIL's MinFilter/MaxFilter.
-try:
-    import cv2  # type: ignore[reportMissingImports]
-
-    OPENCV_AVAILABLE = True
-except ImportError:
-    OPENCV_AVAILABLE = False
-    cv2 = None  # type: ignore[assignment]
 
 # Constants for placeholder images
 DEFAULT_PLACEHOLDER_WIDTH = 400
@@ -37,79 +33,54 @@ DEFAULT_TIMEOUT = 30
 # Supported image file extensions
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
 
-# Common PIL-supported image formats
-SUPPORTED_PIL_FORMATS = {
-    "PNG",
-    "JPEG",
-    "JPG",
-    "WEBP",
-    "GIF",
-    "BMP",
-    "TIFF",
-    "TGA",
-    "ICO",
-    "PPM",
-    "PBM",
-    "PGM",
-    "XBM",
-    "XPM",
-    "PCX",
-    "SGI",
-    "SPIDER",
-    "EPS",
-    "IM",
-    "MSP",
-    "PALM",
-    "PDF",
-    "PCD",
-    "PIXAR",
-}
+# Formats GriptapeImage can write. MPO is only read, as JPEG.
+WRITABLE_IMAGE_FORMATS = frozenset(set(ImageFormat) - {ImageFormat.MPO})
 
-SIXTEEN_BIT_TO_EIGHT_BIT = 1 / 256
+MAX_UINT8 = 255
+
+# Bytes from the start of a file checked for an SVG tag
+_SVG_SNIFF_BYTES = 100
+
+_GRAY_CHANNELS = 1
+_GRAY_ALPHA_CHANNELS = 2
+_RGB_CHANNELS = 3
+_RGBA_CHANNELS = 4
+
+# EXIF orientation of an image stored as it is displayed
+_UPRIGHT_ORIENTATION = 1
+
+# Pillow's ITU-R 601 luma weights, in 16-bit fixed point
+_LUMA_WEIGHTS = (19595, 38470, 7471)
 
 
-def get_supported_pil_formats() -> set[str]:
-    """Get a set of supported PIL image formats.
+class ImageMode(StrEnum):
+    """An 8-bit channel layout, named as Pillow names its modes."""
 
-    Returns:
-        Set of supported format strings (e.g., "PNG", "JPEG", etc.)
-    """
-    return SUPPORTED_PIL_FORMATS.copy()
-
-
-def is_valid_pil_format(format_str: str) -> bool:
-    """Check if a format string is supported by PIL.
-
-    Args:
-        format_str: Format string to validate (e.g., "PNG", "JPEG")
-
-    Returns:
-        True if the format is supported, False otherwise
-    """
-    return format_str.upper() in SUPPORTED_PIL_FORMATS
+    GRAY = "L"
+    GRAY_ALPHA = "LA"
+    RGB = "RGB"
+    RGBA = "RGBA"
 
 
-def validate_pil_format(format_str: str, param_name: str = "format") -> None:
-    """Validate that a format string is supported by PIL.
-
-    Args:
-        format_str: Format string to validate
-        param_name: Name of the parameter for error messages
+def validate_image_format(format_str: str, param_name: str = "format") -> ImageFormat:
+    """Return the format ``format_str`` names ("png", "JPG", ...), if images can be written in it.
 
     Raises:
-        ValueError: If the format is not supported
+        ValueError: If the format is unknown or can't be written
     """
-    if not is_valid_pil_format(format_str):
-        supported = ", ".join(sorted(SUPPORTED_PIL_FORMATS))
+    image_format = ImageFormat.from_name(format_str)
+    if image_format is None or image_format not in WRITABLE_IMAGE_FORMATS:
+        supported = ", ".join(sorted(WRITABLE_IMAGE_FORMATS))
         msg = f"Unsupported {param_name}: '{format_str}'. Supported formats: {supported}"
         raise ValueError(msg)
+    return image_format
 
 
 @dataclass
 class ResizedImageResult:
     """Result of resizing an image for a cell."""
 
-    image: Image.Image | None
+    image: GriptapeImage | None
     x_offset: int
     y_offset: int
 
@@ -120,120 +91,151 @@ def parse_hex_color(color: str) -> tuple[int, int, int]:
     return (int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16))
 
 
-def grayscale_to_eight_bit(image: Image.Image) -> Image.Image:
-    """Scale 16-bit and float grayscale to 8-bit `L`, since `convert()` clips those modes instead of scaling them."""
-    if image.mode == "I" or image.mode.startswith("I;16"):
-        return image.convert("I").point(lambda value: value * SIXTEEN_BIT_TO_EIGHT_BIT).convert("L")
-    if image.mode == "F":
-        return image.point(lambda value: value * 255).convert("L")
-    return image
+def luma(rgb: np.ndarray) -> np.ndarray:
+    """Return the uint8 gray of uint8 RGB pixels, as Pillow's ``convert("L")`` computes it."""
+    red, green, blue = (rgb[..., index].astype(np.uint32) for index in range(_RGB_CHANNELS))
+    weighted = red * _LUMA_WEIGHTS[0] + green * _LUMA_WEIGHTS[1] + blue * _LUMA_WEIGHTS[2]
+    return ((weighted + 0x8000) >> 16).astype(np.uint8)
 
 
-def scale_alpha(image: Image.Image, opacity: float) -> Image.Image:
-    """Scale an image's alpha channel by `opacity`, adding one if it has none."""
-    rgba = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
-    if opacity >= 1.0:
-        return rgba
-    rgba.putalpha(rgba.getchannel("A").point([int(a * opacity + 0.5) for a in range(256)]))
-    return rgba
+def converted(image: GriptapeImage, mode: ImageMode) -> GriptapeImage:
+    """Return ``image`` as 8-bit ``mode``, keeping its metadata.
 
-
-def composite_over(base: Image.Image, overlay: Image.Image, position: tuple[int, int]) -> Image.Image:
-    """Composite `overlay` over `base` at `position` using Porter-Duff "over".
-
-    `Image.paste` with a mask blends toward the overlay's colour while also writing the
-    overlay's alpha into the base, which both mis-weights semi-transparent pixels and
-    punches holes in an opaque base. Compositing through a full-size transparent canvas
-    keeps the operation associative, so stacking many layers stays correct.
+    16-bit and float pixels are scaled to 8 bits rather than clipped. One-channel float pixels are
+    data such as masks and depth, scaled linearly from 0-1; float color is scene-linear and gets the
+    sRGB curve. Gray gets the luma of color, as Pillow computes it.
     """
-    canvas = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    canvas.paste(overlay, position)
-    return Image.alpha_composite(base if base.mode == "RGBA" else base.convert("RGBA"), canvas)
+    pipeline = GriptapeImagePipeline(image)
+    if image.channels == _GRAY_CHANNELS and image.pixel_type.is_float:
+        pipeline.apply(lambda pixels: np.round(np.clip(pixels, 0.0, 1.0) * MAX_UINT8).astype(np.uint8))
+    pipeline.to_uint8()
+    match mode:
+        case ImageMode.GRAY:
+            pipeline.to_rgb().apply(luma)
+        case ImageMode.GRAY_ALPHA:
+            pipeline.to_rgba().apply(lambda pixels: np.dstack([luma(pixels), pixels[:, :, 3]]))
+        case ImageMode.RGB:
+            pipeline.to_rgb()
+        case ImageMode.RGBA:
+            pipeline.to_rgba()
+        case _:
+            msg = f"Unknown image mode: {mode!r}"
+            raise ValueError(msg)
+    return pipeline.end()
 
 
-def premultiply_rgba(image: Image.Image, *, invert: bool = False) -> Image.Image:
+def pixels_of(image: GriptapeImage, mode: ImageMode) -> np.ndarray:
+    """Return ``image``'s pixels as a height x width x channels uint8 array in ``mode``."""
+    with converted(image, mode) as result:
+        return result.to_array()
+
+
+def edited_pixels(image: GriptapeImage, mode: ImageMode, function: Callable[[np.ndarray], np.ndarray]) -> GriptapeImage:
+    """Convert ``image`` to 8-bit ``mode``, then replace its pixels with ``function``'s result, keeping the metadata.
+
+    ``function`` gets the uint8 array ``pixels_of`` would return and may return any array an image
+    can hold: 1-4 channels, any size.
+    """
+    with converted(image, mode) as source:
+        return GriptapeImagePipeline(source).apply(function).end()
+
+
+def scale_alpha(image: GriptapeImage, opacity: float) -> GriptapeImage:
+    """Scale an image's alpha channel by `opacity`, adding one if it has none."""
+    if opacity >= 1.0:
+        return converted(image, ImageMode.RGBA)
+
+    def scaled(pixels: np.ndarray) -> np.ndarray:
+        result = pixels.copy()
+        result[:, :, 3] = np.floor(pixels[:, :, 3] * opacity + 0.5).astype(np.uint8)
+        return result
+
+    return edited_pixels(image, ImageMode.RGBA, scaled)
+
+
+def composite_over(base: GriptapeImage, overlay: GriptapeImage, position: tuple[int, int]) -> GriptapeImage:
+    """Composite `overlay` over `base` at `position` using Porter-Duff "over", as RGBA.
+
+    Over is associative, so stacking many layers stays correct.
+    """
+    x, y = position
+    with converted(base, ImageMode.RGBA) as rgba:
+        return GriptapeImagePipeline(rgba).composite(overlay, x, y).end()
+
+
+def premultiply_rgba(image: GriptapeImage, *, invert: bool = False) -> GriptapeImage:
     """Multiply an RGBA image's RGB channels by its alpha (straight → premultiplied).
 
     With invert=True the factor is (1 - alpha) instead, which premultiplies by the
     complement — useful for edge matting where opaque areas should be darkened rather
     than transparent ones.  The alpha channel is left unchanged in both cases.
     """
-    rgba = image if image.mode == "RGBA" else image.convert("RGBA")
-    arr = np.asarray(rgba, dtype=np.float32)
-    alpha = arr[..., 3:4] / 255.0
-    factor = (1.0 - alpha) if invert else alpha
-    rgb = np.clip(np.round(arr[..., :3] * factor), 0.0, 255.0)
-    result = np.concatenate([rgb, arr[..., 3:4]], axis=-1)
-    return Image.fromarray(result.astype(np.uint8), mode="RGBA")
+
+    def premultiplied(pixels: np.ndarray) -> np.ndarray:
+        arr = pixels.astype(np.float32)
+        alpha = arr[..., 3:4] / 255.0
+        factor = (1.0 - alpha) if invert else alpha
+        rgb = np.clip(np.round(arr[..., :3] * factor), 0.0, 255.0)
+        return np.concatenate([rgb, arr[..., 3:4]], axis=-1).astype(np.uint8)
+
+    return edited_pixels(image, ImageMode.RGBA, premultiplied)
 
 
-def unpremultiply_rgba(image: Image.Image, *, invert: bool = False) -> Image.Image:
+def unpremultiply_rgba(image: GriptapeImage, *, invert: bool = False) -> GriptapeImage:
     """Divide an RGBA image's RGB channels by its alpha (premultiplied → straight).
 
     With invert=True the divisor is (1 - alpha) instead.  Pixels where the divisor is
     zero are left black.  The alpha channel is left unchanged in both cases.
     """
-    rgba = image if image.mode == "RGBA" else image.convert("RGBA")
-    arr = np.asarray(rgba, dtype=np.float32)
-    alpha = arr[..., 3:4] / 255.0
-    factor = (1.0 - alpha) if invert else alpha
-    safe = np.where(factor > 0, factor, 1.0)
-    rgb = np.where(factor > 0, arr[..., :3] / safe, 0.0)
-    rgb = np.clip(np.round(rgb), 0.0, 255.0)
-    result = np.concatenate([rgb, arr[..., 3:4]], axis=-1)
-    return Image.fromarray(result.astype(np.uint8), mode="RGBA")
+
+    def unpremultiplied(pixels: np.ndarray) -> np.ndarray:
+        arr = pixels.astype(np.float32)
+        alpha = arr[..., 3:4] / 255.0
+        factor = (1.0 - alpha) if invert else alpha
+        safe = np.where(factor > 0, factor, 1.0)
+        rgb = np.where(factor > 0, arr[..., :3] / safe, 0.0)
+        rgb = np.clip(np.round(rgb), 0.0, 255.0)
+        return np.concatenate([rgb, arr[..., 3:4]], axis=-1).astype(np.uint8)
+
+    return edited_pixels(image, ImageMode.RGBA, unpremultiplied)
 
 
-def create_background_image(width: int, height: int, background_color: str, *, transparent_bg: bool) -> Image.Image:
+def create_background_image(width: int, height: int, background_color: str, *, transparent_bg: bool) -> GriptapeImage:
     """Create background image with specified color and transparency."""
     if transparent_bg:
-        return Image.new("RGBA", (width, height), NAMED_COLORS["transparent"])
-    rgb_color = parse_hex_color(background_color)
-    return Image.new("RGB", (width, height), rgb_color)
+        return GriptapeImage.new(width, height, NAMED_COLORS["transparent"])
+    return GriptapeImage.new(width, height, parse_hex_color(background_color))
 
 
 def resize_image_for_cell(
-    img: Image.Image, cell_width: int, cell_height: int, *, crop_to_fit: bool
+    img: GriptapeImage, cell_width: int, cell_height: int, *, crop_to_fit: bool
 ) -> ResizedImageResult:
     """Resize image to fit cell and return image with positioning offsets."""
     if crop_to_fit:
-        # Crop to square - resize to fit the larger dimension, then crop to square
-        img_resized = img.copy()
         # Validate image dimensions to prevent division by zero
         if img.width <= 0 or img.height <= 0:
             msg = f"Skipping invalid image: {img.width}x{img.height}"
             logger.warning(msg)
             return ResizedImageResult(None, 0, 0)  # Skip invalid images
-        # Calculate scale to fit the larger dimension
-        scale_x = cell_width / img.width
-        scale_y = cell_height / img.height
-        scale = max(scale_x, scale_y)  # Use larger scale to ensure coverage
-
-        # Resize to cover the cell
+        # Scale to cover the cell, then crop its center
+        scale = max(cell_width / img.width, cell_height / img.height)
         new_width = int(img.width * scale)
         new_height = int(img.height * scale)
-        img_resized = img_resized.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-        # Crop to square from center
         left = (new_width - cell_width) // 2
         top = (new_height - cell_height) // 2
-        right = left + cell_width
-        bottom = top + cell_height
-        img_resized = img_resized.crop((left, top, right, bottom))
+        resized = (
+            GriptapeImagePipeline(img)
+            .resize(new_width, new_height, ResizeFilter.LANCZOS)
+            .crop(left, top, left + cell_width, top + cell_height)
+            .end()
+        )
+        return ResizedImageResult(resized, 0, 0)
 
-        # Position at exact cell coordinates
-        x_offset = 0
-        y_offset = 0
-    else:
-        # Scale to fit - maintain aspect ratio within cell bounds
-        img_resized = img.copy()
-        img_resized.thumbnail((cell_width, cell_height), Image.Resampling.LANCZOS)
-
-        # Center the image within the cell
-        x_offset = (cell_width - img_resized.width) // 2
-        y_offset = (cell_height - img_resized.height) // 2
-
-    return ResizedImageResult(img_resized, x_offset, y_offset)
+    # Scale to fit - maintain aspect ratio within cell bounds, centered
+    resized = GriptapeImagePipeline(img).thumbnail(cell_width, cell_height).end()
+    x_offset = (cell_width - resized.width) // 2
+    y_offset = (cell_height - resized.height) // 2
+    return ResizedImageResult(resized, x_offset, y_offset)
 
 
 def dict_to_image_url_artifact(image_dict: dict, image_format: str | None = None) -> ImageUrlArtifact:
@@ -295,18 +297,52 @@ def resolve_localhost_url_to_path(url: str) -> str:
     return url_without_params
 
 
-def load_pil_from_url(url: str) -> Image.Image:
-    """Load image from URL or local file path via File.
+def _is_svg(image_bytes: bytes) -> bool:
+    return "<svg" in image_bytes[:_SVG_SNIFF_BYTES].decode("utf-8", errors="ignore").lower()
 
-    Note: SVG files are not supported as PIL cannot open vector graphics.
-    TODO: Add SVG support using cairosvg or similar library to convert SVG to PNG/bytes
-    before loading with PIL.
+
+def upright(image: GriptapeImage) -> GriptapeImage:
+    """Return ``image`` turned as its EXIF orientation tag says to display it, with the tag reset.
+
+    An image already upright is returned as it is, so encoding it can still splice its metadata.
     """
-    # Check if it's an SVG file - PIL cannot open SVG files
-    # TODO: Add SVG support using cairosvg or similar library to rasterize SVG files: https://github.com/griptape-ai/griptape-nodes/issues/3721
-    url_lower = url.lower()
-    if url_lower.endswith(".svg"):
-        msg = f"SVG files are not supported by PIL. Cannot load vector graphics: {url}"
+    exif = image.metadata.exif
+    if exif is None or exif.orientation == _UPRIGHT_ORIENTATION:
+        return image
+    return GriptapeImagePipeline(image).exif_transpose().end()
+
+
+def open_image_bytes(image_bytes: bytes, source: str = "image bytes", *, turn_upright: bool = True) -> GriptapeImage:
+    """Open encoded image bytes, reading the header so a bad image fails here.
+
+    With ``turn_upright``, a photo whose EXIF orientation tag says to turn it is turned, so nodes
+    edit the pixels as they are displayed. Pass False to keep the file's own pixels and tag, for
+    nodes that read or pass the file through rather than edit it.
+
+    Raises:
+        ValueError: If the bytes are SVG or not an image that can be read
+    """
+    if _is_svg(image_bytes):
+        msg = f"SVG files are not supported. Cannot load vector graphics: {source}"
+        raise ValueError(msg)
+    try:
+        image = GriptapeImage.open(image_bytes)
+        # The header is read lazily; read it now so an unreadable image fails here
+        _ = image.width
+    except (OSError, ValueError) as e:
+        msg = f"Failed to load image from: {source}\nError: {e}"
+        raise ValueError(msg) from e
+    return upright(image) if turn_upright else image
+
+
+def load_image_from_url(url: str, *, turn_upright: bool = True) -> GriptapeImage:
+    """Load image from URL or local file path via File, turned upright as ``open_image_bytes`` describes.
+
+    Note: SVG files are not supported, as vector graphics can't be decoded to pixels.
+    TODO: Add SVG support by rasterizing SVG files: https://github.com/griptape-ai/griptape-nodes/issues/3721
+    """
+    if url.lower().endswith(".svg"):
+        msg = f"SVG files are not supported. Cannot load vector graphics: {url}"
         raise ValueError(msg)
 
     try:
@@ -315,33 +351,21 @@ def load_pil_from_url(url: str) -> Image.Image:
         msg = f"Failed to load image from: {url}\nError: {e}"
         raise ValueError(msg) from e
 
-    # Check if content is SVG by looking at first few bytes
-    content_start = image_bytes[:100].decode("utf-8", errors="ignore").lower()
-    if "<svg" in content_start:
-        msg = f"SVG files are not supported by PIL. Cannot load vector graphics: {url}"
-        raise ValueError(msg)
-
-    try:
-        return Image.open(BytesIO(image_bytes))
-    except Exception as e:
-        if "cannot identify image file" in str(e).lower():
-            content_start = image_bytes[:100].decode("utf-8", errors="ignore").lower()
-            if "<svg" in content_start:
-                msg = f"SVG files are not supported by PIL. Cannot load vector graphics: {url}"
-                raise ValueError(msg) from e
-        msg = f"Failed to load image from: {url}\nError: {e}"
-        raise ValueError(msg) from e
+    return open_image_bytes(image_bytes, url, turn_upright=turn_upright)
 
 
-def load_pil_image_from_artifact(image: ImageUrlArtifact | ImageArtifact | str, context_name: str) -> Image.Image:
-    """Load PIL Image from various artifact types.
+def load_image_from_artifact(
+    image: ImageUrlArtifact | ImageArtifact | str, context_name: str, *, turn_upright: bool = True
+) -> GriptapeImage:
+    """Load an image from various artifact types.
 
     Args:
         image: ImageUrlArtifact, ImageArtifact, or str URL
         context_name: Name for log lines (e.g., node name)
+        turn_upright: Turn the image as its EXIF orientation says, as ``open_image_bytes`` describes
 
     Returns:
-        PIL Image object
+        The image
 
     Raises:
         TypeError: If image type is unsupported
@@ -351,18 +375,22 @@ def load_pil_image_from_artifact(image: ImageUrlArtifact | ImageArtifact | str, 
         error_msg = f"Unsupported image type: {type(image).__name__}"
         raise TypeError(error_msg)
 
-    try:
-        if isinstance(image, ImageUrlArtifact):
-            return load_pil_from_url(image.value)
-        if isinstance(image, ImageArtifact):
-            return Image.open(BytesIO(image.value))
-        return load_pil_from_url(image)
-    except ValueError:
-        # load_pil_from_url already says which image failed and why.
-        raise
-    except Exception as e:
-        error_msg = f"Failed to load image: {e}"
-        raise ValueError(error_msg) from e
+    if isinstance(image, ImageUrlArtifact):
+        return load_image_from_url(image.value, turn_upright=turn_upright)
+    if isinstance(image, ImageArtifact):
+        return open_image_bytes(image.value, context_name, turn_upright=turn_upright)
+    return load_image_from_url(image, turn_upright=turn_upright)
+
+
+def image_artifact_from_bytes(image_bytes: bytes, source: str = "image bytes") -> ImageArtifact:
+    """Make an ImageArtifact of encoded image bytes, with the format and size from their header.
+
+    Raises:
+        ValueError: If the bytes are not an image that can be read
+    """
+    with open_image_bytes(image_bytes, source, turn_upright=False) as image:
+        image_format = image.format or ImageFormat.PNG
+        return ImageArtifact(image_bytes, format=image_format.lower(), width=image.width, height=image.height)
 
 
 def load_image_from_url_artifact(image_url_artifact: ImageUrlArtifact) -> ImageArtifact:
@@ -388,89 +416,46 @@ def load_image_from_url_artifact(image_url_artifact: ImageUrlArtifact) -> ImageA
         )
         raise ValueError(details) from err
 
-    return ImageLoader().parse(image_bytes)
+    return image_artifact_from_bytes(image_bytes, image_url_artifact.value)
 
 
-def _extract_from_rgb(image: Image.Image, channel: str) -> Image.Image:
-    """Extract channel from RGB image."""
-    red, green, blue = image.split()
-    if channel == "red":
-        return red
-    if channel == "green":
-        return green
-    if channel == "blue":
-        return blue
-    if channel == "alpha":
-        # An RGB image has no alpha, so every pixel is fully opaque
-        return Image.new("L", image.size, 255)
-    return red
+def extract_channel_from_image(image: GriptapeImage, channel: str, context_name: str = "image") -> GriptapeImage:
+    """Extract one channel of an image as an 8-bit gray image.
 
-
-def _extract_from_rgba(image: Image.Image, channel: str) -> Image.Image:
-    """Extract channel from RGBA image."""
-    red, green, blue, alpha = image.split()
-    if channel == "red":
-        return red
-    if channel == "green":
-        return green
-    if channel == "blue":
-        return blue
-    if channel == "alpha":
-        return alpha
-    # Fallback to red channel
-    return red
-
-
-def _extract_from_la(image: Image.Image, channel: str) -> Image.Image:
-    """Extract channel from LA image."""
-    if channel == "alpha":
-        _, alpha = image.split()
-        return alpha
-    gray, _ = image.split()
-    return gray
-
-
-def extract_channel_from_image(image: Image.Image, channel: str, context_name: str = "image") -> Image.Image:
-    """Extract the specified channel from an image.
+    Gray images without alpha give their gray for every channel, alpha included. A color image
+    without alpha gives opaque alpha.
 
     Args:
-        image: PIL Image to extract channel from
+        image: Image to extract channel from
         channel: Channel to extract ("red", "green", "blue", "alpha")
         context_name: Name for error messages (e.g., "mask", "image")
 
     Returns:
-        PIL Image containing the extracted channel
+        A one-channel image holding the extracted channel
 
     Raises:
-        ValueError: If the image mode is not supported
+        ValueError: If the channel is unknown
     """
-    if image.mode == "L":
-        return image
-    if image.mode == "LA":
-        return _extract_from_la(image, channel)
-    if image.mode == "RGB":
-        return _extract_from_rgb(image, channel)
-    if image.mode == "RGBA":
-        return _extract_from_rgba(image, channel)
+    has_color = image.channels >= _RGB_CHANNELS
+    match channel:
+        case "red":
+            index = 0
+        case "green":
+            index = 1 if has_color else 0
+        case "blue":
+            index = 2 if has_color else 0
+        case "alpha":
+            index = -1 if image.channels != 1 else 0
+        case _:
+            msg = f"Unknown {context_name} channel: {channel!r}"
+            raise ValueError(msg)
+    mode = ImageMode.RGBA if has_color else ImageMode.GRAY_ALPHA
+    return edited_pixels(image, mode, lambda pixels: pixels[:, :, index].copy())
 
-    msg = f"Unsupported {context_name} mode: {image.mode}"
-    raise ValueError(msg)
 
-
-# New functions for DisplayImageGrid
-
-
-def create_placeholder_image(width: int, height: int, background_color: str, *, transparent_bg: bool) -> Image.Image:
+def create_placeholder_image(width: int, height: int, background_color: str, *, transparent_bg: bool) -> GriptapeImage:
     """Create a placeholder image with specified dimensions and background."""
-    if transparent_bg:
-        image = Image.new("RGBA", (width, height), NAMED_COLORS["transparent"])
-    else:
-        # Convert hex color to RGB
-        background_color = background_color.removeprefix("#")
-        rgb_color = tuple(int(background_color[i : i + 2], 16) for i in (0, 2, 4))
-        image = Image.new("RGB", (width, height), rgb_color)
-
-    return image
+    return create_background_image(width, height, background_color, transparent_bg=transparent_bg)
 
 
 def create_default_placeholder(
@@ -479,19 +464,26 @@ def create_default_placeholder(
     height: int = DEFAULT_PLACEHOLDER_HEIGHT,
     *,
     transparent_bg: bool,
-) -> Image.Image:
+) -> GriptapeImage:
     """Create a default placeholder image with specified or standard dimensions."""
     return create_placeholder_image(width, height, background_color, transparent_bg=transparent_bg)
 
 
-def image_to_bytes(image: Image.Image, output_format: str) -> bytes:
-    """Convert PIL image to bytes in specified format."""
-    # Validate the output format
-    validate_pil_format(output_format, "output_format")
+def image_to_bytes(
+    image: GriptapeImage,
+    output_format: str,
+    *,
+    quality: int | None = None,
+    lossless: bool = False,
+    optimize: bool = False,
+) -> bytes:
+    """Encode an image in the named format ("png", "JPEG", ...), keeping the metadata that format can hold.
 
-    buffer = io.BytesIO()
-    image.save(buffer, format=output_format.upper())
-    return buffer.getvalue()
+    Raises:
+        ValueError: If the format can't be written or the image fails to encode
+    """
+    image_format = validate_image_format(output_format, "output_format")
+    return image.encode(image_format, quality=quality, lossless=lossless, optimize=optimize)
 
 
 def extract_image_url(image_item: Any) -> str:
@@ -514,28 +506,28 @@ def extract_image_url(image_item: Any) -> str:
     return str(image_item)
 
 
-def load_images_from_list(images: list) -> list[Image.Image]:
-    """Load PIL images from a list of image items, skipping invalid ones."""
-    pil_images = []
+def load_images_from_list(images: list) -> list[GriptapeImage]:
+    """Load images from a list of image items, skipping invalid ones."""
+    loaded = []
     for img_item in images:
         try:
             url = extract_image_url(img_item)
-            pil_img = load_pil_from_url(url)
+            image = load_image_from_url(url)
             # Validate image dimensions
-            if pil_img.width <= 0 or pil_img.height <= 0:
-                msg = f"Skipping image with invalid dimensions: {pil_img.width}x{pil_img.height}"
+            if image.width <= 0 or image.height <= 0:
+                msg = f"Skipping image with invalid dimensions: {image.width}x{image.height}"
                 logger.warning(msg)
                 continue
-            pil_images.append(pil_img)
+            loaded.append(image)
         except (URLError, RequestException, ConnectionError, TimeoutError, OSError) as e:
             # Skip invalid images
             msg = f"Skipping invalid image: {e}"
             logger.warning(msg)
             continue
-    return pil_images
+    return loaded
 
 
-def create_grid_layout(  # noqa: PLR0913, PLR0912, C901
+def create_grid_layout(  # noqa: PLR0913
     images: list[str],
     columns: int,
     output_image_width: int,
@@ -546,7 +538,7 @@ def create_grid_layout(  # noqa: PLR0913, PLR0912, C901
     crop_to_fit: bool,
     transparent_bg: bool,
     justification: str = "left",
-) -> Image.Image:
+) -> GriptapeImage:
     """Create a uniform grid layout of images."""
     if not images:
         return create_default_placeholder(
@@ -554,26 +546,27 @@ def create_grid_layout(  # noqa: PLR0913, PLR0912, C901
         )
 
     # Load and process images
-    pil_images = load_images_from_list(images)
+    loaded = load_images_from_list(images)
 
-    if not pil_images:
+    if not loaded:
         return create_default_placeholder(background_color, transparent_bg=transparent_bg)
 
     # Calculate grid dimensions
     if columns <= 0:
         return create_default_placeholder(background_color, transparent_bg=transparent_bg)
 
-    rows = (len(pil_images) + columns - 1) // columns
+    rows = (len(loaded) + columns - 1) // columns
     cell_width = (output_image_width - spacing * (columns + 1)) // columns
     cell_height = cell_width  # Square cells for grid layout
 
     # Create background - use output_image_width to ensure consistent sizing
     total_width = output_image_width
     total_height = cell_height * rows + spacing * (rows + 1)
-    grid_image = create_background_image(total_width, total_height, background_color, transparent_bg=transparent_bg)
+    background = create_background_image(total_width, total_height, background_color, transparent_bg=transparent_bg)
+    grid = GriptapeImagePipeline(background)
 
     # Place images in grid
-    for idx, img in enumerate(pil_images):
+    for idx, img in enumerate(loaded):
         row = idx // columns
         col = idx % columns
 
@@ -582,45 +575,31 @@ def create_grid_layout(  # noqa: PLR0913, PLR0912, C901
         if resized_result.image is None:
             continue  # Skip invalid images
 
-        # Apply border radius if specified
+        cell_image = resized_result.image
         if border_radius > 0:
-            resized_result.image = apply_border_radius(resized_result.image, border_radius)
+            cell_image = apply_border_radius(cell_image, border_radius)
 
-        # Calculate position based on justification
         # Base x position without justification
         base_x = col * (cell_width + spacing) + spacing + resized_result.x_offset
 
-        # Calculate number of images in current row
-        images_in_row = min(columns, len(pil_images) - row * columns)
-
-        # Adjust x position based on justification
-        if justification == "center":
-            # Center the row by adding offset
-            if images_in_row < columns:
-                row_width = images_in_row * (cell_width + spacing) + spacing
-                offset = (total_width - row_width) // 2
-                final_x = base_x + offset
-            else:
+        # Shift a short last row to honor the justification
+        images_in_row = min(columns, len(loaded) - row * columns)
+        row_width = images_in_row * (cell_width + spacing) + spacing
+        match justification:
+            case "center" if images_in_row < columns:
+                final_x = base_x + (total_width - row_width) // 2
+            case "right" if images_in_row < columns:
+                final_x = base_x + total_width - row_width
+            case "left" | "center" | "right":
                 final_x = base_x
-        elif justification == "right":
-            # Right align by adding offset
-            if images_in_row < columns:
-                row_width = images_in_row * (cell_width + spacing) + spacing
-                offset = total_width - row_width
-                final_x = base_x + offset
-            else:
-                final_x = base_x
-        else:  # "left" or default
-            final_x = base_x
+            case _:
+                msg = f"Unknown justification: {justification!r}"
+                raise ValueError(msg)
 
         final_y = row * (cell_height + spacing) + spacing + resized_result.y_offset
-        grid_image.paste(
-            resized_result.image,
-            (final_x, final_y),
-            resized_result.image if resized_result.image.mode == "RGBA" else None,
-        )
+        grid.composite(cell_image, final_x, final_y)
 
-    return grid_image
+    return grid.end()
 
 
 def create_masonry_layout(  # noqa: PLR0913
@@ -632,15 +611,15 @@ def create_masonry_layout(  # noqa: PLR0913
     border_radius: int,
     *,
     transparent_bg: bool,
-) -> Image.Image:
+) -> GriptapeImage:
     """Create a masonry layout with variable height columns."""
     if not images:
         return create_default_placeholder(background_color, transparent_bg=transparent_bg)
 
     # Load and process images
-    pil_images = load_images_from_list(images)
+    loaded = load_images_from_list(images)
 
-    if not pil_images:
+    if not loaded:
         return create_default_placeholder(background_color, transparent_bg=transparent_bg)
 
     # Calculate column width
@@ -650,10 +629,10 @@ def create_masonry_layout(  # noqa: PLR0913
     column_width = (output_image_width - spacing * (columns + 1)) // columns
 
     # Distribute images across columns
-    columns_content = [[] for _ in range(columns)]
+    columns_content: list[list[GriptapeImage]] = [[] for _ in range(columns)]
     column_heights = [0] * columns
 
-    for img in pil_images:
+    for img in loaded:
         # Find shortest column
         shortest_col = column_heights.index(min(column_heights))
         columns_content[shortest_col].append(img)
@@ -667,9 +646,10 @@ def create_masonry_layout(  # noqa: PLR0913
 
     # Create background
     total_height = max(column_heights) + spacing
-    grid_image = create_background_image(
+    background = create_background_image(
         output_image_width, total_height, background_color, transparent_bg=transparent_bg
     )
+    grid = GriptapeImagePipeline(background)
 
     # Place images in columns
     for col_idx, column_images in enumerate(columns_content):
@@ -677,46 +657,52 @@ def create_masonry_layout(  # noqa: PLR0913
         y_offset = spacing
 
         for img in column_images:
-            # Resize image to fit column width
-            img_resized = img.copy()
             if img.width <= 0 or img.height <= 0:
                 msg = f"Skipping image with invalid dimensions: {img.width}x{img.height}"
                 logger.warning(msg)
                 continue  # Skip invalid images
             aspect_ratio = img.width / img.height
             img_height = int(column_width / aspect_ratio)
-            img_resized = img_resized.resize((column_width, img_height), Image.Resampling.LANCZOS)
+            img_resized = GriptapeImagePipeline(img).resize(column_width, img_height, ResizeFilter.LANCZOS).end()
 
             # Apply border radius if specified
             if border_radius > 0:
                 img_resized = apply_border_radius(img_resized, border_radius)
 
-            grid_image.paste(img_resized, (x_offset, y_offset), img_resized if img_resized.mode == "RGBA" else None)
+            grid.composite(img_resized, x_offset, y_offset)
             y_offset += img_height + spacing
 
-    return grid_image
+    return grid.end()
 
 
-def apply_border_radius(image: Image.Image, radius: int) -> Image.Image:
-    """Apply border radius to an image."""
+def _rounded_rectangle_coverage(width: int, height: int, radius: int) -> np.ndarray:
+    """Return per-pixel coverage (0-1) of a ``width`` x ``height`` rectangle with corners of ``radius``."""
+    radius = min(radius, min(width, height) // 2)
+    # Pixel centers, in a space where the rectangle spans 0 to width and 0 to height
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float64) + 0.5
+    # Distance from each pixel center to the rectangle inset by radius; inside it is 0
+    nearest_x = np.clip(xs, radius, width - radius)
+    nearest_y = np.clip(ys, radius, height - radius)
+    distance = np.hypot(xs - nearest_x, ys - nearest_y)
+    return np.clip(radius + 0.5 - distance, 0.0, 1.0)
+
+
+def apply_border_radius(image: GriptapeImage, radius: int) -> GriptapeImage:
+    """Make an image transparent outside a rectangle with corners of ``radius`` pixels, as RGBA.
+
+    Alpha the image already has is kept inside the corners.
+    """
     if radius <= 0:
         return image
 
-    # Create a mask with rounded corners
-    mask = Image.new("L", image.size, 0)
+    def rounded(pixels: np.ndarray) -> np.ndarray:
+        height, width = pixels.shape[:2]
+        coverage = _rounded_rectangle_coverage(width, height, radius)
+        result = pixels.copy()
+        result[:, :, 3] = np.round(pixels[:, :, 3] * coverage).astype(np.uint8)
+        return result
 
-    draw = ImageDraw.Draw(mask)
-    draw.rounded_rectangle([(0, 0), image.size], radius=radius, fill=255)
-
-    # Apply mask
-    if image.mode == "RGBA":
-        result = image.copy()
-        result.putalpha(Image.composite(image.getchannel("A"), Image.new("L", image.size, 0), mask))
-    else:
-        result = image.convert("RGBA")
-        result.putalpha(mask)
-
-    return result
+    return edited_pixels(image, ImageMode.RGBA, rounded)
 
 
 def cleanup_temp_files() -> None:
@@ -743,7 +729,6 @@ def calculate_aspect_ratio(width: int, height: int) -> tuple[int, int] | None:
     Returns:
         Tuple of (ratio_width, ratio_height) or None if invalid dimensions
     """
-    from math import gcd
 
     if width == 0 or height == 0:
         return (0, 0)
@@ -758,40 +743,35 @@ def calculate_aspect_ratio(width: int, height: int) -> tuple[int, int] | None:
     return (ratio_width, ratio_height)
 
 
-def get_image_color_info(image: Image.Image) -> ImageColorInfo:
-    """Get color space and channel count from a PIL Image.
+_MODE_NAMES = {
+    _GRAY_CHANNELS: ImageMode.GRAY,
+    _GRAY_ALPHA_CHANNELS: ImageMode.GRAY_ALPHA,
+    _RGB_CHANNELS: ImageMode.RGB,
+    _RGBA_CHANNELS: ImageMode.RGBA,
+}
+
+
+def get_image_color_info(image: GriptapeImage) -> ImageColorInfo:
+    """Get color space and channel count from an image.
+
+    The color space is named as Pillow names modes ("L", "LA", "RGB", "RGBA"), with the pixel type
+    after a semicolon when it isn't 8-bit: "RGB;uint16", "RGBA;half". 16-bit gray is "I;16", as in
+    Pillow.
 
     Args:
-        image: PIL Image object
+        image: The image
 
     Returns:
         ImageColorInfo with color_space and channels
     """
-    color_space = image.mode
-
-    # Map PIL modes to channel counts
-    mode_to_channels = {
-        "1": 1,  # 1-bit pixels, black and white
-        "L": 1,  # 8-bit pixels, grayscale
-        "P": 1,  # 8-bit pixels, mapped to any other mode using a color palette
-        "RGB": 3,  # 3x8-bit pixels, true color
-        "RGBA": 4,  # 4x8-bit pixels, true color with transparency mask
-        "CMYK": 4,  # 4x8-bit pixels, color separation
-        "YCbCr": 3,  # 3x8-bit pixels, color video format
-        "LAB": 3,  # 3x8-bit pixels, the L*a*b color space
-        "HSV": 3,  # 3x8-bit pixels, Hue, Saturation, Value color space
-        "I": 1,  # 32-bit signed integer pixels
-        "F": 1,  # 32-bit floating point pixels
-        "LA": 2,  # L with alpha
-        "PA": 2,  # P with alpha
-        "RGBX": 4,  # RGB with padding
-        "RGBa": 4,  # RGB with premultiplied alpha (a = alpha channel)  # spellchecker:disable-line
-        "La": 2,  # L with premultiplied alpha (a = alpha channel)
-    }
-
-    channel_count = mode_to_channels.get(color_space, len(image.getbands()))
-
-    return ImageColorInfo(color_space=color_space, channels=channel_count)
+    channels = image.channels
+    pixel_type = image.pixel_type
+    color_space = str(_MODE_NAMES.get(channels, f"{channels}-channel"))
+    if pixel_type == PixelType.UINT16 and channels == _GRAY_CHANNELS:
+        color_space = "I;16"
+    elif pixel_type != PixelType.UINT8:
+        color_space = f"{color_space};{pixel_type}"
+    return ImageColorInfo(color_space=color_space, channels=channels)
 
 
 def get_image_format_from_artifact(image_artifact: ImageUrlArtifact | ImageArtifact) -> str:
@@ -808,11 +788,11 @@ def get_image_format_from_artifact(image_artifact: ImageUrlArtifact | ImageArtif
 
     if isinstance(image_artifact, ImageUrlArtifact):
         try:
-            pil_image = load_pil_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value, turn_upright=False)
         except Exception:
             return "UNKNOWN"
         else:
-            return pil_image.format or "UNKNOWN"
+            return str(image.format) if image.format else "UNKNOWN"
 
     return "UNKNOWN"
 
@@ -820,7 +800,7 @@ def get_image_format_from_artifact(image_artifact: ImageUrlArtifact | ImageArtif
 def get_image_dimensions_from_artifact(
     image_artifact: ImageUrlArtifact | ImageArtifact | None,
 ) -> tuple[int, int]:
-    """Get image dimensions from an image artifact.
+    """Get image dimensions from an image artifact, reading only the header of a URL's image.
 
     Args:
         image_artifact: ImageUrlArtifact or ImageArtifact
@@ -836,122 +816,56 @@ def get_image_dimensions_from_artifact(
 
     if isinstance(image_artifact, ImageUrlArtifact):
         try:
-            pil_image = load_pil_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value, turn_upright=False)
         except Exception:
             logger.warning("Could not determine image dimensions from ImageUrlArtifact")
             return (0, 0)
         else:
-            return (pil_image.width, pil_image.height)
+            return (image.width, image.height)
 
     return (0, 0)
 
 
-def apply_grow_shrink_to_mask(alpha: Image.Image, grow_shrink: float, context_name: str = "mask") -> Image.Image:
-    """Apply grow/shrink morphological operation to mask using the fastest available method.
-
-    Args:
-        alpha: PIL Image (grayscale) representing the alpha channel/mask
-        grow_shrink: Positive values shrink (erode), negative values grow (dilate)
-        context_name: Name for debug logging (e.g., "mask", "Paint Mask")
-
-    Returns:
-        Transformed PIL Image
-    """
-    iterations = int(abs(grow_shrink))
-    if iterations == 0:
-        return alpha
-
-    # Prefer OpenCV (fastest), then PIL iterations as fallback
-    if OPENCV_AVAILABLE and cv2 is not None:
-        msg = f"{context_name}: Using OpenCV for grow/shrink operation (iterations={iterations})"
-        logger.debug(msg)
-        # Use OpenCV for fastest morphological operations
-        # Use a 3x3 kernel (same as PIL) and let OpenCV handle iterations
-        alpha_array = np.array(alpha, dtype=np.uint8)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        if grow_shrink > 0:
-            alpha_array = cv2.erode(alpha_array, kernel, iterations=iterations)
-        else:
-            alpha_array = cv2.dilate(alpha_array, kernel, iterations=iterations)
-        return Image.fromarray(alpha_array, mode="L")
-
-    msg = f"{context_name}: Using PIL iterations for grow/shrink operation (iterations={iterations})"
-    logger.debug(msg)
-    # Fallback: PIL's MinFilter/MaxFilter only support size=3, so we must use iterations.
-    # Each iteration processes the entire image, so large values (e.g., 100) can be slow.
-    if grow_shrink > 0:
-        for _ in range(iterations):
-            alpha = alpha.filter(ImageFilter.MinFilter(size=3))
-    else:
-        for _ in range(iterations):
-            alpha = alpha.filter(ImageFilter.MaxFilter(size=3))
-    return alpha
-
-
-def apply_blur_to_mask(alpha: Image.Image, blur_radius: float, context_name: str = "mask") -> Image.Image:
-    """Apply blur to mask using the fastest available method.
-
-    Args:
-        alpha: PIL Image (grayscale) representing the alpha channel/mask
-        blur_radius: Blur radius (0 = no blur)
-        context_name: Name for debug logging (e.g., "mask", "Paint Mask")
-
-    Returns:
-        Blurred PIL Image
-    """
-    if blur_radius == 0:
-        return alpha
-
-    # Prefer OpenCV (faster), then PIL as fallback
-    if OPENCV_AVAILABLE and cv2 is not None:
-        msg = f"{context_name}: Using OpenCV for blur operation (radius={blur_radius})"
-        logger.debug(msg)
-        alpha_array = np.array(alpha, dtype=np.uint8)
-        # OpenCV GaussianBlur requires kernel size to be odd
-        kernel_size = int(blur_radius * 2 + 1)
-        if kernel_size % 2 == 0:
-            kernel_size += 1
-        alpha_array = cv2.GaussianBlur(alpha_array, (kernel_size, kernel_size), blur_radius)
-        return Image.fromarray(alpha_array, mode="L")
-
-    msg = f"{context_name}: Using PIL for blur operation (radius={blur_radius})"
-    logger.debug(msg)
-    return alpha.filter(ImageFilter.GaussianBlur(blur_radius))
-
-
 def apply_mask_transformations(
-    alpha: Image.Image,
+    alpha: GriptapeImage,
     *,
     grow_shrink: float = 0,
     invert: bool = False,
     blur_radius: float = 0,
     context_name: str = "mask",
-) -> Image.Image:
+) -> GriptapeImage:
     """Apply all mask transformations in the correct order.
 
     Args:
-        alpha: PIL Image (grayscale) representing the alpha channel/mask
-        grow_shrink: Positive values shrink (erode), negative values grow (dilate)
+        alpha: Gray image representing the alpha channel/mask
+        grow_shrink: Positive values shrink (erode), negative values grow (dilate), by that many pixels
         invert: Whether to invert the mask
         blur_radius: Blur radius (0 = no blur)
         context_name: Name for debug logging (e.g., "mask", "Paint Mask")
 
     Returns:
-        Transformed PIL Image
+        The transformed mask
 
     Order of operations: grow/shrink first (modify mask shape), then invert, then blur.
     """
-    # Order: grow/shrink first (modify mask shape), then invert, then blur
-    if grow_shrink != 0:
-        alpha = apply_grow_shrink_to_mask(alpha, grow_shrink, context_name)
+    pipeline = GriptapeImagePipeline(alpha)
+    # Growing or shrinking by n pixels is one pass of a (2n + 1)-pixel square, the same as n 3x3 passes
+    pixels = int(abs(grow_shrink))
+    if pixels > 0:
+        logger.debug("%s: grow/shrink by %d pixels", context_name, pixels)
+        if grow_shrink > 0:
+            pipeline.erode(2 * pixels + 1)
+        else:
+            pipeline.dilate(2 * pixels + 1)
 
     if invert:
-        alpha = Image.eval(alpha, lambda x: 255 - x)
+        pipeline.invert()
 
     if blur_radius != 0:
-        alpha = apply_blur_to_mask(alpha, blur_radius, context_name)
+        logger.debug("%s: blur with radius %s", context_name, blur_radius)
+        pipeline.gaussian_blur(blur_radius)
 
-    return alpha
+    return pipeline.end()
 
 
 def shrink_image_to_size(image_bytes: bytes, max_size_bytes: int, context_name: str = "image") -> bytes:
@@ -972,17 +886,14 @@ def shrink_image_to_size(image_bytes: bytes, max_size_bytes: int, context_name: 
         return image_bytes
 
     try:
-        img = Image.open(io.BytesIO(image_bytes))
-        img = img.convert("RGBA") if img.mode in ("P", "LA") else img
+        img = GriptapeImage.open(image_bytes)
         # Prefer WEBP for better compression and alpha support
-        target_format = "WEBP"
+        target_format = ImageFormat.WEBP
 
-        orig_w, orig_h = img.size
+        orig_w, orig_h = img.width, img.height
 
         # Try lossless first (best quality)
-        buf = io.BytesIO()
-        img.save(buf, format=target_format, lossless=True, method=6)
-        data = buf.getvalue()
+        data = img.encode(target_format, lossless=True)
         image_size_bytes = len(data)
         logger.info(
             "%s downscale attempt: lossless size=%.2fMB",
@@ -1000,12 +911,12 @@ def shrink_image_to_size(image_bytes: bytes, max_size_bytes: int, context_name: 
         for scale in scales:
             w = max(1, int(orig_w * scale))
             h = max(1, int(orig_h * scale))
-            resized = img.resize((w, h)) if (w, h) != (orig_w, orig_h) else img
+            resized = img
+            if (w, h) != (orig_w, orig_h):
+                resized = GriptapeImagePipeline(img).resize(w, h, ResizeFilter.BICUBIC).end()
 
             for q in qualities:
-                buf = io.BytesIO()
-                resized.save(buf, format=target_format, quality=q, method=6)
-                data = buf.getvalue()
+                data = resized.encode(target_format, quality=q)
                 image_size_bytes = len(data)
                 logger.info(
                     "%s downscale attempt: scale=%.2f quality=%d size=%.2fMB",
@@ -1035,8 +946,8 @@ def resize_image_for_resolution(image_bytes: bytes, max_dimension: int, context_
         Resized image bytes, or original if resizing fails or unnecessary
     """
     try:
-        img = Image.open(io.BytesIO(image_bytes))
-        width, height = img.size
+        img = GriptapeImage.open(image_bytes)
+        width, height = img.width, img.height
 
         # Check if resizing is needed
         if width <= max_dimension and height <= max_dimension:
@@ -1055,13 +966,17 @@ def resize_image_for_resolution(image_bytes: bytes, max_dimension: int, context_
             new_height,
         )
 
-        resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        resized = GriptapeImagePipeline(img).resize(new_width, new_height, ResizeFilter.LANCZOS).end()
 
-        # Save to bytes, preserve format if possible, otherwise use WEBP
-        buf = io.BytesIO()
-        img_format = img.format if img.format else "WEBP"
-        resized.save(buf, format=img_format)
-        return buf.getvalue()
+        # Keep the source's format if it can be written, otherwise use WEBP
+        match img.format:
+            case ImageFormat.MPO:
+                img_format = ImageFormat.JPEG
+            case ImageFormat() as source_format if source_format in WRITABLE_IMAGE_FORMATS:
+                img_format = source_format
+            case _:
+                img_format = ImageFormat.WEBP
+        return resized.encode(img_format)
     except Exception as e:
         logger.warning("%s resize failed: %s", context_name, e)
         return image_bytes

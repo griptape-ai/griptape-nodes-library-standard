@@ -15,9 +15,9 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
 )
 from griptape_nodes.exe_types.param_types import parameter_image
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.image import GriptapeImage, ImageFormat
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 from griptape_nodes.traits.options import Options
-from PIL import Image
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -492,10 +492,10 @@ async def test_oversized_file_reference_image_is_downscaled_not_uploaded(
 ) -> None:
     # An image over Seedance's 6000px cap fails server-side no matter how it is delivered (the 2.5
     # backend rejects the task; 2.0's downscales silently), so it is downscaled and inlined instead
-    # of uploaded at full size. Measuring is a header-only PIL read: the file must still never be
+    # of uploaded at full size. Measuring is a header-only read: the file must still never be
     # read through File.aread_data_uri.
     reference_image = tmp_path / "huge.png"
-    Image.new("RGB", (6500, 500)).save(reference_image, format="PNG")
+    reference_image.write_bytes(GriptapeImage.new(6500, 500).encode(ImageFormat.PNG))
     node = _multimodal_node_with_reference_images([ImageUrlArtifact(str(reference_image))])
 
     async def fail_if_called(self: File, fallback_mime: str = "application/octet-stream") -> str:

@@ -1,4 +1,3 @@
-from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
@@ -9,12 +8,17 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.files.file import File
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ResizeFilter
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     apply_mask_transformations,
+    converted,
     dict_to_image_url_artifact,
+    extract_channel_from_image,
+    image_to_bytes,
+    load_image_from_url,
 )
 
 
@@ -86,13 +90,11 @@ class PaintMask(DataNode):
         # Check if we need to generate a new mask
         if self._needs_mask_regeneration(input_image):
             # Generate mask (extract alpha channel)
-            mask_pil = self.generate_initial_mask(input_image)
+            mask = self.generate_initial_mask(input_image)
 
             # Save mask
-            mask_buffer = BytesIO()
-            mask_pil.save(mask_buffer, format="PNG")
             dest = self._mask_file.build_file()
-            saved = dest.write_bytes(mask_buffer.getvalue())
+            saved = dest.write_bytes(image_to_bytes(mask, "PNG"))
             mask_url = saved.location
 
             # Create ImageUrlArtifact directly with source_image_url in meta
@@ -136,10 +138,8 @@ class PaintMask(DataNode):
 
     def _create_new_mask(self, image_artifact: ImageUrlArtifact) -> None:
         output_mask_value = self.generate_initial_mask(image_artifact)
-        mask_buffer = BytesIO()
-        output_mask_value.save(mask_buffer, format="PNG")
         dest = self._mask_file.build_file()
-        saved = dest.write_bytes(mask_buffer.getvalue())
+        saved = dest.write_bytes(image_to_bytes(output_mask_value, "PNG"))
         mask_url = saved.location
         output_mask_artifact = ImageUrlArtifact(mask_url, meta={"source_image_url": image_artifact.value})
         self.set_parameter_value("output_mask", output_mask_artifact)
@@ -237,53 +237,36 @@ class PaintMask(DataNode):
         # If source image URL has changed, regenerate mask
         return stored_source_url != input_image.value
 
-    def generate_initial_mask(self, image_artifact: ImageUrlArtifact) -> Image.Image:
+    def generate_initial_mask(self, image_artifact: ImageUrlArtifact) -> GriptapeImage:
         """Extract the alpha channel from a URL-based image."""
-        pil_image = self.load_pil_from_url(image_artifact.value).convert("RGBA")
+        image = load_image_from_url(image_artifact.value)
         # Create a grayscale mask from alpha channel
-        mask = pil_image.getchannel("A")
-        # Resize mask to match input image size
-        mask = mask.resize(pil_image.size, Image.Resampling.NEAREST)
+        mask = extract_channel_from_image(image, "alpha", "image")
         # Convert to RGB like outpaint_image.py does
-        return mask.convert("RGB")
+        return converted(mask, ImageMode.RGB)
 
-    def load_pil_from_url(self, url: str) -> Image.Image:
-        """Load image from URL using File."""
-        image_bytes = File(url).read_bytes()
-        return Image.open(BytesIO(image_bytes))
+    def _extract_alpha_from_mask(self, mask: GriptapeImage) -> GriptapeImage:
+        """Extract red channel from mask image to use as alpha channel.
 
-    def _extract_alpha_from_mask(self, mask_pil: Image.Image) -> Image.Image:
-        """Extract red channel from mask image to use as alpha channel."""
-        if mask_pil.mode == "L":
-            # Grayscale mode - use directly (no conversion needed)
-            return mask_pil
-        if mask_pil.mode == "RGB":
-            r, _, _ = mask_pil.split()
-            return r
-        if mask_pil.mode == "RGBA":
-            r, _, _, _ = mask_pil.split()
-            return r
-
-        # For other modes, convert to RGB first
-        mask_pil = mask_pil.convert("RGB")
-        r, _, _ = mask_pil.split()
-        return r
+        A grayscale mask gives its gray.
+        """
+        return extract_channel_from_image(mask, "red", "mask")
 
     def _apply_mask_to_input(self, input_image: ImageUrlArtifact, mask_artifact: Any) -> None:
         """Apply mask to input image using red channel as alpha and set as output_image."""
         # Load input image
-        input_pil = self.load_pil_from_url(input_image.value).convert("RGBA")
+        image = converted(load_image_from_url(input_image.value), ImageMode.RGBA)
 
         # Process the mask
         if isinstance(mask_artifact, dict):
             mask_artifact = dict_to_image_url_artifact(mask_artifact)
 
         # Load mask and extract alpha channel
-        mask_pil = self.load_pil_from_url(mask_artifact.value)
-        alpha = self._extract_alpha_from_mask(mask_pil)
+        mask = load_image_from_url(mask_artifact.value)
+        alpha = self._extract_alpha_from_mask(mask)
 
         # Resize alpha to match input image size
-        alpha = alpha.resize(input_pil.size, Image.Resampling.NEAREST)
+        alpha = GriptapeImagePipeline(alpha).resize(image.width, image.height, ResizeFilter.NEAREST).end()
 
         # Apply mask transformations
         grow_shrink = self.get_parameter_value("grow_shrink")
@@ -298,11 +281,9 @@ class PaintMask(DataNode):
         )
 
         # Apply alpha channel to input image
-        input_pil.putalpha(alpha)
+        output = GriptapeImagePipeline(image).set_alpha(alpha).end()
 
         # Save output image
-        output_buffer = BytesIO()
-        input_pil.save(output_buffer, format="PNG")
         dest = self._output_file.build_file()
-        saved = dest.write_bytes(output_buffer.getvalue())
+        saved = dest.write_bytes(image_to_bytes(output, "PNG"))
         self.set_parameter_value("output_image", ImageUrlArtifact(saved.location))

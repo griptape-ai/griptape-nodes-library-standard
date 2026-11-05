@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from PIL import Image
+from griptape_nodes.image import GriptapeImage
 
 from griptape_nodes_library.image.merge_images import (
     AlphaConvention,
@@ -17,18 +17,26 @@ def node() -> MergeImages:
     return MergeImages(name="test_merge_images")
 
 
-def solid(color: tuple[int, int, int, int], size: tuple[int, int] = (4, 4)) -> Image.Image:
-    return Image.new("RGBA", size, color)
+RGB_CHANNELS = 3
+RGBA_CHANNELS = 4
 
 
-def alpha_at(image: Image.Image, xy: tuple[int, int] = (0, 0)) -> int:
-    """Read one pixel's alpha, narrowing `getpixel`'s union return type."""
-    pixel = image.getpixel(xy)
-    assert isinstance(pixel, tuple)
-    return pixel[3]
+def solid(color: tuple[int, int, int, int], size: tuple[int, int] = (4, 4)) -> GriptapeImage:
+    return GriptapeImage.new(size[0], size[1], color)
 
 
-def run(node: MergeImages, images: list[Image.Image], **params: object) -> Image.Image:
+def pixel_at(image: GriptapeImage, xy: tuple[int, int] = (0, 0)) -> tuple[int, ...]:
+    """Read one pixel's channel values."""
+    x, y = xy
+    return tuple(int(value) for value in image.to_array()[y, x])
+
+
+def alpha_at(image: GriptapeImage, xy: tuple[int, int] = (0, 0)) -> int:
+    """Read one pixel's alpha."""
+    return pixel_at(image, xy)[3]
+
+
+def run(node: MergeImages, images: list[GriptapeImage], **params: object) -> GriptapeImage:
     """Drive the node's merge path directly, skipping artifact loading and file writing."""
     alpha_convention = AlphaConvention(params.get("input_alpha", AlphaConvention.STRAIGHT))
     layout = Layout(params.get("layout", Layout.COMPOSITE))
@@ -53,7 +61,7 @@ class TestCompositeAlpha:
 
         result = run(node, [top, bottom])
 
-        assert result.getpixel((0, 0)) == (128, 0, 127, 255)
+        assert pixel_at(result, (0, 0)) == (128, 0, 127, 255)
 
     def test_opaque_base_stays_opaque(self, node: MergeImages) -> None:
         """A semi-transparent overlay must not punch a hole in an opaque base."""
@@ -65,13 +73,13 @@ class TestCompositeAlpha:
         """A fully transparent overlay contributes nothing, whatever sits in its RGB."""
         result = run(node, [solid((0, 255, 0, 0)), solid((0, 0, 255, 255))])
 
-        assert result.getpixel((0, 0)) == (0, 0, 255, 255)
+        assert pixel_at(result, (0, 0)) == (0, 0, 255, 255)
 
     def test_first_image_is_on_top(self, node: MergeImages) -> None:
         """The list reads top-down: the first image wins where it is opaque."""
         result = run(node, [solid((255, 0, 0, 255)), solid((0, 0, 255, 255))])
 
-        assert result.getpixel((0, 0)) == (255, 0, 0, 255)
+        assert pixel_at(result, (0, 0)) == (255, 0, 0, 255)
 
     def test_stacking_is_associative(self, node: MergeImages) -> None:
         """Three semi-transparent layers compose the same as two folded then one."""
@@ -80,7 +88,7 @@ class TestCompositeAlpha:
         three_at_once = run(node, layers)
         folded = run(node, [layers[0], run(node, layers[1:])])
 
-        assert three_at_once.getpixel((0, 0)) == folded.getpixel((0, 0))
+        assert pixel_at(three_at_once, (0, 0)) == pixel_at(folded, (0, 0))
 
 
 class TestPremultipliedInput:
@@ -94,7 +102,7 @@ class TestPremultipliedInput:
 
         result = run(node, [top, bottom], input_alpha=AlphaConvention.PREMULTIPLIED)
 
-        assert result.getpixel((0, 0)) == (128, 0, 127, 255)
+        assert pixel_at(result, (0, 0)) == (128, 0, 127, 255)
 
     def test_premultiplied_matches_equivalent_straight_input(self, node: MergeImages) -> None:
         """The same edge described either way must composite to the same pixel."""
@@ -103,7 +111,7 @@ class TestPremultipliedInput:
         premultiplied = run(node, [solid((128, 0, 0, 128)), bottom], input_alpha=AlphaConvention.PREMULTIPLIED)
         straight = run(node, [solid((255, 0, 0, 128)), bottom], input_alpha=AlphaConvention.STRAIGHT)
 
-        assert premultiplied.getpixel((0, 0)) == straight.getpixel((0, 0))
+        assert pixel_at(premultiplied, (0, 0)) == pixel_at(straight, (0, 0))
 
     def test_opaque_pixels_are_unchanged_by_the_convention(self, node: MergeImages) -> None:
         """At alpha 255 the two conventions agree, so the setting must be a no-op."""
@@ -112,7 +120,7 @@ class TestPremultipliedInput:
         premultiplied = run(node, images, input_alpha=AlphaConvention.PREMULTIPLIED)
         straight = run(node, images, input_alpha=AlphaConvention.STRAIGHT)
 
-        assert premultiplied.getpixel((0, 0)) == straight.getpixel((0, 0))
+        assert pixel_at(premultiplied, (0, 0)) == pixel_at(straight, (0, 0))
 
     def test_zero_alpha_pixel_survives_unassociation(self, node: MergeImages) -> None:
         """Dividing by a zero alpha has no answer; the pixel stays transparent, not NaN."""
@@ -132,7 +140,7 @@ class TestTilingLayoutsPreserveAlpha:
         """
         result = run(node, [solid((0, 255, 0, 0)), solid((0, 0, 255, 255))], layout=layout)
 
-        assert result.mode == "RGBA"
+        assert result.channels == RGBA_CHANNELS
         assert alpha_at(result, (0, 0)) == 0
 
     @pytest.mark.parametrize("layout", [Layout.HORIZONTAL, Layout.VERTICAL, Layout.GRID])
@@ -149,44 +157,44 @@ class TestTilingLayoutsPreserveAlpha:
             background=Background.WHITE,
         )
 
-        assert result.getpixel((0, 0)) == (255, 255, 255)
+        assert pixel_at(result, (0, 0)) == (255, 255, 255)
 
     @pytest.mark.parametrize("layout", [Layout.HORIZONTAL, Layout.VERTICAL, Layout.GRID])
     def test_opaque_input_is_placed_unchanged(self, node: MergeImages, layout: Layout) -> None:
         """Preserving alpha must not disturb ordinary opaque tiling."""
         result = run(node, [solid((255, 0, 0, 255)), solid((0, 0, 255, 255))], layout=layout)
 
-        assert result.getpixel((0, 0)) == (255, 0, 0, 255)
+        assert pixel_at(result, (0, 0)) == (255, 0, 0, 255)
 
     def test_horizontal_layout_places_images_side_by_side(self, node: MergeImages) -> None:
         result = run(node, [solid((255, 0, 0, 255)), solid((0, 0, 255, 255))], layout=Layout.HORIZONTAL)
 
-        assert result.size == (8, 4)
-        assert result.getpixel((5, 0)) == (0, 0, 255, 255)
+        assert (result.width, result.height) == (8, 4)
+        assert pixel_at(result, (5, 0)) == (0, 0, 255, 255)
 
     def test_vertical_layout_stacks_images(self, node: MergeImages) -> None:
         result = run(node, [solid((255, 0, 0, 255)), solid((0, 0, 255, 255))], layout=Layout.VERTICAL)
 
-        assert result.size == (4, 8)
-        assert result.getpixel((0, 5)) == (0, 0, 255, 255)
+        assert (result.width, result.height) == (4, 8)
+        assert pixel_at(result, (0, 5)) == (0, 0, 255, 255)
 
 
 class TestOpacity:
     def test_full_opacity_changes_nothing(self, node: MergeImages) -> None:
         images = [solid((255, 0, 0, 255)), solid((0, 0, 255, 255))]
 
-        assert run(node, images, opacity=1.0).getpixel((0, 0)) == (255, 0, 0, 255)
+        assert pixel_at(run(node, images, opacity=1.0), (0, 0)) == (255, 0, 0, 255)
 
     def test_half_opacity_blends_the_upper_image(self, node: MergeImages) -> None:
         """Opaque red at 50% over opaque blue is the same as compositing 128-alpha red."""
         result = run(node, [solid((255, 0, 0, 255)), solid((0, 0, 255, 255))], opacity=0.5)
 
-        assert result.getpixel((0, 0)) == (128, 0, 127, 255)
+        assert pixel_at(result, (0, 0)) == (128, 0, 127, 255)
 
     def test_zero_opacity_hides_the_upper_image(self, node: MergeImages) -> None:
         result = run(node, [solid((255, 0, 0, 255)), solid((0, 0, 255, 255))], opacity=0.0)
 
-        assert result.getpixel((0, 0)) == (0, 0, 255, 255)
+        assert pixel_at(result, (0, 0)) == (0, 0, 255, 255)
 
     def test_composite_bottom_image_is_not_faded(self, node: MergeImages) -> None:
         """Fading the backmost layer of a stack would eat into the result's own alpha."""
@@ -199,13 +207,13 @@ class TestOpacity:
         result = run(node, [solid((255, 0, 0, 128)), solid((0, 0, 255, 255))], opacity=0.5)
 
         # 128/255 * 0.5 -> a quarter-strength red over blue.
-        assert result.getpixel((0, 0)) == (64, 0, 191, 255)
+        assert pixel_at(result, (0, 0)) == (64, 0, 191, 255)
 
     def test_tiling_layouts_fade_toward_the_background(self, node: MergeImages) -> None:
         """No layer sits behind a tile, so opacity lowers the tile's own alpha."""
         result = run(node, [solid((255, 0, 0, 255))], layout=Layout.HORIZONTAL, opacity=0.5)
 
-        assert result.getpixel((0, 0)) == (255, 0, 0, 128)
+        assert pixel_at(result, (0, 0)) == (255, 0, 0, 128)
 
 
 class TestBackground:
@@ -216,7 +224,7 @@ class TestBackground:
     def test_transparent_background_keeps_alpha(self, node: MergeImages) -> None:
         result = run(node, [solid((255, 0, 0, 0))], background=Background.TRANSPARENT)
 
-        assert result.mode == "RGBA"
+        assert result.channels == RGBA_CHANNELS
         assert alpha_at(result, (0, 0)) == 0
 
     @pytest.mark.parametrize(
@@ -228,14 +236,14 @@ class TestBackground:
     ) -> None:
         result = run(node, [solid((255, 0, 0, 0))], background=background)
 
-        assert result.mode == "RGB"
-        assert result.getpixel((0, 0)) == expected
+        assert result.channels == RGB_CHANNELS
+        assert pixel_at(result, (0, 0)) == expected
 
     def test_semi_transparent_result_blends_into_the_background(self, node: MergeImages) -> None:
         """Flattening must use 'over' too, so a half-covered pixel is a real blend."""
         result = run(node, [solid((0, 0, 0, 128))], background=Background.WHITE)
 
-        assert result.getpixel((0, 0)) == (127, 127, 127)
+        assert pixel_at(result, (0, 0)) == (127, 127, 127)
 
 
 class TestUnknownValues:
@@ -264,29 +272,29 @@ class TestResampling:
         side; premultiplying around the resample weights each pixel by its own alpha.
         """
         # Left half opaque red, right half transparent green.
-        edge = Image.new("RGBA", (8, 2), (0, 255, 0, 0))
-        for x in range(4):
-            for y in range(2):
-                edge.putpixel((x, y), (255, 0, 0, 255))
+        edge_pixels = np.zeros((2, 8, 4), dtype=np.uint8)
+        edge_pixels[...] = (0, 255, 0, 0)
+        edge_pixels[:, :4] = (255, 0, 0, 255)
+        edge = GriptapeImage.from_array(edge_pixels)
 
         # Force a downscale by merging against a smaller base.
         result = run(node, [edge, solid((0, 0, 0, 255), size=(4, 2))])
 
         # No green may appear anywhere in the composite.
-        assert result.getchannel("G").getextrema()[1] == 0
+        assert result.to_array()[..., 1].max() == 0
 
     def test_soft_edge_keeps_its_colour_when_resized(self, node: MergeImages) -> None:
         """Resizing must premultiply exactly once.
 
-        Pillow already premultiplies RGBA while resampling. Doing it again by hand
+        The resize already premultiplies RGBA while resampling. Doing it again by hand
         weights colour by alpha squared and crushes low-alpha pixels toward black.
         """
         arr = np.zeros((64, 64, 4), dtype=np.uint8)
         arr[..., :3] = (200, 100, 50)
         arr[..., 3] = np.linspace(0, 255, 64).astype(np.uint8)[None, :]
-        soft = Image.fromarray(arr, mode="RGBA")
+        soft = GriptapeImage.from_array(arr)
 
-        resized = np.asarray(node._resize_image(soft, 16, 16)).astype(int)
+        resized = node._resize_image(soft, 16, 16).to_array().astype(int)
 
         visible = resized[..., 3] > 0
         red = resized[..., 0][visible]
