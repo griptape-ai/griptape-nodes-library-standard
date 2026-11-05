@@ -16,10 +16,6 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.connection_events import (
-    ListConnectionsForNodeRequest,
-    ListConnectionsForNodeResultSuccess,
-)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
@@ -56,6 +52,9 @@ DEFAULT_HEIGHT = 0  # 0 = use full image height
 DEFAULT_ZOOM = NO_ZOOM
 DEFAULT_ROTATE = 0.0
 
+# Parameters the crop editor widget reads and writes directly
+CROP_PARAMETERS = ["left", "top", "width", "height", "zoom", "rotate"]
+
 
 @dataclass
 class CropArea:
@@ -85,8 +84,6 @@ class CropImage(ControlNode):
 
         self.MAX_WIDTH = MAX_WIDTH
         self.MAX_HEIGHT = MAX_HEIGHT
-        self._syncing_to_widget = False  # Prevent loop: param → widget → param
-        self._syncing_to_params = False  # Prevent loop: widget → param → widget
 
         self.add_parameter(
             ParameterImage(
@@ -97,24 +94,21 @@ class CropImage(ControlNode):
             )
         )
 
-        # Interactive crop editor widget — the primary UI for setting crop coordinates
+        # Interactive crop editor widget — the primary UI for setting crop coordinates. It reads and
+        # writes the crop parameters directly, so its own value holds only the image it shows.
         self.add_parameter(
             ParameterDict(
                 name="crop_editor",
-                default_value={
-                    "image_url": "",
-                    "img_width": 0,
-                    "img_height": 0,
-                    "left": 0,
-                    "top": 0,
-                    "width": 0,
-                    "height": 0,
-                    "zoom": NO_ZOOM,
-                    "rotate": 0.0,
-                },
+                default_value={"image_url": "", "img_width": 0, "img_height": 0},
                 tooltip="Interactive crop editor — drag to set crop area",
                 allowed_modes={ParameterMode.PROPERTY},
-                traits={Widget(name="CropImageEditor", library="Griptape Nodes Library")},
+                traits={
+                    Widget(
+                        name="CropImageEditor",
+                        library="Griptape Nodes Library",
+                        synced_parameters=CROP_PARAMETERS,
+                    )
+                },
             )
         )
 
@@ -202,23 +196,6 @@ class CropImage(ControlNode):
         )
         self._output_file.add_parameter()
 
-    # ── Connection detection ───────────────────────────────────────────────────
-
-    def _get_locked_params(self) -> list[str]:
-        """Return crop param names that have an incoming wire connection."""
-        crop_params = {"left", "top", "width", "height", "zoom", "rotate"}
-        try:
-            result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
-            if isinstance(result, ListConnectionsForNodeResultSuccess):
-                return [
-                    conn.target_parameter_name
-                    for conn in result.incoming_connections
-                    if conn.target_parameter_name in crop_params
-                ]
-        except Exception as e:
-            logger.warning("%s: could not fetch connections: %s", self.name, e)
-        return []
-
     # ── Image URL resolution ───────────────────────────────────────────────────
 
     def _resolve_image_url(self, artifact: Any) -> str:
@@ -245,128 +222,17 @@ class CropImage(ControlNode):
             logger.warning("%s: could not resolve static file URL for %r: %s", self.name, resolved, e)
         return raw
 
-    # ── Widget ↔ parameter sync ────────────────────────────────────────────────
+    # ── Widget ─────────────────────────────────────────────────────────────────
 
-    def _build_widget_dict(self, image_url: str = "", img_width: int = 0, img_height: int = 0) -> dict:
-        """Build the crop_editor dict from current parameter values."""
-        return {
-            "image_url": image_url,
-            "img_width": img_width,
-            "img_height": img_height,
-            "left": self.get_parameter_value("left") or DEFAULT_LEFT,
-            "top": self.get_parameter_value("top") or DEFAULT_TOP,
-            "width": self.get_parameter_value("width") or DEFAULT_WIDTH,
-            "height": self.get_parameter_value("height") or DEFAULT_HEIGHT,
-            "zoom": self.get_parameter_value("zoom") or DEFAULT_ZOOM,
-            "rotate": self.get_parameter_value("rotate") or DEFAULT_ROTATE,
-            "locked": self._get_locked_params(),
-        }
+    def _update_widget_image(self, image_url: str, img_width: int, img_height: int) -> None:
+        """Give the crop editor the image to show.
 
-    def _push_widget(self, new_dict: dict) -> None:
-        """Push an updated crop_editor dict to the widget."""
+        The crop coordinates reach the widget from their own parameters, listed in synced_parameters,
+        and the editor marks the ones with an incoming connection as locked.
+        """
+        new_dict = {"image_url": image_url, "img_width": img_width, "img_height": img_height}
         self.set_parameter_value("crop_editor", new_dict)
         self.publish_update_to_parameter("crop_editor", new_dict)
-
-    _CROP_PARAMS = frozenset({"left", "top", "width", "height", "zoom", "rotate"})
-
-    def _refresh_locked_in_widget(self) -> None:
-        """Re-compute locked params and push only if the list changed."""
-        existing = self.get_parameter_value("crop_editor") or {}
-        new_locked = self._get_locked_params()
-        if set(existing.get("locked") or []) == set(new_locked):
-            return
-        self._syncing_to_widget = True
-        try:
-            self._push_widget({**existing, "locked": new_locked})
-        finally:
-            self._syncing_to_widget = False
-
-    def after_incoming_connection(self, source_node, source_parameter, target_parameter) -> None:
-        if target_parameter.name in self._CROP_PARAMS:
-            self._refresh_locked_in_widget()
-        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
-
-    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
-        if target_parameter.name in self._CROP_PARAMS:
-            self._refresh_locked_in_widget()
-        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
-
-    def _update_widget_coords(self) -> None:
-        """Refresh the crop_editor widget with current coordinate parameter values.
-
-        Skips the push if nothing changed — prevents spurious widget resets that
-        happen when ParameterGroups are expanded (which re-fires after_value_set
-        for child params with their existing stored values).
-
-        locked is intentionally excluded from the early-return check: comparing
-        None (absent key) to [] would always trigger a push, defeating the guard.
-        locked is computed only when we are already going to push.
-        """
-        existing = self.get_parameter_value("crop_editor") or {}
-        new_left = self.get_parameter_value("left") or 0
-        new_top = self.get_parameter_value("top") or 0
-        new_width = self.get_parameter_value("width") or 0
-        new_height = self.get_parameter_value("height") or 0
-        new_zoom = self.get_parameter_value("zoom") or NO_ZOOM
-        new_rotate = self.get_parameter_value("rotate") or 0.0
-
-        if (
-            existing.get("left") == new_left
-            and existing.get("top") == new_top
-            and existing.get("width") == new_width
-            and existing.get("height") == new_height
-            and existing.get("zoom") == new_zoom
-            and existing.get("rotate") == new_rotate
-        ):
-            return
-
-        new_dict = {
-            **existing,
-            "left": new_left,
-            "top": new_top,
-            "width": new_width,
-            "height": new_height,
-            "zoom": new_zoom,
-            "rotate": new_rotate,
-            "locked": self._get_locked_params(),
-        }
-        self._syncing_to_widget = True
-        try:
-            self._push_widget(new_dict)
-        finally:
-            self._syncing_to_widget = False
-
-    def _sync_params_from_widget(self, widget_dict: dict) -> None:
-        """Push values from the widget dict into unlocked individual parameters.
-
-        publish_update_to_parameter("crop_editor", ...) is called FIRST so the
-        frontend's stored crop_editor value is authoritative before the individual
-        param publishes arrive.  When any individual param update (e.g. "left")
-        triggers a FlowEditor re-render, all widgets are called with current stored
-        props; without the pre-publish the stored crop_editor still has the old
-        value and the widget snaps back.
-        """
-        locked = set(widget_dict.get("locked", []))
-        mapping = {
-            "left": "left",
-            "top": "top",
-            "width": "width",
-            "height": "height",
-            "zoom": "zoom",
-            "rotate": "rotate",
-        }
-        # Pre-publish the full crop_editor dict so stored frontend value is correct
-        # before individual param publishes trigger a node re-render.
-        self.publish_update_to_parameter("crop_editor", widget_dict)
-        self._syncing_to_params = True
-        try:
-            for wkey, pkey in mapping.items():
-                if wkey in widget_dict and pkey not in locked:
-                    val = widget_dict[wkey]
-                    self.set_parameter_value(pkey, val)
-                    self.publish_update_to_parameter(pkey, val)
-        finally:
-            self._syncing_to_params = False
 
     # ── Input normalization ────────────────────────────────────────────────────
 
@@ -692,21 +558,7 @@ class CropImage(ControlNode):
                     height_param.update_ui_options({"slider": {"max_val": img.height, "min_val": 0}})
 
                 url = self._resolve_image_url(path)
-                new_dict = self._build_widget_dict(image_url=url, img_width=img.width, img_height=img.height)
-                self._syncing_to_widget = True
-                try:
-                    self._push_widget(new_dict)
-                finally:
-                    self._syncing_to_widget = False
-
-        # ── Widget changed: sync coords to individual params only (no live crop) ─
-        elif parameter.name == "crop_editor" and not self._syncing_to_widget:
-            if isinstance(value, dict):
-                self._sync_params_from_widget(value)
-
-        # ── Individual param changed: update widget overlay if value changed ───
-        elif not self._syncing_to_params and parameter.name in ["left", "top", "width", "height", "zoom", "rotate"]:
-            self._update_widget_coords()
+                self._update_widget_image(url, img.width, img.height)
 
         return super().after_value_set(parameter, value)
 

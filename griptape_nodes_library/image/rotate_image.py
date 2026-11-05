@@ -123,33 +123,25 @@ class RotateImage(BaseImageProcessor):
         self.add_node_element(rotate_group)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Show the rotation in the preview widget. The image itself is only rotated when the node runs."""
+        """Show the custom angle settings only for a custom rotation, and give the preview the input image."""
         if parameter.name == "rotation":
             if value == Rotation.CUSTOM:
                 self.show_parameter_by_name(CUSTOM_ONLY_PARAMETERS)
             else:
                 self.hide_parameter_by_name(CUSTOM_ONLY_PARAMETERS)
 
-        if parameter.name == "input_image" or parameter.name in PREVIEW_PARAMETERS:
-            self._update_preview(refresh_image=parameter.name == "input_image")
+        if parameter.name == "input_image":
+            self._update_preview(value)
         return super().after_value_set(parameter, value)
 
-    def _update_preview(self, *, refresh_image: bool) -> None:
-        """Push the input image and current rotation settings to the preview widget."""
-        existing = self.get_parameter_value("rotation_preview") or {}
-        if refresh_image:
-            image_url = self._resolve_image_url(self.get_parameter_value("input_image"))
-        else:
-            image_url = existing.get("image_url", "")
+    def _update_preview(self, image: Any) -> None:
+        """Give the preview widget a browser URL for the input image.
 
-        preview = {
-            "image_url": image_url,
-            "rotation": self.get_parameter_value("rotation") or Rotation.CLOCKWISE_90,
-            "angle": self.get_parameter_value("angle") or 0.0,
-            "expand_canvas": self.get_parameter_value("expand_canvas") is not False,
-            "background_color": self.get_parameter_value("background_color") or DEFAULT_BACKGROUND,
-        }
-        if preview == existing:
+        The rotation settings reach the widget from their own parameters, listed in synced_parameters.
+        The image itself is only rotated when the node runs.
+        """
+        preview = {"image_url": self._resolve_image_url(image)}
+        if preview == self.get_parameter_value("rotation_preview"):
             return
         self.set_parameter_value("rotation_preview", preview)
         self.publish_update_to_parameter("rotation_preview", preview)
