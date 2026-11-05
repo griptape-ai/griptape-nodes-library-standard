@@ -1,0 +1,2 @@
+- New `LTX Video Alpha Generation` node creates a greyscale alpha matte for a video, where white is foreground, black is transparent and greys are partly transparent. Turn on `output RGBA ProRes` to also save the input as a ProRes 4444 `.mov` with the matte as its alpha channel. These files are very large, so the option is off by default. The node also checks the video against LTX's limits before submitting, and waits longer for large linked videos.
+  [#915](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/915)
