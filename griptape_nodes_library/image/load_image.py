@@ -313,7 +313,7 @@ class LoadImage(SuccessFailureNode):
         """Verify that the image can actually be loaded."""
         try:
             # Attempt to load the image to verify it's valid
-            load_image_from_url(image_artifact.value)
+            load_image_from_url(image_artifact.value, turn_upright=False)
         except Exception as e:
             msg = f"The image at {image_artifact.value} could not be loaded: {e}"
             raise RuntimeError(msg) from e
@@ -337,7 +337,7 @@ class LoadImage(SuccessFailureNode):
         """Extract a channel from the input image and set as mask output."""
         try:
             # Load image
-            image = load_image_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value, turn_upright=False)
 
             # Extract the specified channel as mask
             mask = extract_channel_from_image(image, channel, "image")

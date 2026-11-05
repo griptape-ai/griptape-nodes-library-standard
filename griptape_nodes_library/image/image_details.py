@@ -185,7 +185,7 @@ class ImageDetails(DataNode):
         """Load the image from an artifact."""
         if isinstance(image, ImageArtifact):
             try:
-                return open_image_bytes(image.value)
+                return open_image_bytes(image.value, turn_upright=False)
             except (OSError, ValueError):
                 # OSError: corrupted or unsupported image file
                 # ValueError: invalid image data
@@ -193,7 +193,7 @@ class ImageDetails(DataNode):
 
         if isinstance(image, ImageUrlArtifact):
             try:
-                return load_image_from_url(image.value)
+                return load_image_from_url(image.value, turn_upright=False)
             except (OSError, ValueError):
                 # OSError: network error, corrupted file, or unsupported format
                 # ValueError: invalid URL or image data

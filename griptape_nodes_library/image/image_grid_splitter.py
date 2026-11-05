@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -30,6 +30,14 @@ from griptape_nodes_library.utils.image_utils import (
     open_image_bytes,
     pixels_of,
 )
+
+
+def _encode_jpeg(image: GriptapeImage) -> bytes:
+    """Encode as JPEG with the source's EXIF and color profile.
+
+    JPEG has no place for text, so it is left out here rather than warned about for every cell.
+    """
+    return image.encode(ImageFormat.JPEG, metadata=replace(image.metadata, text={}))
 
 
 @dataclass
@@ -267,7 +275,7 @@ class ImageGridSplitter(DataNode):
 
         # Save and publish preview on the main thread.
         dest = self._preview_file.build_file()
-        saved = await dest.awrite_bytes(preview.encode(ImageFormat.JPEG))
+        saved = await dest.awrite_bytes(_encode_jpeg(preview))
         preview_artifact = ImageUrlArtifact(saved.location)
         self.parameter_output_values["preview"] = preview_artifact
 
@@ -281,7 +289,7 @@ class ImageGridSplitter(DataNode):
                 cell_name = f"r{r_idx + 1}c{c_idx + 1}"
                 self.set_parameter_value("cell_file", f"{cell_name}.jpg")
                 cell_dest = self._cell_file.build_file()
-                cell_saved = await cell_dest.awrite_bytes(cell.encode(ImageFormat.JPEG))
+                cell_saved = await cell_dest.awrite_bytes(_encode_jpeg(cell))
                 cell_artifact = ImageUrlArtifact(cell_saved.location)
                 outputs.append(cell_artifact)
                 self.parameter_output_values[cell_name] = cell_artifact
@@ -337,7 +345,7 @@ class ImageGridSplitter(DataNode):
 
         preview = self._draw_preview(image, rows, cols)
         dest = self._preview_file.build_file()
-        saved = dest.write_bytes(preview.encode(ImageFormat.JPEG))
+        saved = dest.write_bytes(_encode_jpeg(preview))
         preview_artifact = ImageUrlArtifact(saved.location)
 
         self.parameter_output_values["preview"] = preview_artifact

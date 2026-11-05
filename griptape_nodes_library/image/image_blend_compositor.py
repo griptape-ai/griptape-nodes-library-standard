@@ -299,8 +299,8 @@ class ImageBlendCompositor(BaseImageProcessor):
         if invert_blend:
             blend = GriptapeImagePipeline(blend).invert().end()
 
-        # Resize blend image if requested
-        if resize_blend_to_fit:
+        # Resize blend image if requested (a same-size resize would only soften it)
+        if resize_blend_to_fit and (blend.width, blend.height) != (image.width, image.height):
             blend = GriptapeImagePipeline(blend).resize(image.width, image.height, ResizeFilter.LANCZOS).end()
 
         # Calculate position (center blend image by default)

@@ -91,7 +91,7 @@ class DisplayImage(DataNode):
                     return 0, 0
 
                 image_data = result.content if isinstance(result.content, bytes) else result.content.encode()
-                loaded = open_image_bytes(image_data, image.value)
+                loaded = open_image_bytes(image_data, image.value, turn_upright=False)
             except (FileLoadError, ValueError) as e:
                 # If file loading fails or the bytes aren't a readable image (e.g., SVG), log and return 0,0
                 logger.debug(f"{self.name}: Cannot load or identify image file: {e}")

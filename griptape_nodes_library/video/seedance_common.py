@@ -153,13 +153,14 @@ def _downscale_decoded_image(decoded_image: GriptapeImage) -> DownscaledImage | 
     new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
     resized = GriptapeImagePipeline(image).resize(*new_size, ResizeFilter.LANCZOS).end()
 
-    # The copy carries pixels only, none of the source's metadata
+    # The copy carries the pixels and their color profile, none of the source's other metadata
+    metadata = ImageMetadata(icc_profile=decoded_image.metadata.icc_profile)
     if decoded_image.format == ImageFormat.PNG:
-        encoded_bytes = resized.encode(ImageFormat.PNG, metadata=ImageMetadata())
+        encoded_bytes = resized.encode(ImageFormat.PNG, metadata=metadata)
         mime = "image/png"
     else:
         # JPEG drops any alpha
-        encoded_bytes = resized.encode(ImageFormat.JPEG, quality=92, metadata=ImageMetadata())
+        encoded_bytes = resized.encode(ImageFormat.JPEG, quality=92, metadata=metadata)
         mime = "image/jpeg"
 
     encoded_output = base64.b64encode(encoded_bytes).decode("utf-8")
