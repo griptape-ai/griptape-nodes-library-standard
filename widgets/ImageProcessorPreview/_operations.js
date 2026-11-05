@@ -300,6 +300,77 @@ const resize = {
   },
 };
 
+// ── Extend Canvas ────────────────────────────────────────────────────────────
+
+// Where the original image sits for each position, as the node's _calculate_position.
+const EXTEND_POSITIONS = {
+  center: (dx, dy) => [Math.floor(dx / 2), Math.floor(dy / 2)],
+  top_left: () => [0, 0],
+  top_right: (dx) => [dx, 0],
+  bottom_left: (dx, dy) => [0, dy],
+  bottom_right: (dx, dy) => [dx, dy],
+  top: (dx) => [Math.floor(dx / 2), 0],
+  bottom: (dx, dy) => [Math.floor(dx / 2), dy],
+  left: (dx, dy) => [0, Math.floor(dy / 2)],
+  right: (dx, dy) => [dx, Math.floor(dy / 2)],
+};
+
+// Canvas size and where the original image goes. Presets are "W:H label"; anything else extends by
+// the pixel margins, which only "custom" also uses as the image's offset.
+function extendLayout(v, w, h) {
+  const preset = v.aspect_ratio_preset ?? "1:1 square";
+  const ratio = preset === "custom" ? null : /^(\d+):(\d+) /.exec(preset);
+  const margin = (name) => Math.max(0, Math.trunc(num(v[name], 0)));
+  let targetW;
+  let targetH;
+  if (ratio) {
+    const rw = Number(ratio[1]);
+    const rh = Number(ratio[2]);
+    if (w / h > rw / rh) {
+      targetW = w;
+      targetH = Math.trunc((w * rh) / rw);
+    } else {
+      targetH = h;
+      targetW = Math.trunc((h * rw) / rh);
+    }
+  } else {
+    targetW = w + margin("left") + margin("right");
+    targetH = h + margin("top") + margin("bottom");
+  }
+  // The upscale factor grows the canvas; the image keeps its size.
+  const upscale = num(v.upscale_factor, 1);
+  if (upscale !== 1) {
+    targetW = Math.trunc(targetW * upscale);
+    targetH = Math.trunc(targetH * upscale);
+  }
+  const width = Math.max(targetW, w);
+  const height = Math.max(targetH, h);
+  let x;
+  let y;
+  if (preset === "custom") {
+    x = margin("left");
+    y = margin("top");
+  } else {
+    const place = EXTEND_POSITIONS[v.position || "center"] ?? EXTEND_POSITIONS.center;
+    [x, y] = place(width - w, height - h);
+  }
+  return { width, height, x, y };
+}
+
+const extendCanvas = {
+  size: (v, w, h) => extendLayout(v, w, h),
+  label: (v) => v.aspect_ratio_preset ?? "1:1 square",
+  draw(ctx, img, v, view) {
+    const { x, y } = extendLayout(v, view.sourceWidth, view.sourceHeight);
+    const background = v.background_color || "black";
+    if (background !== "transparent") {
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, view.width, view.height);
+    }
+    ctx.drawImage(img, x * view.scale, y * view.scale, view.sourceWidth * view.scale, view.sourceHeight * view.scale);
+  },
+};
+
 export const OPERATIONS = {
   rotate,
   flip,
@@ -309,4 +380,5 @@ export const OPERATIONS = {
   gaussian_blur: gaussianBlurOperation,
   bloom,
   resize,
+  extend_canvas: extendCanvas,
 };
