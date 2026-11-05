@@ -1,3 +1,4 @@
+from functools import partial
 from io import BytesIO
 from typing import Any
 
@@ -6,7 +7,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterList, Parame
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import load_pil_from_url
@@ -26,6 +27,9 @@ class ImagesToPdf(ControlNode):
         # Input parameter for list of images
         self.images = ParameterList(
             name="images",
+            item_converters=[
+                partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+            ],
             input_types=[
                 "ImageArtifact",
                 "ImageUrlArtifact",
@@ -57,16 +61,6 @@ class ImagesToPdf(ControlNode):
             default_filename="output.pdf",
         )
         self._output_file.add_parameter()
-
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Normalize image inputs when the list is set."""
-        super().after_value_set(parameter, value)
-
-        # Convert string paths to ImageUrlArtifact by uploading to static storage
-        if parameter.name == "images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("images", updated_list)
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate that images list is not empty."""

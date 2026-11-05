@@ -1,5 +1,6 @@
 import io
 from enum import StrEnum
+from functools import partial
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -11,7 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
@@ -71,6 +72,9 @@ class MergeImages(ControlNode):
         self.add_parameter(
             ParameterList(
                 name="Images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
                 default_value=None,
                 tooltip="Images to merge (add up to 4)",

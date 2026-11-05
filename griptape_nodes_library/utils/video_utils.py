@@ -4,10 +4,11 @@ import logging
 import re
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 import httpx
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -15,7 +16,12 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
 
-from griptape_nodes_library.utils.ffmpeg_utils import RATE_TOLERANCE, describe_ffmpeg_failure, get_ffmpeg_paths
+from griptape_nodes_library.utils.ffmpeg_utils import (
+    RATE_TOLERANCE,
+    describe_ffmpeg_failure,
+    extract_video_metadata_structured,
+    get_ffmpeg_paths,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -351,3 +357,71 @@ async def download_video_to_temp_file(url: str) -> VideoDownloadResult:
             temp_path.unlink()
         error_details = f"Failed to download video from {url}: {e}"
         raise ValueError(error_details) from e
+
+
+def has_media_value(value: Any) -> bool:
+    """Return True when a media parameter value is populated."""
+    if value is None:
+        return False
+    if hasattr(value, "value"):
+        return bool(value.value)
+    return bool(value)
+
+
+def video_container_token(video_value: str) -> str:
+    """Return the container named by the value's extension or MIME subtype, or '' if neither."""
+    if video_value.startswith("data:"):
+        header = video_value.removeprefix("data:").split(",", 1)[0]
+        return header.split(";", 1)[0].split("/", 1)[-1].lower()
+    return Path(urlsplit(video_value).path).suffix.lstrip(".").lower()
+
+
+def probe_video_duration(video_value: str, *, node_name: str) -> float | None:
+    """Return the video's duration in seconds, or None when it cannot be determined.
+
+    Probing is best-effort. A missing ffprobe or an unreadable remote URL should not block a
+    request a provider might accept, so failures are logged and skipped.
+    """
+    try:
+        location = File(video_value).resolve()
+        metadata = extract_video_metadata_structured(location)
+    except (FileLoadError, ValueError, RuntimeError) as e:
+        logger.warning("%s: could not probe input video duration, skipping the check: %s", node_name, e)
+        return None
+    return metadata.file_details.optional_duration
+
+
+def find_mp4_video_input_problems(
+    video_value: str,
+    *,
+    service_label: str,
+    max_duration_seconds: float,
+    duration_prober: Callable[[str], float | None],
+    supported_container: str = "mp4",
+    container_message: str | None = None,
+) -> list[str]:
+    """Return one short sentence pair per MP4/duration limit the video breaks.
+
+    Returns an empty list when the video is fine. A missing container token carries no signal (a
+    signed URL that strips the filename, say) and is let through. The duration prober can't take a
+    multi-megabyte data URI as an argument, so a data URI's duration goes unchecked.
+
+    ``container_message`` overrides the default "{service_label} requires .{supported_container}"
+    phrasing for a caller with its own wording to preserve.
+    """
+    problems: list[str] = []
+
+    token = video_container_token(video_value)
+    if token and token != supported_container:
+        problems.append(
+            f"It's a .{token} file. {container_message or f'{service_label} requires .{supported_container}.'}"
+        )
+
+    if not video_value.startswith("data:"):
+        duration = duration_prober(video_value)
+        if duration is not None and duration > max_duration_seconds:
+            problems.append(
+                f"It's {duration:.2f} seconds long. {service_label}'s limit is {max_duration_seconds:g} seconds."
+            )
+
+    return problems
