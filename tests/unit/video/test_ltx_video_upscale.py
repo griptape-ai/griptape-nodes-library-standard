@@ -1,7 +1,8 @@
 """Unit tests for the LTX Video Upscale node: payload shape and local input validation.
 
 The ffprobe-backed probes are stubbed, so these tests run without ffmpeg and check the node's
-own rules. Probe-level behaviour (macro paths, data URIs) is covered by test_video_probe_macro_paths.
+own rules. Probe-level behaviour (macro paths, data URIs, the duration x fps fallback, fps parsing) is covered by
+test_video_probe_macro_paths.
 """
 
 from __future__ import annotations
@@ -175,18 +176,19 @@ async def test_payload_build_node_error_is_not_prefixed(
     probe(codec="prores")
     node = _node("4k")
     monkeypatch.setattr(node, "_resolve_video_uri", AsyncMock(return_value=_PUBLIC_URI))
-    failures: list[Exception] = []
-    monkeypatch.setattr(node, "_handle_failure_exception", lambda e: failures.append(e))
-    monkeypatch.setattr(node, "_set_status_results", lambda **kwargs: failures.append(kwargs))
+    status_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(node, "_handle_failure_exception", lambda _e: None)
+    monkeypatch.setattr(node, "_set_status_results", lambda **kwargs: status_calls.append(kwargs))
 
-    with pytest.raises(NodeError) as _:
+    with pytest.raises(NodeError) as excinfo:
         await node._build_payload()
 
-    node._handle_payload_build_error(NodeError("'input video' uses prores."))
+    node._handle_payload_build_error(excinfo.value)
 
-    status = next(item for item in failures if isinstance(item, dict))
-    assert status["result_details"] == "'input video' uses prores."
-    assert not status["result_details"].startswith("Failed to build the request")
+    assert len(status_calls) == 1
+    details = status_calls[0]["result_details"]
+    assert "'input video' uses prores" in details
+    assert not details.startswith("Failed to build the request")
 
 
 # ---------------------------------------------------------------------------
