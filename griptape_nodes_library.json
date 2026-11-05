@@ -4998,7 +4998,8 @@
           "edit",
           "ai",
           "api",
-          "flux"
+          "flux",
+          "flux3"
         ],
         "declarations": [
           {
@@ -5025,7 +5026,8 @@
           "generation",
           "ai",
           "api",
-          "flux"
+          "flux",
+          "flux3"
         ],
         "declarations": [
           {
@@ -5051,7 +5053,8 @@
           "edit",
           "ai",
           "api",
-          "flux"
+          "flux",
+          "flux3"
         ],
         "declarations": [
           {
@@ -5078,7 +5081,8 @@
           "enhance",
           "ai",
           "api",
-          "flux"
+          "flux",
+          "flux3"
         ],
         "declarations": [
           {
