@@ -158,12 +158,15 @@ class ImageGridSplitter(ImagePreviewMixin, DataNode):
         cols_param.add_child(Slider(min_val=self.MIN_GRID, max_val=self.MAX_GRID))
         self.add_parameter(cols_param)
 
+        # The grid preview widget shows these lines live, so only the output's row and connection show.
+        # It is still written on each run for anything wired to it.
         self.add_parameter(
             ParameterImage(
                 name="preview",
                 tooltip="Preview of detected/manual grid (dotted yellow lines).",
                 allowed_modes={ParameterMode.OUTPUT},
                 ui_options={"display_name": "Preview", "expander": True},
+                hide_property=True,
             )
         )
 
