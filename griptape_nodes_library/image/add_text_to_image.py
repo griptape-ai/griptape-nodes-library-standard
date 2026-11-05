@@ -1,5 +1,5 @@
 from io import BytesIO
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
@@ -12,17 +12,24 @@ from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from PIL import Image, ImageDraw, ImageFont
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 
 # Constants
 TEXT_PREVIEW_LENGTH = 50
 
 
-class AddTextToImage(SuccessFailureNode):
+class AddTextToImage(ImagePreviewMixin, SuccessFailureNode):
     """Node to create an image with text rendered on it."""
+
+    PREVIEW_OPERATION = "text_image"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["width", "height", "background_color", "text", "text_color", "font_size"]
+    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {}
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
+
+        self._add_preview_parameter()
 
         # Image dimensions parameters
         self.add_parameter(
@@ -107,6 +114,10 @@ class AddTextToImage(SuccessFailureNode):
             result_details_placeholder="Details on the text rendering will be presented here.",
             parameter_group_initially_collapsed=True,
         )
+
+    def _preview_extras(self) -> dict[str, Any]:
+        """The font Pillow draws with, so the preview's text matches the node's."""
+        return {"font_url": self._pillow_font_url()}
 
     def process(self) -> None:
         # Reset execution state and set failure defaults

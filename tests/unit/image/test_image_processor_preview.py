@@ -9,9 +9,12 @@ import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 
+from griptape_nodes_library.image.add_text_to_existing_image import AddTextToExistingImage
+from griptape_nodes_library.image.add_text_to_image import AddTextToImage
 from griptape_nodes_library.image.adjust_image_eq import AdjustImageEQ
 from griptape_nodes_library.image.adjust_image_levels import AdjustImageLevels
 from griptape_nodes_library.image.bloom_effect import BloomEffect
+from griptape_nodes_library.image.create_color_bars import CreateColorBars
 from griptape_nodes_library.image.extend_canvas import ExtendCanvas
 from griptape_nodes_library.image.flip_image import FlipImage
 from griptape_nodes_library.image.gaussian_blur_image import GaussianBlurImage
@@ -45,7 +48,12 @@ PREVIEWED = [
     AdjustVideoEQ,
     BlurVideo,
     FlipVideo,
+    AddTextToImage,
+    AddTextToExistingImage,
+    CreateColorBars,
 ]
+
+WITH_SOURCE = [node_class for node_class in PREVIEWED if node_class.PREVIEW_IMAGES]
 
 OPERATIONS_JS = Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" / "_operations.js"
 
@@ -71,7 +79,7 @@ def test_widget_knows_the_operation(node_class: type[ImagePreviewMixin]) -> None
     assert node_class.PREVIEW_OPERATION in keys
 
 
-@pytest.mark.parametrize("node_class", PREVIEWED)
+@pytest.mark.parametrize("node_class", WITH_SOURCE)
 def test_setting_the_source_gives_the_preview_its_url(node_class: type[ImagePreviewMixin]) -> None:
     node = node_class(name="test_node")
     [(parameter_name, key)] = node_class.PREVIEW_IMAGES.items()
@@ -82,7 +90,16 @@ def test_setting_the_source_gives_the_preview_its_url(node_class: type[ImagePrev
 
     node.set_parameter_value(parameter_name, media)
 
-    assert node.get_parameter_value("preview") == {"operation": node_class.PREVIEW_OPERATION, key: media.value}
+    preview = node.get_parameter_value("preview")
+    assert preview["operation"] == node_class.PREVIEW_OPERATION
+    assert preview[key] == media.value
+
+
+@pytest.mark.parametrize("node_class", [AddTextToImage, AddTextToExistingImage])
+def test_text_previews_carry_the_font_pillow_draws_with(node_class: type[ImagePreviewMixin]) -> None:
+    node = node_class(name="test_node")
+
+    assert node.get_parameter_value("preview")["font_url"]
 
 
 def test_a_node_without_an_operation_has_no_preview() -> None:

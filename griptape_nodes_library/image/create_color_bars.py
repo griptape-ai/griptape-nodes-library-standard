@@ -1,5 +1,4 @@
 import colorsys
-import contextlib
 import math
 from typing import Any, ClassVar, cast
 
@@ -13,10 +12,11 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.options import Options
 from PIL import Image, ImageDraw
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import image_to_bytes
 
 
-class CreateColorBars(BaseNode):
+class CreateColorBars(ImagePreviewMixin, BaseNode):
     """CreateColorBars Node that generates standard color bar test patterns."""
 
     # Color bar type choices
@@ -71,8 +71,21 @@ class CreateColorBars(BaseNode):
     PLUGE_MIN_BAR_COUNT: ClassVar[int] = 2  # Minimum number of PLUGE bars
     PLUGE_MAX_BAR_COUNT: ClassVar[int] = 5  # Maximum number of PLUGE bars
 
+    PREVIEW_OPERATION = "color_bars"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = [
+        "bar_type",
+        "width",
+        "height",
+        "pluge_ire_setup",
+        "pluge_bar_count",
+        "pluge_orientation",
+    ]
+    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {}
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
+
+        self._add_preview_parameter()
 
         # Add color bar type selector
         self.add_parameter(
@@ -1064,13 +1077,6 @@ class CreateColorBars(BaseNode):
                 self.hide_parameter_by_name("pluge_ire_setup")
                 self.hide_parameter_by_name("pluge_bar_count")
                 self.hide_parameter_by_name("pluge_orientation")
-
-        # Generate color bars when relevant parameters change
-        if parameter.name in ["bar_type", "width", "height", "pluge_ire_setup", "pluge_bar_count", "pluge_orientation"]:
-            # If generation fails (e.g., invalid dimensions), don't update output
-            # The error will be caught and handled in process() if needed
-            with contextlib.suppress(ValueError):
-                self._generate_and_set_image()
 
         return super().after_value_set(parameter, value)
 

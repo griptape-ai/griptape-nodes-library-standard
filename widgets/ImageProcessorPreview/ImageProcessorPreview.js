@@ -4,8 +4,9 @@
 // the node processes the real media when it runs.
 
 import { OPERATIONS } from "./_operations.js";
+import { PREVIEW_FONT } from "./_text.js";
 
-const WIDGET_VERSION = "1.1.0";
+const WIDGET_VERSION = "1.2.0";
 const CHECKER = 10;
 const SCRUB_STEPS = 1000;
 
@@ -85,6 +86,50 @@ export default function ImageProcessorPreview(container, props) {
   video.addEventListener("loadeddata", () => { seekTo(Number(scrub.value) / SCRUB_STEPS); });
   video.addEventListener("seeked", () => { sourceReady = true; sourcePixels = null; pixelsBlocked = false; render(); });
   video.addEventListener("error", () => { sourceReady = false; render(); });
+
+  // The font the node draws text with, loaded from the URL it sends. Text falls back to sans-serif until
+  // it arrives.
+  let fontUrl = "";
+  function loadFont(url) {
+    if (!url || url === fontUrl || typeof FontFace === "undefined") return;
+    fontUrl = url;
+    new FontFace(PREVIEW_FONT, `url("${url}")`)
+      .load()
+      .then((face) => { document.fonts.add(face); render(); })
+      .catch(() => {});
+  }
+
+  // Draws a generated operation (one with no source image) at full size, then scales it into view.
+  function renderGenerated(operation) {
+    const size = operation.size(value);
+    if (size.error) {
+      showMessage(size.error, size.error);
+      return;
+    }
+    const full = document.createElement("canvas");
+    full.width = size.width; full.height = size.height;
+    const fctx = full.getContext("2d");
+    try {
+      if (operation.pixels) {
+        fctx.putImageData(new ImageData(operation.pixels(value, size.width, size.height), size.width, size.height), 0, 0);
+      } else {
+        operation.render(fctx, value, size);
+      }
+    } catch (err) {
+      showMessage(err.message, err.message);
+      return;
+    }
+    const areaW = canvasWrap.clientWidth || 480;
+    const areaH = canvasWrap.clientHeight || 360;
+    const scale = Math.min(areaW / size.width, areaH / size.height);
+    canvas.width = Math.max(1, Math.round(size.width * scale));
+    canvas.height = Math.max(1, Math.round(size.height * scale));
+    drawChecker(canvas.width, canvas.height);
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(full, 0, 0, canvas.width, canvas.height);
+    const label = operation.label ? `${operation.label(value)}  →  ` : "";
+    statusL.textContent = `${label}${size.width} × ${size.height} px`;
+  }
 
   let isVideo = false;
   const source = () => (isVideo ? video : img);
@@ -166,6 +211,10 @@ export default function ImageProcessorPreview(container, props) {
       showMessage("No preview for this node", "");
       return;
     }
+    if (operation.generate) {
+      renderGenerated(operation);
+      return;
+    }
     if (!sourceReady) {
       const what = isVideo ? "a video" : "an image";
       showMessage(`Connect ${what} to preview the result`, isVideo ? "No video connected" : "No image connected");
@@ -205,6 +254,7 @@ export default function ImageProcessorPreview(container, props) {
 
   function handleUpdate(newProps) {
     value = newProps.value || {};
+    loadFont(value.font_url);
     const nextIsVideo = Boolean(value.video_url);
     const newUrl = (nextIsVideo ? value.video_url : value.image_url) || "";
     const base = (u) => (u ? u.split("?")[0] : "");

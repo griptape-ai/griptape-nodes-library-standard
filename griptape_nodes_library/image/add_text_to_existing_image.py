@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -20,6 +20,7 @@ from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from PIL import Image, ImageDraw, ImageFont
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
@@ -73,11 +74,23 @@ class _TextExpansionResult:
     missing_keys: list[str]
 
 
-class AddTextToExistingImage(SuccessFailureNode):
+class AddTextToExistingImage(ImagePreviewMixin, SuccessFailureNode):
     """Node to add text rendered on top of an existing image."""
 
     # A preview cache; a node without it renders again and gets the same result.
     attributes_outside_parameters = frozenset({"_cached_render_signature", "_cached_render_png_bytes"})
+
+    PREVIEW_OPERATION = "text_overlay"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = [
+        "text",
+        "template_values",
+        "text_color",
+        "text_background",
+        "text_vertical_alignment",
+        "text_horizontal_alignment",
+        "margin",
+        "font_size",
+    ]
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
@@ -94,6 +107,8 @@ class AddTextToExistingImage(SuccessFailureNode):
                 ui_options={"clickable_file_browser": True, "expander": True},
             )
         )
+
+        self._add_preview_parameter()
 
         self.add_parameter(
             ParameterString(
@@ -184,6 +199,10 @@ class AddTextToExistingImage(SuccessFailureNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="text_overlay.png")
         self._output_file.add_parameter()
 
+    def _preview_extras(self) -> dict[str, Any]:
+        """The font Pillow draws with, so the preview's text matches the node's."""
+        return {"font_url": self._pillow_font_url()}
+
     def _expand_text_template(self, template: str, template_values: Any) -> _TextExpansionResult:
         template_value = template or ""
 
@@ -207,25 +226,6 @@ class AddTextToExistingImage(SuccessFailureNode):
                 seen_missing.add(key)
 
         return _TextExpansionResult(rendered_text=template_value, missing_keys=missing_keys)
-
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        # Re-render and cache image locally when any relevant parameter changes.
-        if parameter.name in {
-            "input_image",
-            "text",
-            "template_values",
-            "text_color",
-            "text_background",
-            "text_vertical_alignment",
-            "text_horizontal_alignment",
-            "margin",
-            "font_size",
-        }:
-            try:
-                self._refresh_cached_render_if_possible()
-            except Exception as e:
-                logger.warning(f"{self.name}: Cached render refresh failed: {e}")
-        return super().after_value_set(parameter, value)
 
     def process(self) -> AsyncResult[None]:
         """Run using AsyncResult pattern for UI running status."""

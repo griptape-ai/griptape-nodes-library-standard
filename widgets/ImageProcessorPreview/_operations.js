@@ -12,6 +12,8 @@
 
 import { applyLut, blendByte, gaussianBlur, luma } from "./_pixels.js";
 import { VIDEO_OPERATIONS } from "./_video_operations.js";
+import { colorBars } from "./_color_bars.js";
+import { textImage, textOverlay } from "./_text.js";
 
 const num = (value, fallback) => {
   const n = Number(value);
@@ -388,4 +390,7 @@ export const OPERATIONS = {
   rgb_shift: VIDEO_OPERATIONS.rgb_shift,
   curves: VIDEO_OPERATIONS.curves,
   film_grain: VIDEO_OPERATIONS.film_grain,
+  color_bars: colorBars,
+  text_image: textImage,
+  text_overlay: textOverlay,
 };
