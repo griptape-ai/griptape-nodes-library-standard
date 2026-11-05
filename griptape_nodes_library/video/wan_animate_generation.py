@@ -16,6 +16,14 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    AspectRatioRange,
+    MaxDuration,
+    MaxFileSize,
+    MinDuration,
+    SideRange,
+)
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
@@ -47,6 +55,37 @@ MODE_OPTIONS = [
     "wan-pro",
 ]
 
+# DashScope's documented input limits, the same for wan2.2-animate-mix and wan2.2-animate-move
+# (Request body > input > image_url / video_url on each page).
+# Errors link the page for the selected model.
+INPUT_LIMITS_URLS = {
+    "wan2.2-animate-mix": "https://www.alibabacloud.com/help/en/model-studio/wan-animate-mix-api",
+    "wan2.2-animate-move": "https://www.alibabacloud.com/help/en/model-studio/wan-animate-move-api",
+}
+# "Aspect ratio must be between 1:3 and 3:1." (image and video)
+ASPECT_RATIO_RANGE = AspectRatioRange("1:3", "3:1")
+IMAGE_LIMITS = (
+    # "Format: JPG, JPEG, PNG, BMP, or WEBP"
+    AllowedFormats("image/jpeg", "image/png", "image/bmp", "image/webp"),
+    # "File size: Up to 5 MB."
+    MaxFileSize(5 * 1024 * 1024),
+    # "Width and height must each be in the range [200, 4096] pixels."
+    SideRange(min=200, max=4096),
+    ASPECT_RATIO_RANGE,
+)
+VIDEO_LIMITS = (
+    # "File size: Up to 200 MB."
+    MaxFileSize(200 * 1024 * 1024),
+    # "Format: MP4, AVI, or MOV"
+    AllowedFormats("video/mp4", "video/x-msvideo", "video/quicktime"),
+    # "Duration: 2 to 30 seconds."
+    MinDuration(2),
+    MaxDuration(30),
+    # "Width and height must each be in the range [200, 2048] pixels."
+    SideRange(min=200, max=2048),
+    ASPECT_RATIO_RANGE,
+)
+
 # HTTP status code threshold for error responses
 HTTP_ERROR_STATUS = 400
 
@@ -77,13 +116,11 @@ class WanAnimateGeneration(GriptapeProxyNode):
             Format: JPG, JPEG, PNG, BMP, or WEBP
             Dimensions: 200-4096 pixels (width and height), aspect ratio 1:3 to 3:1
             Size: Max 5 MB
-            Content: Single person facing camera, complete face, not obstructed
         - video_url (VideoUrlArtifact): Reference video for motion (required)
             Format: MP4, AVI, or MOV
             Duration: 2-30 seconds
             Dimensions: 200-2048 pixels (width and height), aspect ratio 1:3 to 3:1
             Size: Max 200 MB
-            Content: Single person facing camera, complete face, not obstructed
 
     Outputs:
         - generation_id (str): Generation ID from the API
@@ -138,6 +175,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "Image URL"},
+                pre_run_validators=IMAGE_LIMITS,
             ),
             disclaimer_message="The WAN Animate service utilizes this URL to access the image for animation.",
         )
@@ -153,6 +191,7 @@ class WanAnimateGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "Video URL"},
+                pre_run_validators=VIDEO_LIMITS,
             ),
             disclaimer_message="The WAN Animate service utilizes this URL to access the reference video for motion transfer.",
         )
@@ -204,6 +243,10 @@ class WanAnimateGeneration(GriptapeProxyNode):
         if not video_url:
             exceptions.append(ValueError("Video URL must be provided"))
         return exceptions if exceptions else None
+
+    def input_limits_url(self) -> str | None:
+        """DashScope's limits page for the selected model; the mix page when the selection is unknown."""
+        return INPUT_LIMITS_URLS.get(self._get_selected_model_id(), INPUT_LIMITS_URLS[MODEL_OPTIONS[0]])
 
     async def aprocess(self) -> None:
         await self._process_generation()
