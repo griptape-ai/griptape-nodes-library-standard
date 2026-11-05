@@ -62,6 +62,15 @@ class _ProbeResult(NamedTuple):
     duration_seconds: float
 
 
+def _first_url(result: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    """Return the first non-empty string URL in ``result`` among ``keys``."""
+    for key in keys:
+        url = result.get(key)
+        if isinstance(url, str) and url:
+            return url
+    return None
+
+
 class LTXVideoAlphaGen(PublicVideoUrlMixin, GriptapeProxyNode):
     """Generate an alpha matte for a video using LTX AI via Griptape Cloud model proxy.
 
@@ -436,14 +445,16 @@ class LTXVideoAlphaGen(PublicVideoUrlMixin, GriptapeProxyNode):
         result = result_json.get("result") if isinstance(result_json, dict) else None
         if not isinstance(result, dict):
             return []
-        mask_url = result.get("video_url")
-        if not isinstance(mask_url, str) or not mask_url:
+        # The live API returns matte_video_url / cutout_video_url; the preview docs (as of 2026-11-05)
+        # still say video_url / rgba_video_url. Accept both, live spelling first.
+        mask_url = _first_url(result, ("matte_video_url", "video_url"))
+        if not mask_url:
             # Both outputs are videos told apart by position. Without the matte, the ProRes would land
             # at position 0 and be saved as the matte, so report no outputs and let the matte save fail.
             return []
         urls: list[tuple[str, str]] = [(ArtifactKind.VIDEO, mask_url)]
-        rgba_url = result.get("rgba_video_url")
-        if isinstance(rgba_url, str) and rgba_url:
+        rgba_url = _first_url(result, ("cutout_video_url", "rgba_video_url"))
+        if rgba_url:
             urls.append((ArtifactKind.VIDEO, rgba_url))
         return urls
 

@@ -480,3 +480,19 @@ async def test_real_selection_saves_matte_and_prores_to_their_own_outputs(monkey
     await node._parse_result({}, GENERATION_ID)
 
     assert saved == {"matte": MASK_URL, "rgba": PRORES_URL}
+
+
+def test_direct_download_reads_the_live_result_keys() -> None:
+    """The live API's keys differ from the preview docs (seen on a real job, 2026-11-05)."""
+    result = {"result": {"matte_video_url": MASK_URL, "cutout_video_url": PRORES_URL}}
+
+    assert _node()._direct_download_result_urls(result) == [
+        (ArtifactKind.VIDEO, MASK_URL),
+        (ArtifactKind.VIDEO, PRORES_URL),
+    ]
+
+
+def test_direct_download_prefers_live_keys_when_both_spellings_are_present() -> None:
+    result = {"result": {"matte_video_url": MASK_URL, "video_url": "https://other/old.mp4"}}
+
+    assert _node()._direct_download_result_urls(result) == [(ArtifactKind.VIDEO, MASK_URL)]
