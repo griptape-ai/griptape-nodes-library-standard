@@ -1,20 +1,41 @@
 from typing import Any
 
+import numpy as np
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.slider import Slider
-from PIL import Image, ImageEnhance
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    edited_pixels,
+    load_image_from_url,
 )
+
+# Pillow-style mode for each channel count
+_MODES_BY_CHANNELS = {1: ImageMode.GRAY, 2: ImageMode.GRAY_ALPHA, 3: ImageMode.RGB, 4: ImageMode.RGBA}
+_ALPHA_MODES = frozenset({ImageMode.GRAY_ALPHA, ImageMode.RGBA})
+
+
+def _apply_lut(image: GriptapeImage, table: list[int]) -> GriptapeImage:
+    """Map the color channels of ``image`` (as 8-bit) through a 256-entry table, keeping any alpha channel."""
+    mode = _MODES_BY_CHANNELS[image.channels]
+    lut = np.array(table, dtype=np.uint8)
+    color = slice(0, -1) if mode in _ALPHA_MODES else slice(None)
+
+    def mapped(pixels: np.ndarray) -> np.ndarray:
+        result = pixels.copy()
+        result[:, :, color] = lut[pixels[:, :, color]]
+        return result
+
+    return edited_pixels(image, mode, mapped)
 
 
 class AdjustImageEQ(BaseImageProcessor):
-    """Adjust image brightness and contrast using PIL's ImageEnhance."""
+    """Adjust image brightness and contrast and color."""
 
     # Brightness constants
     MIN_BRIGHTNESS = 0.0
@@ -98,11 +119,11 @@ class AdjustImageEQ(BaseImageProcessor):
             else:
                 image_artifact = image_value
 
-            # Load PIL image
-            pil_image = load_pil_from_url(image_artifact.value)
+            # Load image
+            image = load_image_from_url(image_artifact.value)
 
             # Process with current EQ settings
-            processed_image = self._process_image(pil_image, **self._get_custom_parameters())
+            processed_image = self._process_image(image, **self._get_custom_parameters())
 
             # Save and set output
             output_artifact = self._save_image_artifact(processed_image, "png")
@@ -118,8 +139,8 @@ class AdjustImageEQ(BaseImageProcessor):
         """Get description of what this processor does."""
         return "image EQ adjustment (brightness, contrast, saturation, gamma)"
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
-        """Process the PIL image by adjusting brightness, contrast, saturation, and gamma."""
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
+        """Process the image by adjusting brightness, contrast, saturation, and gamma."""
         brightness = kwargs.get("brightness", self.DEFAULT_BRIGHTNESS)
         contrast = kwargs.get("contrast", self.DEFAULT_CONTRAST)
         saturation = kwargs.get("saturation", self.DEFAULT_SATURATION)
@@ -130,30 +151,32 @@ class AdjustImageEQ(BaseImageProcessor):
             f"{self.name}: Processing image with brightness={brightness}, contrast={contrast}, saturation={saturation}, gamma={gamma}"
         )
 
+        # Work on the 8-bit pixels the gamma table expects
+        pipeline = GriptapeImagePipeline(image).to_uint8()
+
         # Apply brightness adjustment
         if brightness != 1.0:
-            enhancer = ImageEnhance.Brightness(pil_image)
-            pil_image = enhancer.enhance(brightness)
+            pipeline.brightness(brightness)
 
         # Apply contrast adjustment
         if contrast != 1.0:
-            enhancer = ImageEnhance.Contrast(pil_image)
-            pil_image = enhancer.enhance(contrast)
+            pipeline.contrast(contrast)
 
         # Apply saturation adjustment
         if saturation != 1.0:
-            enhancer = ImageEnhance.Color(pil_image)
-            pil_image = enhancer.enhance(saturation)
+            pipeline.saturation(saturation)
+
+        image = pipeline.end()
 
         # Apply gamma adjustment
         if gamma != 1.0:
             # Debug logging
-            logger.debug(f"{self.name}: Applying gamma correction with gamma={gamma}, image_mode={pil_image.mode}")
+            logger.debug(f"{self.name}: Applying gamma correction with gamma={gamma}, channels={image.channels}")
 
-            # Use the proper gamma correction method from PIL documentation
+            # Gamma correction lookup table
             # Based on: https://linuxtut.com/en/145d858eff3c505c100a/
             def create_gamma_table(gamma_value: float, gain: float = 1.0) -> list[int]:
-                """Create gamma correction lookup table following PIL documentation."""
+                """Create gamma correction lookup table."""
                 return [min(255, int((x / 255.0) ** (1.0 / gamma_value) * gain * 255.0)) for x in range(256)]
 
             # Create lookup table for gamma correction
@@ -164,34 +187,10 @@ class AdjustImageEQ(BaseImageProcessor):
                 f"{self.name}: Gamma table sample - input 0->{gamma_table[0]}, 128->{gamma_table[128]}, 255->{gamma_table[255]}"
             )
 
-            # Handle different image modes
-            if pil_image.mode == "RGBA":
-                # For RGBA images, apply gamma to RGB channels only, preserve alpha
-                rgb_image = pil_image.convert("RGB")
-                # Create combined lookup table for RGB channels
-                combined_table = gamma_table + gamma_table + gamma_table
-                gamma_corrected_rgb = rgb_image.point(combined_table)
-                # Convert back to RGBA and preserve original alpha
-                gamma_corrected_image = gamma_corrected_rgb.convert("RGBA")
-                # Copy original alpha channel
-                original_alpha = pil_image.getchannel("A")
-                gamma_corrected_image.putalpha(original_alpha)
-                pil_image = gamma_corrected_image
-            elif pil_image.mode == "RGB":
-                # For RGB images, create combined lookup table for all channels
-                combined_table = gamma_table + gamma_table + gamma_table
-                pil_image = pil_image.point(combined_table)
-            elif pil_image.mode == "L":
-                # For grayscale images, use single channel table
-                pil_image = pil_image.point(gamma_table)
-            else:
-                # For other modes, convert to RGB first
-                rgb_image = pil_image.convert("RGB")
-                combined_table = gamma_table + gamma_table + gamma_table
-                gamma_corrected_rgb = rgb_image.point(combined_table)
-                pil_image = gamma_corrected_rgb.convert(pil_image.mode)
+            # Apply to the color channels, preserving any alpha
+            image = _apply_lut(image, gamma_table)
 
-        return pil_image
+        return image
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate EQ parameters."""

@@ -5,9 +5,9 @@ from typing import cast
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
+from griptape_nodes.image import GriptapeImage, ImageFormat
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from PIL import Image
 
 from griptape_nodes_library.image.images_to_pdf import ImagesToPdf
 
@@ -23,7 +23,7 @@ def node(griptape_nodes: GriptapeNodes) -> ImagesToPdf:  # noqa: ARG001
 @pytest.fixture
 def image_path(tmp_path: Path) -> Path:
     path = tmp_path / "image.png"
-    Image.new("RGB", (2, 2)).save(path)
+    path.write_bytes(GriptapeImage.new(2, 2).encode(ImageFormat.PNG))
     return path
 
 

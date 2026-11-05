@@ -1,4 +1,3 @@
-from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -8,14 +7,15 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from PIL import Image
+from griptape_nodes.image import GriptapeImage
 
 from griptape_nodes_library.utils.image_utils import (
     calculate_aspect_ratio,
     get_image_color_info,
     get_image_dimensions_from_artifact,
     get_image_format_from_artifact,
-    load_pil_from_url,
+    load_image_from_url,
+    open_image_bytes,
 )
 
 
@@ -157,15 +157,15 @@ class ImageDetails(DataNode):
         self.parameter_output_values["ratio_decimal"] = ratio_decimal
 
         # Extract color information and format
-        pil_image = self._load_pil_image(image)
+        loaded = self._load_image(image)
 
-        # Failure case: could not load PIL image
-        if pil_image is None:
+        # Failure case: could not load the image
+        if loaded is None:
             self._set_default_color_and_format_values()
             return
 
         # Success path: extract color and format information
-        color_info = get_image_color_info(pil_image)
+        color_info = get_image_color_info(loaded)
         self.parameter_output_values["color_space"] = color_info.color_space
         self.parameter_output_values["channels"] = color_info.channels
 
@@ -181,11 +181,11 @@ class ImageDetails(DataNode):
         image = self.get_parameter_value("image")
         self._update_image_details(image)
 
-    def _load_pil_image(self, image: ImageUrlArtifact | ImageArtifact) -> Image.Image | None:
-        """Load PIL Image from artifact."""
+    def _load_image(self, image: ImageUrlArtifact | ImageArtifact) -> GriptapeImage | None:
+        """Load the image from an artifact."""
         if isinstance(image, ImageArtifact):
             try:
-                return Image.open(BytesIO(image.value))
+                return open_image_bytes(image.value)
             except (OSError, ValueError):
                 # OSError: corrupted or unsupported image file
                 # ValueError: invalid image data
@@ -193,7 +193,7 @@ class ImageDetails(DataNode):
 
         if isinstance(image, ImageUrlArtifact):
             try:
-                return load_pil_from_url(image.value)
+                return load_image_from_url(image.value)
             except (OSError, ValueError):
                 # OSError: network error, corrupted file, or unsupported format
                 # ValueError: invalid URL or image data

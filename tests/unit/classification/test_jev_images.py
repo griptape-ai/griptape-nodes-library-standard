@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import base64
-from io import BytesIO
 from typing import Any
 
+import numpy as np
 import pytest
 from griptape.artifacts import ImageArtifact
-from PIL import Image
+from griptape_nodes.image import EXIF_ORIENTATION_TAG, Exif, GriptapeImage, ImageFormat, ImageMetadata
 
 from griptape_nodes_library.classification import jev_common
 from griptape_nodes_library.classification.jev_ask_yes_no import JevAskYesNo
@@ -16,15 +16,18 @@ from griptape_nodes_library.classification.jev_common import IMAGE_MAX_SIDE, IMA
 from griptape_nodes_library.classification.jev_pick_one import JevPickOne
 from griptape_nodes_library.classification.jev_rate import JevRate
 
+# Fill colors for test images: black, and transparent black where there's alpha
+BLACK = {"RGB": (0, 0, 0), "RGBA": (0, 0, 0, 0)}
+
 
 def _image(width: int, height: int, mode: str = "RGB") -> ImageArtifact:
-    buffer = BytesIO()
-    Image.new(mode, (width, height)).save(buffer, format="PNG")
-    return ImageArtifact(buffer.getvalue(), format="png", width=width, height=height)
+    data = GriptapeImage.new(width, height, BLACK[mode]).encode(ImageFormat.PNG)
+    return ImageArtifact(data, format="png", width=width, height=height)
 
 
 def _decoded_size(asset: dict[str, str]) -> tuple[int, int]:
-    return Image.open(BytesIO(base64.b64decode(asset["data_base64"]))).size
+    image = _decoded(asset)
+    return (image.width, image.height)
 
 
 def _node(node_class: type, values: dict[str, Any], images: list[Any], monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -153,50 +156,48 @@ async def test_an_aspect_ratio_jev_cant_fit_raises(monkeypatch: pytest.MonkeyPat
         await node._build_payload()
 
 
-def _decoded(asset: dict[str, str]) -> Image.Image:
-    return Image.open(BytesIO(base64.b64decode(asset["data_base64"])))
+def _decoded(asset: dict[str, str]) -> GriptapeImage:
+    return GriptapeImage.open(base64.b64decode(asset["data_base64"]))
 
 
-def _artifact(image: Image.Image, **save_kwargs: Any) -> ImageArtifact:
-    buffer = BytesIO()
-    fmt = save_kwargs.pop("format", "PNG")
-    image.save(buffer, format=fmt, **save_kwargs)
-    return ImageArtifact(buffer.getvalue(), format=fmt.lower(), width=image.width, height=image.height)
+def _artifact(image: GriptapeImage, image_format: ImageFormat = ImageFormat.PNG, **encode_kwargs: Any) -> ImageArtifact:
+    data = image.encode(image_format, **encode_kwargs)
+    return ImageArtifact(data, format=image_format.lower(), width=image.width, height=image.height)
 
 
 @pytest.mark.asyncio
 async def test_sixteen_bit_images_keep_their_tones(monkeypatch: pytest.MonkeyPatch) -> None:
-    sixteen_bit = Image.new("I;16", (512, 512), 32768)
+    sixteen_bit = GriptapeImage.from_array(np.full((512, 512), 32768, dtype=np.uint16))
     node = _node(JevAskYesNo, {"question": "Is [image 1] dark?"}, [_artifact(sixteen_bit)], monkeypatch)
 
     payload = await node._build_payload()
 
-    pixel = _decoded(payload["assets"]["[image 1]"]).getpixel((256, 256))
-    assert isinstance(pixel, tuple)
-    red, green, blue = pixel
+    pixel = _decoded(payload["assets"]["[image 1]"]).to_array()[256, 256]
+    assert pixel.shape == (3,)
+    red, green, blue = (int(channel) for channel in pixel)
     assert 120 <= red <= 136
     assert red == green == blue
 
 
 @pytest.mark.asyncio
 async def test_transparency_is_flattened_onto_white(monkeypatch: pytest.MonkeyPatch) -> None:
-    transparent = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    transparent = GriptapeImage.new(512, 512, (0, 0, 0, 0))
     node = _node(JevAskYesNo, {"question": "Is [image 1] dark?"}, [_artifact(transparent)], monkeypatch)
 
     payload = await node._build_payload()
 
-    pixel = _decoded(payload["assets"]["[image 1]"]).getpixel((256, 256))
-    assert isinstance(pixel, tuple)
+    pixel = _decoded(payload["assets"]["[image 1]"]).to_array()[256, 256]
+    assert pixel.shape == (3,)
     assert min(pixel) >= 250  # noqa: PLR2004
 
 
 @pytest.mark.asyncio
 async def test_exif_orientation_is_applied(monkeypatch: pytest.MonkeyPatch) -> None:
-    exif = Image.Exif()
-    exif[0x0112] = 6  # Orientation: rotate 90 degrees clockwise to display.
-    photo = _artifact(Image.new("RGB", (800, 400)), format="JPEG", exif=exif)
+    exif = Exif()
+    exif.set_primary(EXIF_ORIENTATION_TAG, 6)  # Orientation: rotate 90 degrees clockwise to display.
+    photo = _artifact(GriptapeImage.new(800, 400), ImageFormat.JPEG, metadata=ImageMetadata(exif=exif))
     node = _node(JevAskYesNo, {"question": "Is [image 1] upright?"}, [photo], monkeypatch)
 
     payload = await node._build_payload()
 
-    assert _decoded(payload["assets"]["[image 1]"]).size == (400, 800)
+    assert _decoded_size(payload["assets"]["[image 1]"]) == (400, 800)

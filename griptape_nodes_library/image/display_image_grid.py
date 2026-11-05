@@ -9,6 +9,7 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ResizeFilter
 from griptape_nodes.traits.clamp import Clamp
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
@@ -280,14 +281,14 @@ class DisplayImageGrid(ControlNode):
         saved = dest.write_bytes(image_to_bytes(placeholder_image, output_format))
         return ImageUrlArtifact(value=saved.location)
 
-    def _scale_grid_to_fit(self, grid_image: Any, target_width: int, target_height: int) -> tuple[Any, int, int]:
+    def _scale_grid_to_fit(
+        self, grid_image: GriptapeImage, target_width: int, target_height: int
+    ) -> tuple[GriptapeImage, int, int]:
         """Scale grid image to fit within target dimensions.
 
         Returns:
             tuple: (scaled_image, final_width, final_height)
         """
-        from PIL import Image
-
         grid_width = grid_image.width
         grid_height = grid_image.height
 
@@ -300,19 +301,20 @@ class DisplayImageGrid(ControlNode):
         if scale_factor < 1.0:
             new_width = int(grid_width * scale_factor)
             new_height = int(grid_height * scale_factor)
-            return grid_image.resize((new_width, new_height), Image.Resampling.LANCZOS), new_width, new_height
+            scaled = GriptapeImagePipeline(grid_image).resize(new_width, new_height, ResizeFilter.LANCZOS).end()
+            return scaled, new_width, new_height
 
         return grid_image, grid_width, grid_height
 
     def _apply_preset_canvas(
         self,
-        grid_image: Any,
+        grid_image: GriptapeImage,
         target_dimensions: tuple[int, int],
         *,
         background_color: str,
         grid_justification: str,
         transparent_bg: bool,
-    ) -> Any:
+    ) -> GriptapeImage:
         """Apply preset dimensions by scaling grid and placing on exact-sized canvas.
 
         Args:
@@ -345,9 +347,8 @@ class DisplayImageGrid(ControlNode):
         else:  # left
             x_offset = 0
 
-        # Paste grid onto canvas
-        canvas.paste(grid_image, (x_offset, y_offset), grid_image if grid_image.mode == "RGBA" else None)
-        return canvas
+        # Composite grid onto canvas (an opaque grid replaces the pixels it covers)
+        return GriptapeImagePipeline(canvas).composite(grid_image, x_offset, y_offset).end()
 
     def process(self) -> AsyncResult[None]:
         """Non-blocking entry point for Griptape engine."""

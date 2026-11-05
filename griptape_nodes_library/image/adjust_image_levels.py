@@ -1,17 +1,38 @@
 from typing import Any
 
+import numpy as np
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.slider import Slider
-from PIL import Image
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    edited_pixels,
+    load_image_from_url,
 )
+
+# Pillow-style mode for each channel count
+_MODES_BY_CHANNELS = {1: ImageMode.GRAY, 2: ImageMode.GRAY_ALPHA, 3: ImageMode.RGB, 4: ImageMode.RGBA}
+_ALPHA_MODES = frozenset({ImageMode.GRAY_ALPHA, ImageMode.RGBA})
+
+
+def _apply_lut(image: GriptapeImage, table: list[int]) -> GriptapeImage:
+    """Map the color channels of ``image`` (as 8-bit) through a 256-entry table, keeping any alpha channel."""
+    mode = _MODES_BY_CHANNELS[image.channels]
+    lut = np.array(table, dtype=np.uint8)
+    color = slice(0, -1) if mode in _ALPHA_MODES else slice(None)
+
+    def mapped(pixels: np.ndarray) -> np.ndarray:
+        result = pixels.copy()
+        result[:, :, color] = lut[pixels[:, :, color]]
+        return result
+
+    return edited_pixels(image, mode, mapped)
 
 
 class AdjustImageLevels(BaseImageProcessor):
@@ -102,11 +123,11 @@ class AdjustImageLevels(BaseImageProcessor):
             else:
                 image_artifact = image_value
 
-            # Load PIL image
-            pil_image = load_pil_from_url(image_artifact.value)
+            # Load image
+            image = load_image_from_url(image_artifact.value)
 
             # Process with current levels settings
-            processed_image = self._process_image(pil_image, **self._get_custom_parameters())
+            processed_image = self._process_image(image, **self._get_custom_parameters())
 
             # Save and set output
             output_artifact = self._save_image_artifact(processed_image, "png")
@@ -118,7 +139,7 @@ class AdjustImageLevels(BaseImageProcessor):
             # Log error but don't fail the node
             logger.warning(f"{self.name}: Live preview failed: {e}")
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
         """Apply levels adjustment to the image."""
         shadows = int(kwargs.get("shadows", self.DEFAULT_SHADOWS))
         midtones = float(kwargs.get("midtones", self.DEFAULT_MIDTONES))
@@ -140,26 +161,8 @@ class AdjustImageLevels(BaseImageProcessor):
         # Create levels lookup table
         levels_table = self._create_levels_table(shadows, midtones, highlights, output_shadows, output_highlights)
 
-        # Apply levels adjustment
-        if pil_image.mode == "RGBA":
-            # Handle RGBA images by processing RGB channels and preserving alpha
-            rgb_image = pil_image.convert("RGB")
-            combined_table = levels_table + levels_table + levels_table
-            adjusted_rgb = rgb_image.point(combined_table)
-            adjusted_image = adjusted_rgb.convert("RGBA")
-            original_alpha = pil_image.getchannel("A")
-            adjusted_image.putalpha(original_alpha)
-            return adjusted_image
-        if pil_image.mode == "RGB":
-            combined_table = levels_table + levels_table + levels_table
-            return pil_image.point(combined_table)
-        if pil_image.mode == "L":
-            return pil_image.point(levels_table)
-        # Convert other modes to RGB, process, then convert back
-        rgb_image = pil_image.convert("RGB")
-        combined_table = levels_table + levels_table + levels_table
-        adjusted_rgb = rgb_image.point(combined_table)
-        return adjusted_rgb.convert(pil_image.mode)
+        # Apply levels adjustment to the color channels, preserving any alpha
+        return _apply_lut(image, levels_table)
 
     def _create_levels_table(
         self,

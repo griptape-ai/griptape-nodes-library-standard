@@ -1,6 +1,6 @@
-from io import BytesIO
 from typing import Any
 
+import numpy as np
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
@@ -9,15 +9,18 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
+from griptape_nodes.image import GriptapeImagePipeline, ResizeFilter
 from griptape_nodes.traits.options import Options
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
+    MAX_UINT8,
+    ImageMode,
     apply_mask_transformations,
+    converted,
     dict_to_image_url_artifact,
     extract_channel_from_image,
     image_to_bytes,
+    load_image_from_url,
 )
 
 
@@ -135,12 +138,7 @@ class ApplyMask(DataNode):
             # Apply the mask to input image
             self._apply_mask_to_input(input_image, input_mask, channel)
 
-    def load_pil_from_url(self, url: str) -> Image.Image:
-        """Load image from URL using File."""
-        image_bytes = File(url).read_bytes()
-        return Image.open(BytesIO(image_bytes))
-
-    def _create_edge_mask(self, size: tuple[int, int], fade_distance: float) -> Image.Image:
+    def _create_edge_mask(self, size: tuple[int, int], fade_distance: float) -> np.ndarray:
         """Create an edge mask that fades from transparent at edges to opaque at center.
 
         Args:
@@ -148,51 +146,35 @@ class ApplyMask(DataNode):
             fade_distance: Distance in pixels from edge where fade occurs
 
         Returns:
-            PIL Image (grayscale) with edge fade
+            height x width float array of mask values 0-255 with edge fade
         """
         width, height = size
-        mask = Image.new("L", size, 255)
+        ys, xs = np.mgrid[0:height, 0:width]
 
-        # Create gradient arrays for horizontal and vertical fades
-        for y in range(height):
-            for x in range(width):
-                # Calculate distance from each edge
-                dist_from_left = x
-                dist_from_right = width - x - 1
-                dist_from_top = y
-                dist_from_bottom = height - y - 1
+        # Find minimum distance to any edge
+        min_dist = np.minimum(np.minimum(xs, width - xs - 1), np.minimum(ys, height - ys - 1))
 
-                # Find minimum distance to any edge
-                min_dist = min(dist_from_left, dist_from_right, dist_from_top, dist_from_bottom)
-
-                # Calculate alpha based on distance and fade_distance
-                if min_dist >= fade_distance:
-                    alpha_value = 255
-                else:
-                    # Linear fade from 0 at edge to 255 at fade_distance
-                    alpha_value = int((min_dist / fade_distance) * 255)
-
-                mask.putpixel((x, y), alpha_value)
-
-        return mask
+        # Linear fade from 0 at edge to 255 at fade_distance, opaque beyond it
+        faded = np.floor((min_dist / fade_distance) * MAX_UINT8)
+        return np.where(min_dist >= fade_distance, MAX_UINT8, faded)
 
     def _apply_mask_to_input(self, input_image: ImageUrlArtifact, mask_artifact: Any, channel: str) -> None:
         """Apply mask to input image using specified channel as alpha and set as output_image."""
         # Load input image
-        input_pil = self.load_pil_from_url(input_image.value).convert("RGBA")
+        image = converted(load_image_from_url(input_image.value), ImageMode.RGBA)
 
         # Process the mask
         if isinstance(mask_artifact, dict):
             mask_artifact = dict_to_image_url_artifact(mask_artifact)
 
         # Load mask
-        mask_pil = self.load_pil_from_url(mask_artifact.value)
+        mask = load_image_from_url(mask_artifact.value)
 
         # Extract the specified channel as alpha
-        alpha = extract_channel_from_image(mask_pil, channel, "mask")
+        alpha = extract_channel_from_image(mask, channel, "mask")
 
         # Resize alpha to match input image size
-        alpha = alpha.resize(input_pil.size, Image.Resampling.NEAREST)
+        alpha = GriptapeImagePipeline(alpha).resize(image.width, image.height, ResizeFilter.NEAREST).end()
 
         # Apply mask transformations
         grow_shrink = self.get_parameter_value("grow_shrink")
@@ -209,18 +191,19 @@ class ApplyMask(DataNode):
         # Apply edge blur if enabled
         apply_edge_blur = self.get_parameter_value("apply_mask_blur_to_edges")
         if apply_edge_blur and blur_mask > 0:
-            edge_mask = self._create_edge_mask(input_pil.size, blur_mask)
+            edge_mask = self._create_edge_mask((image.width, image.height), blur_mask)
+
             # Combine edge mask with alpha channel by multiplying
-            alpha_array = list(alpha.getdata())  # pyright: ignore[reportArgumentType]
-            edge_array = list(edge_mask.getdata())  # pyright: ignore[reportArgumentType]
-            combined = [int(a * e / 255) for a, e in zip(alpha_array, edge_array, strict=True)]
-            alpha.putdata(combined)
+            def with_edges(pixels: np.ndarray) -> np.ndarray:
+                return np.floor(pixels[:, :, 0] * edge_mask / MAX_UINT8).astype(np.uint8)
+
+            alpha = GriptapeImagePipeline(alpha).apply(with_edges).end()
 
         # Use the mask as alpha and keep RGB untouched, so the output is straight alpha
-        input_pil.putalpha(alpha)
+        output = GriptapeImagePipeline(image).set_alpha(alpha).end()
 
         # Save output image and create URL artifact
-        image_bytes = image_to_bytes(input_pil, "PNG")
+        image_bytes = image_to_bytes(output, "PNG")
         dest = self._output_file.build_file()
         saved = dest.write_bytes(image_bytes)
         output_artifact = ImageUrlArtifact(saved.location)

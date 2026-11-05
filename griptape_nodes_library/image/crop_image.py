@@ -1,7 +1,7 @@
-import io
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import (
     Parameter,
@@ -16,6 +16,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat, ResizeFilter
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
@@ -25,13 +26,13 @@ from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.traits.widget import Widget
-from PIL import Image
 
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS, parse_color_to_rgba
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
-    load_pil_from_url,
-    validate_pil_format,
+    load_image_from_url,
+    luma,
+    validate_image_format,
 )
 
 # Constants for magic numbers
@@ -55,6 +56,33 @@ DEFAULT_WIDTH = 0  # 0 = use full image width
 DEFAULT_HEIGHT = 0  # 0 = use full image height
 DEFAULT_ZOOM = NO_ZOOM
 DEFAULT_ROTATE = 0.0
+
+# Image layouts, by channel count
+_GRAY_ALPHA_CHANNELS = 2
+_RGB_CHANNELS = 3
+_RGBA_CHANNELS = 4
+_ALPHA_CHANNEL_COUNTS = frozenset({_GRAY_ALPHA_CHANNELS, _RGBA_CHANNELS})
+_BLACK = (0, 0, 0)
+
+
+def _fill_for_channels(rgba: tuple[int, int, int, int], channels: int) -> tuple[int, ...]:
+    """Return the RGBA fill color in an image's own layout, as Pillow reads a fill color for that mode.
+
+    Gray images get the color's luma, and images without alpha ignore the fill's alpha.
+    """
+    gray = int(luma(np.array(rgba[:_RGB_CHANNELS], dtype=np.uint8)))
+    match channels:
+        case 1:  # Gray
+            return (gray,)
+        case 2:  # Gray and alpha
+            return (gray, rgba[3])
+        case 3:  # RGB
+            return rgba[:_RGB_CHANNELS]
+        case 4:  # RGBA
+            return rgba
+        case _:
+            msg = f"Unsupported channel count: {channels}"
+            raise ValueError(msg)
 
 
 @dataclass
@@ -396,13 +424,13 @@ class CropImage(ControlNode):
 
         # Load image
         try:
-            img = load_pil_from_url(path)
+            img = load_image_from_url(path)
         except Exception as e:
             msg = f"Could not load the image connected to 'Input Image': {e}"
             raise ValueError(msg) from e
 
         # Calculate and apply crop area
-        crop_area = self._calculate_crop_area(params, img.size)
+        crop_area = self._calculate_crop_area(params, (img.width, img.height))
         img = self._apply_crop_transformations(img, crop_area, params)
 
         # Save result
@@ -481,9 +509,9 @@ class CropImage(ControlNode):
 
         return CropArea(crop_left, crop_top, crop_right, crop_bottom, crop_center_x, crop_center_y)
 
-    def _apply_crop_transformations(self, img: Image.Image, crop_area: CropArea, params: dict) -> Image.Image:
+    def _apply_crop_transformations(self, img: GriptapeImage, crop_area: CropArea, params: dict) -> GriptapeImage:
         """Apply zoom, rotation, and final crop to the image."""
-        img_width, img_height = img.size
+        img_width, img_height = img.width, img.height
 
         # Apply zoom by scaling the crop area
         crop_area = self._apply_zoom_to_crop_area(crop_area, params["zoom"], img_width, img_height)
@@ -498,41 +526,32 @@ class CropImage(ControlNode):
 
         return img
 
-    def _save_cropped_image(self, img: Image.Image, params: dict) -> None:
+    def _save_cropped_image(self, img: GriptapeImage, params: dict) -> None:
         """Save the cropped image."""
         # Validate and prepare image for saving
         save_format = params["output_format"].upper()
 
-        # Validate that the save format is supported by PIL
-        validate_pil_format(save_format, "output_format")
+        # Validate that the save format can be written
+        image_format = validate_image_format(save_format, "output_format")
 
         output_quality = max(0.0, min(1.0, params["output_quality"]))  # Clamp to 0.0-1.0
 
-        # Convert RGBA to RGB for JPEG format (JPEG doesn't support transparency)
-        if save_format == "JPEG" and img.mode == "RGBA":
-            # Create black background for transparent areas
-            background = Image.new("RGB", img.size, (0, 0, 0))
-            background.paste(img, mask=img.split()[-1])  # Use alpha channel as mask
-            img = background
+        # Flatten transparency for JPEG format (JPEG doesn't support transparency)
+        if image_format == ImageFormat.JPEG and img.channels in _ALPHA_CHANNEL_COUNTS:
+            # Use a black background for transparent areas
+            img = GriptapeImagePipeline(img).flatten(_BLACK).end()
 
-        # Determine save options
-        save_options = {}
-        if save_format == "JPEG":
-            save_options["quality"] = int(output_quality * 100)
-            save_options["optimize"] = True
-        elif save_format == "WEBP":
-            save_options["quality"] = int(output_quality * 100)
-            save_options["lossless"] = True
-
-        # Save result using context manager to ensure proper cleanup
-        img_data = None
-        with io.BytesIO() as img_byte_arr:
-            img.save(img_byte_arr, format=save_format, **save_options)
-            img_byte_arr.seek(0)
-            img_data = img_byte_arr.getvalue()  # Returns a copy, data persists after context exit
+        # Encode the result with the format's options
+        match image_format:
+            case ImageFormat.JPEG:
+                img_data = img.encode(image_format, quality=int(output_quality * 100), optimize=True)
+            case ImageFormat.WEBP:
+                img_data = img.encode(image_format, quality=int(output_quality * 100), lossless=True)
+            case _:
+                img_data = img.encode(image_format)
 
         # Verify we have valid data before proceeding
-        if img_data is None or len(img_data) == 0:
+        if len(img_data) == 0:
             msg = f"The cropped image could not be encoded as {save_format}."
             raise RuntimeError(msg)
 
@@ -609,12 +628,12 @@ class CropImage(ControlNode):
 
     def _apply_rotation_to_image(
         self,
-        img: Image.Image,
+        img: GriptapeImage,
         rotate: float,
         crop_center_x: float,
         crop_center_y: float,
         background_color: str,
-    ) -> Image.Image:
+    ) -> GriptapeImage:
         """Apply rotation around the crop center point."""
         if rotate == 0.0:
             return img
@@ -622,16 +641,26 @@ class CropImage(ControlNode):
         # Convert background color to RGBA
         bg_color = self._parse_color(background_color)
 
-        # Simply rotate around the crop center point
-        img = img.rotate(rotate, center=(crop_center_x, crop_center_y), expand=False, fillcolor=bg_color)
+        # Simply rotate around the crop center point, sampling nearest pixels as Pillow's rotate did
+        img = (
+            GriptapeImagePipeline(img)
+            .rotate(
+                rotate,
+                center=(crop_center_x, crop_center_y),
+                expand=False,
+                fill=_fill_for_channels(bg_color, img.channels),
+                resize_filter=ResizeFilter.NEAREST,
+            )
+            .end()
+        )
 
         return img
 
     def _apply_final_crop(
-        self, img: Image.Image, crop_left: int, crop_top: int, crop_right: int, crop_bottom: int
-    ) -> Image.Image:
+        self, img: GriptapeImage, crop_left: int, crop_top: int, crop_right: int, crop_bottom: int
+    ) -> GriptapeImage:
         """Apply the final crop to the image."""
-        img_width, img_height = img.size
+        img_width, img_height = img.width, img.height
 
         # Ensure crop coordinates are within the final image bounds
         crop_left = max(0, min(crop_left, img_width))
@@ -642,7 +671,7 @@ class CropImage(ControlNode):
         # Apply the final crop
         if crop_right > crop_left and crop_bottom > crop_top:
             try:
-                img = img.crop((crop_left, crop_top, crop_right, crop_bottom))
+                img = GriptapeImagePipeline(img).crop(crop_left, crop_top, crop_right, crop_bottom).end()
             except Exception as e:
                 msg = f"{self.name}: Final crop failed: {e}. Using image as is."
                 logger.warning(msg)
@@ -672,7 +701,7 @@ class CropImage(ControlNode):
             if not path:
                 return super().after_value_set(parameter, value)
             try:
-                img = load_pil_from_url(path)
+                img = load_image_from_url(path)
             except Exception as e:
                 logger.error("%s: Error loading image: %s", self.name, e)
                 return super().after_value_set(parameter, value)
