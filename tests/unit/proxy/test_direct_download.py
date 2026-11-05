@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -272,6 +273,9 @@ def _direct_save_node(monkeypatch: pytest.MonkeyPatch, folder: Path, policy: str
     async def fake_stream(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:  # noqa: ARG001
         # The download must land beside the destination, never in the system temp dir.
         assert path.parent.is_relative_to(folder)
+        # Not staged directly in the system temp dir, where mkstemp() would put it (a RAM-backed
+        # tmpfs on many Linux hosts). The destination folder may itself live under it in tests.
+        assert path.parent != Path(tempfile.gettempdir())
         assert path.name.startswith(".")
         assert path.name.endswith(".partial")
         path.write_bytes(b"big")
