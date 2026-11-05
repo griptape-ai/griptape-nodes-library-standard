@@ -28,9 +28,6 @@ from griptape_nodes_library.utils.image_utils import (
 
 
 class SetColorToTransparent(ImagePreviewMixin, DataNode):
-    PREVIEW_OPERATION = "color_to_transparent"
-    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["color", "tolerance", "grow_shrink", "blur_edges"]
-
     """Replace a specific color in an image with transparency.
 
     This node is useful for removing backgrounds or specific colors from images,
@@ -44,6 +41,9 @@ class SetColorToTransparent(ImagePreviewMixin, DataNode):
         blur_edges: Blur the edges of the transparent area for smoother transitions
         output: The resulting PNG image with transparency
     """
+
+    PREVIEW_OPERATION = "color_to_transparent"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["color", "tolerance", "grow_shrink", "blur_edges"]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

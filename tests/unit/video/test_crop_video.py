@@ -32,4 +32,6 @@ def test_choosing_custom_shows_the_custom_fields() -> None:
 
     node.set_parameter_value("crop_position", "Custom")
 
-    assert node.get_parameter_by_name("custom_left").ui_options.get("hide") is not True
+    custom_left = node.get_parameter_by_name("custom_left")
+    assert custom_left is not None
+    assert custom_left.ui_options.get("hide") is not True

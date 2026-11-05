@@ -199,7 +199,7 @@ class AddTextToExistingImage(ImagePreviewMixin, SuccessFailureNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="text_overlay.png")
         self._output_file.add_parameter()
 
-    def _preview_extras(self) -> dict[str, Any]:
+    def _preview_session_extras(self) -> dict[str, Any]:
         """The font Pillow draws with, so the preview's text matches the node's."""
         return {"font_url": self._pillow_font_url()}
 

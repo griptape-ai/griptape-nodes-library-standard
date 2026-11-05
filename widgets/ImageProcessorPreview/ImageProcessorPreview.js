@@ -133,6 +133,7 @@ export default function ImageProcessorPreview(container, props) {
 
   // Several images at once, for operations that combine them (Combine Masks).
   let multiImages = [];
+  let multiModes = [];
   let multiKey = "";
   function loadMulti(urls) {
     const key = urls.map((u) => (u ? u.split("?")[0] : "")).join("|");
@@ -183,10 +184,12 @@ export default function ImageProcessorPreview(container, props) {
     canvas.width = view.width;
     canvas.height = view.height;
     drawChecker(view.width, view.height);
-    sctx.putImageData(new ImageData(operation.combine(datas, value, view), view.width, view.height), 0, 0);
+    sctx.putImageData(new ImageData(operation.combine(datas, multiModes, view), view.width, view.height), 0, 0);
     ctx.drawImage(scratch, 0, 0);
     const label = operation.label ? `${operation.label(value)}  →  ` : "";
-    statusL.textContent = `${label}${w} × ${h} px`;
+    const skipped = Number(value.skipped) || 0;
+    const note = skipped ? `  (${skipped} more can't be previewed)` : "";
+    statusL.textContent = `${label}${w} × ${h} px${note}`;
   }
 
   let isVideo = false;
@@ -322,8 +325,11 @@ export default function ImageProcessorPreview(container, props) {
   function handleUpdate(newProps) {
     value = newProps.value || {};
     loadFont(value.font_url);
-    if (Array.isArray(value.image_urls)) {
-      loadMulti(value.image_urls);
+    if (Array.isArray(value.images)) {
+      // Each entry pairs an image with its mode; keep them together so a mode never lands on the wrong image.
+      const entries = value.images.filter((entry) => entry && entry.url);
+      multiModes = entries.map((entry) => entry.mode || "");
+      loadMulti(entries.map((entry) => entry.url));
       render();
       return;
     }

@@ -115,7 +115,7 @@ class AddTextToImage(ImagePreviewMixin, SuccessFailureNode):
             parameter_group_initially_collapsed=True,
         )
 
-    def _preview_extras(self) -> dict[str, Any]:
+    def _preview_session_extras(self) -> dict[str, Any]:
         """The font Pillow draws with, so the preview's text matches the node's."""
         return {"font_url": self._pillow_font_url()}
 

@@ -19,11 +19,11 @@ from griptape_nodes_library.utils.image_utils import (
 
 
 class CombineMasks(ImagePreviewMixin, DataNode):
+    """Combine a list of masks into a single consolidated mask (pixel-wise max)."""
+
     PREVIEW_OPERATION = "combine_masks"
     # The masks are a list, so they reach the widget through _preview_extras instead
     PREVIEW_IMAGES: ClassVar[dict[str, str]] = {}
-
-    """Combine a list of masks into a single consolidated mask (pixel-wise max)."""
 
     _ALPHA_NEAR_OPAQUE_MIN = 200
     _ALPHA_NEAR_OPAQUE_RANGE = 32
@@ -71,12 +71,20 @@ class CombineMasks(ImagePreviewMixin, DataNode):
         return super().after_value_set(parameter, value)
 
     def _preview_extras(self) -> dict[str, Any]:
-        """Every mask's URL and mode; the mode decides whether a mask is read from its alpha."""
-        masks = self.get_parameter_list_value("masks") or []
-        return {
-            "image_urls": [self._resolve_image_url(mask) for mask in masks],
-            "image_modes": [self._mode_of(mask) for mask in masks],
-        }
+        """Each mask's URL paired with its mode, which decides whether the mask is read from its alpha.
+
+        A mask the browser can't load, such as an in-memory image with no file, is left out of the
+        preview and counted in "skipped" so the widget can say so.
+        """
+        images = []
+        skipped = 0
+        for mask in self.get_parameter_list_value("masks") or []:
+            url = self._resolve_image_url(mask)
+            if not url:
+                skipped += 1
+                continue
+            images.append({"url": url, "mode": self._mode_of(mask)})
+        return {"images": images, "skipped": skipped}
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []

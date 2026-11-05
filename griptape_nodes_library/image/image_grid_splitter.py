@@ -54,11 +54,6 @@ class _GapAxisInfo:
 
 
 class ImageGridSplitter(ImagePreviewMixin, DataNode):
-    PREVIEW_OPERATION = "grid_split"
-    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["grid_detection_mode", "rows", "cols"]
-    # "preview" is the node's own output image
-    PREVIEW_PARAMETER_NAME = "grid_preview"
-
     """Split a regular image grid into individual images.
 
     - Manual mode: user supplies rows/cols.
@@ -68,6 +63,11 @@ class ImageGridSplitter(ImagePreviewMixin, DataNode):
       * images: list of ImageUrlArtifact (row-major order)
       * r{row}c{col}: one ImageUrlArtifact output per cell (created on run)
     """
+
+    PREVIEW_OPERATION = "grid_split"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["grid_detection_mode", "rows", "cols"]
+    # "preview" is the node's own output image
+    PREVIEW_PARAMETER_NAME = "grid_preview"
 
     MIN_GRID = 1
     MAX_GRID = 12

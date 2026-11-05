@@ -162,8 +162,38 @@ def test_combine_masks_sends_every_mask(monkeypatch: pytest.MonkeyPatch) -> None
 
     extras = node._preview_extras()
 
-    assert extras["image_urls"] == ["https://example.com/a.png", "https://example.com/b.png"]
-    assert extras["image_modes"] == ["RGB", "RGB"]
+    assert extras["images"] == [
+        {"url": "https://example.com/a.png", "mode": "RGB"},
+        {"url": "https://example.com/b.png", "mode": "RGB"},
+    ]
+    assert extras["skipped"] == 0
+
+
+def test_combine_masks_keeps_modes_with_their_masks_when_one_cant_be_previewed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = CombineMasks(name="test_node")
+    no_file = ImageUrlArtifact(value="")
+    masks = [no_file, ImageUrlArtifact(value="https://example.com/b.png")]
+    monkeypatch.setattr(node, "get_parameter_list_value", lambda _name: masks)
+
+    extras = node._preview_extras()
+
+    assert extras["images"] == [{"url": "https://example.com/b.png", "mode": "RGB"}]
+    assert extras["skipped"] == 1
+
+
+@pytest.mark.parametrize("node_class", [AddTextToImage, AddTextToExistingImage])
+def test_a_saved_font_url_is_replaced_with_this_sessions(
+    node_class: type[ImagePreviewMixin], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    node = node_class(name="test_node")
+    monkeypatch.setattr(node, "_pillow_font_url", lambda: "http://localhost:8124/fresh-font.ttf")
+    saved = {**node.get_parameter_value("preview"), "font_url": "http://elsewhere:8124/stale-font.ttf"}
+
+    node.set_parameter_value("preview", saved)
+
+    assert node.get_parameter_value("preview")["font_url"] == "http://localhost:8124/fresh-font.ttf"
 
 
 def test_a_node_without_an_operation_has_no_preview() -> None:

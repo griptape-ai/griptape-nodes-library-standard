@@ -43,6 +43,8 @@ class ResizeSettings:
 
 
 class ResizeVideo(ImagePreviewMixin, ControlNode):
+    """Resize a video with multiple scaling modes using FFmpeg."""
+
     PREVIEW_OPERATION = "resize_video"
     PREVIEW_PARAMETERS: ClassVar[list[str]] = [
         "resize_mode",
@@ -56,8 +58,6 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
         "lanczos_parameter",
     ]
     PREVIEW_IMAGES: ClassVar[dict[str, str]] = {"video": "video_url"}
-
-    """Resize a video with multiple scaling modes using FFmpeg."""
 
     RESIZE_MODE_WIDTH = "width"
     RESIZE_MODE_HEIGHT = "height"

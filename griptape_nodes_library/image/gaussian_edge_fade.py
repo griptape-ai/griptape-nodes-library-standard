@@ -24,6 +24,8 @@ from griptape_nodes_library.utils.image_utils import (
 
 
 class GaussianEdgeFade(ImagePreviewMixin, DataNode):
+    """Apply Gaussian blur fade to image edges for smooth compositing."""
+
     PREVIEW_OPERATION = "edge_fade"
     PREVIEW_PARAMETERS: ClassVar[list[str]] = [
         "fade_mode",
@@ -37,8 +39,6 @@ class GaussianEdgeFade(ImagePreviewMixin, DataNode):
         "apply_left",
         "apply_right",
     ]
-
-    """Apply Gaussian blur fade to image edges for smooth compositing."""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)

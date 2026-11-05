@@ -40,6 +40,8 @@ class ImagePreviewMixin(BaseNode):
         """Give the preview widget the new image when one of its images changes."""
         if self.PREVIEW_OPERATION is not None and parameter.name in self.PREVIEW_IMAGES:
             self._update_preview()
+        elif parameter.name == self.PREVIEW_PARAMETER_NAME and isinstance(value, dict):
+            self._refresh_session_extras(value)
         return super().after_value_set(parameter, value)
 
     def _add_preview_parameter(self) -> None:
@@ -55,7 +57,11 @@ class ImagePreviewMixin(BaseNode):
         self.add_parameter(
             ParameterDict(
                 name=self.PREVIEW_PARAMETER_NAME,
-                default_value={"operation": self.PREVIEW_OPERATION, **self._preview_extras()},
+                default_value={
+                    "operation": self.PREVIEW_OPERATION,
+                    **self._preview_extras(),
+                    **self._preview_session_extras(),
+                },
                 tooltip="Preview of the result. The image is only processed when the node runs.",
                 allowed_modes={ParameterMode.PROPERTY},
                 traits={
@@ -72,12 +78,30 @@ class ImagePreviewMixin(BaseNode):
         """Data the widget needs that isn't a parameter, such as an image's mode. Override to add some."""
         return {}
 
+    def _preview_session_extras(self) -> dict[str, Any]:
+        """Data that only holds for this engine session, such as a URL the static server hands out.
+
+        A saved workflow carries the values from the session it was saved in, so these are worked out
+        again whenever the preview's value is set, including when the workflow loads.
+        """
+        return {}
+
+    def _refresh_session_extras(self, value: dict[str, Any]) -> None:
+        """Swap this session's values into a preview value that holds stale ones."""
+        session = self._preview_session_extras()
+        if all(value.get(key) == entry for key, entry in session.items()):
+            return
+        refreshed = {**value, **session}
+        self.set_parameter_value(self.PREVIEW_PARAMETER_NAME, refreshed)
+        self.publish_update_to_parameter(self.PREVIEW_PARAMETER_NAME, refreshed)
+
     def _update_preview(self) -> None:
         """Give the preview widget browser URLs for its images. Its settings reach it from their own parameters."""
         preview: dict[str, Any] = {"operation": self.PREVIEW_OPERATION}
         for parameter_name, key in self.PREVIEW_IMAGES.items():
             preview[key] = self._resolve_image_url(self.get_parameter_value(parameter_name))
         preview.update(self._preview_extras())
+        preview.update(self._preview_session_extras())
         if preview == self.get_parameter_value(self.PREVIEW_PARAMETER_NAME):
             return
         self.set_parameter_value(self.PREVIEW_PARAMETER_NAME, preview)
@@ -126,8 +150,10 @@ class ImagePreviewMixin(BaseNode):
     def _pillow_font_url(self) -> str:
         """URL of the font Pillow's ImageFont.load_default uses, so text previews match the node.
 
-        The font comes from the installed Pillow rather than the library. It is written to the same path
-        every time, so a URL saved with a workflow still resolves once a node has been created again.
+        The font comes from the installed Pillow rather than the library, written to a temporary file.
+        Nodes return it from _preview_session_extras, since the path and URL differ between machines,
+        Pillow versions and sessions. Where the static server can't serve the file, the preview falls
+        back to the browser's sans-serif.
         """
         path = Path(tempfile.gettempdir()) / f"griptape-nodes-pillow-{PIL.__version__}-default-font.ttf"
         if not path.exists():

@@ -278,9 +278,9 @@ function maskToL(data, mode) {
 
 export const combineMasks = {
   multi: true,
-  label: (v) => `${(v.image_urls || []).length} masks`,
-  combine(datas, v) {
-    const modes = v.image_modes || [];
+  label: (v) => `${(v.images || []).length} masks`,
+  // modes[k] is the mode of datas[k]; the shell keeps them paired.
+  combine(datas, modes) {
     const combined = maskToL(datas[0], modes[0] || modeOf({}, datas[0]));
     for (let k = 1; k < datas.length; k++) {
       const mask = maskToL(datas[k], modes[k] || modeOf({}, datas[k]));
