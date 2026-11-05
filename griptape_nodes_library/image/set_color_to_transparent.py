@@ -91,7 +91,7 @@ class SetColorToTransparent(ImagePreviewMixin, DataNode):
             ParameterInt(
                 name="grow_shrink",
                 default_value=0,
-                tooltip="Grow (negative) or shrink (positive) the transparent area. Useful for refining edges.",
+                tooltip="Grow (positive) or shrink (negative) the transparent area. Useful for refining edges.",
                 min_val=-100,
                 max_val=100,
                 slider=True,
