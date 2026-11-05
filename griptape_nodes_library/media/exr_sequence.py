@@ -125,10 +125,12 @@ def _is_exr_member(info: zipfile.ZipInfo) -> bool:
     parts = info.filename.split("/")
     if parts[0] == "__MACOSX":
         return False
-    return not any(part.startswith(".") and part != ".." for part in parts)
+    return not any(part.startswith(".") and part not in (".", "..") for part in parts)
 
 
-def _select_members(zf: zipfile.ZipFile, *, max_members: int, max_total_bytes: int) -> list[zipfile.ZipInfo]:
+def _select_members(
+    zf: zipfile.ZipFile, *, max_members: int, max_total_bytes: int, max_member_bytes: int
+) -> list[zipfile.ZipInfo]:
     members = sorted((i for i in zf.infolist() if _is_exr_member(i)), key=lambda i: _natural_key(i.filename))
     if not members:
         msg = "The ZIP contains no .exr files. Check that the generation returned EXR output."
@@ -136,6 +138,14 @@ def _select_members(zf: zipfile.ZipFile, *, max_members: int, max_total_bytes: i
     if len(members) > max_members:
         msg = f"The ZIP contains {len(members)} EXR frames, which is over the limit of {max_members} frames."
         raise NodeError(msg)
+    # Checked before anything is written, so an oversized frame never leaves a partial version folder.
+    for member in members:
+        if member.file_size > max_member_bytes:
+            msg = (
+                f"The ZIP's EXR frame '{member.filename}' is {member.file_size} bytes when unpacked, "
+                f"which is over the per-frame limit of {max_member_bytes} bytes."
+            )
+            raise NodeError(msg)
     declared_total = sum(m.file_size for m in members)
     if declared_total > max_total_bytes:
         msg = (
@@ -158,10 +168,16 @@ def _read_member(
     with zf.open(info) as member:
         data = member.read(limit + 1)
     if len(data) > limit:
-        msg = (
-            f"The ZIP's EXR frames exceed the limit of the unpacked size while reading '{info.filename}'. "
-            "The archive's declared sizes do not match its contents."
-        )
+        if max_member_bytes <= remaining_bytes:
+            msg = (
+                f"The ZIP's EXR frame '{info.filename}' is over the per-frame limit of "
+                f"{max_member_bytes} bytes when unpacked."
+            )
+        else:
+            msg = (
+                f"The ZIP's EXR frames exceed the limit of the unpacked size while reading '{info.filename}'. "
+                "The archive's declared sizes do not match its contents."
+            )
         raise NodeError(msg)
     return data
 
@@ -199,7 +215,9 @@ async def write_exr_zip_to_sequence(
         raise NodeError(msg) from e
 
     with zf:
-        members = _select_members(zf, max_members=max_members, max_total_bytes=max_total_bytes)
+        members = _select_members(
+            zf, max_members=max_members, max_total_bytes=max_total_bytes, max_member_bytes=max_member_bytes
+        )
         remaining = max_total_bytes
         for index, info in enumerate(members, start=1):
             try:

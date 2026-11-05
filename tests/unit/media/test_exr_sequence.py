@@ -86,6 +86,7 @@ async def test_ignores_non_exr_directories_macosx_and_dotfiles() -> None:
             "__MACOSX/a.exr": b"junk",
             ".hidden.exr": b"junk",
             "d/.hidden.exr": b"junk",
+            "./a2.exr": b"dot",
             "b.exr.bak": b"junk",
             "b.exr": b"b",
         }
@@ -94,7 +95,7 @@ async def test_ignores_non_exr_directories_macosx_and_dotfiles() -> None:
 
     await exr_sequence.write_exr_zip_to_sequence(data, dest)  # type: ignore[arg-type]
 
-    assert dest.writes == [(1, b"a"), (2, b"b")]
+    assert dest.writes == [(1, b"dot"), (2, b"a"), (3, b"b")]
 
 
 @pytest.mark.asyncio
@@ -162,7 +163,9 @@ async def test_budget_is_shared_across_members(monkeypatch: pytest.MonkeyPatch) 
     real_select = exr_sequence._select_members
 
     def lenient_select(zf: zipfile.ZipFile, **kwargs: Any) -> list[zipfile.ZipInfo]:
-        return real_select(zf, max_members=kwargs["max_members"], max_total_bytes=10**9)
+        return real_select(
+            zf, max_members=kwargs["max_members"], max_total_bytes=10**9, max_member_bytes=kwargs["max_member_bytes"]
+        )
 
     monkeypatch.setattr(exr_sequence, "_select_members", lenient_select)
 
@@ -261,6 +264,27 @@ def test_read_guard_caps_a_single_frame_below_the_archive_budget() -> None:
         with pytest.raises(NodeError):
             exr_sequence._read_member(zf, info, 10_000, max_member_bytes=50)
         assert exr_sequence._read_member(zf, info, 10_000, max_member_bytes=100) == b"x" * 100
+
+
+@pytest.mark.asyncio
+async def test_oversized_frame_is_rejected_before_anything_is_written() -> None:
+    dest = _FakeDest()
+    data = _make_zip({"a.0001.exr": b"x" * 10, "a.0002.exr": b"y" * 100})
+
+    with pytest.raises(NodeError, match=r"a\.0002\.exr.*per-frame limit of 50 bytes"):
+        await exr_sequence.write_exr_zip_to_sequence(data, dest, max_member_bytes=50)  # type: ignore[arg-type]
+
+    assert dest.writes == []
+
+
+def test_read_guard_message_names_the_per_frame_cap() -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("frame.0001.exr", b"x" * 100)
+    with zipfile.ZipFile(buffer) as zf:
+        with pytest.raises(NodeError, match="per-frame limit") as excinfo:
+            exr_sequence._read_member(zf, zf.getinfo("frame.0001.exr"), 10_000, max_member_bytes=50)
+        assert "declared sizes" not in str(excinfo.value)
 
 
 @pytest.mark.asyncio
