@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -15,6 +15,9 @@ from griptape_nodes_library.utils.image_utils import (
 
 class AdjustImageEQ(BaseImageProcessor):
     """Adjust image brightness and contrast using PIL's ImageEnhance."""
+
+    PREVIEW_OPERATION = "eq"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["brightness", "contrast", "saturation", "gamma"]
 
     # Brightness constants
     MIN_BRIGHTNESS = 0.0

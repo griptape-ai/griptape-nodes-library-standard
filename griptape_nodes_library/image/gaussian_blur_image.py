@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -15,6 +15,9 @@ from griptape_nodes_library.utils.image_utils import (
 
 class GaussianBlurImage(BaseImageProcessor):
     """Apply Gaussian blur to an image using PIL's ImageFilter."""
+
+    PREVIEW_OPERATION = "gaussian_blur"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["radius"]
 
     # Radius constants
     MIN_RADIUS = 0.0

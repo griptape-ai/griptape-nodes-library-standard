@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -15,6 +15,9 @@ from griptape_nodes_library.utils.image_utils import (
 
 class FlipImage(BaseImageProcessor):
     """Flip image horizontally or vertically."""
+
+    PREVIEW_OPERATION = "flip"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["direction"]
 
     def _setup_custom_parameters(self) -> None:
         """Setup flip-specific parameters."""

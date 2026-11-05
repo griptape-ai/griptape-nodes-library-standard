@@ -165,7 +165,7 @@ def test_changing_rotation_leaves_the_preview_holding_only_the_image(node: Rotat
 
     # The widget reads the rotation settings from their own parameters, so they are not copied into
     # the preview, and the image is only rotated when the node runs.
-    assert node.get_parameter_value("rotation_preview") == {"image_url": "https://example.com/cat.png"}
+    assert node.get_parameter_value("preview") == {"operation": "rotate", "image_url": "https://example.com/cat.png"}
     assert node.get_parameter_value("output") is None
 
 
@@ -173,4 +173,4 @@ def test_clearing_the_input_image_clears_the_preview(node: RotateImage) -> None:
     node.set_parameter_value("input_image", ImageUrlArtifact(value="https://example.com/cat.png"))
     node.set_parameter_value("input_image", None)
 
-    assert node.get_parameter_value("rotation_preview")["image_url"] == ""
+    assert node.get_parameter_value("preview")["image_url"] == ""

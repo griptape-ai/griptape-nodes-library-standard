@@ -1,5 +1,5 @@
 from math import gcd
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -15,6 +15,19 @@ from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 
 class RescaleImage(BaseImageProcessor):
     """Rescale an image with different resize modes and resample filters."""
+
+    PREVIEW_OPERATION = "resize"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = [
+        "resize_mode",
+        "target_size",
+        "percentage_scale",
+        "target_width",
+        "target_height",
+        "aspect_ratio",
+        "fit_mode",
+        "background_color",
+        "resample_filter",
+    ]
 
     # Resize mode constants
     RESIZE_MODE_WIDTH = "width"

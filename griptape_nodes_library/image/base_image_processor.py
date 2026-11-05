@@ -8,10 +8,17 @@ from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.files.file import File
+from griptape_nodes.retained_mode.events.static_file_events import (
+    CreateStaticFileDownloadUrlFromPathRequest,
+    CreateStaticFileDownloadUrlFromPathResultSuccess,
+)
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
+from griptape_nodes.traits.widget import Widget
 from PIL import Image
 
 from griptape_nodes_library.utils.file_utils import generate_filename
@@ -53,6 +60,15 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
         "TIFF": "TIFF (high quality, large files)",
     }
 
+    # A subclass that names a preview operation gets a live preview above its settings. The
+    # ImageProcessorPreview widget draws that operation in the browser while the user drags, reading the
+    # parameters in PREVIEW_PARAMETERS directly as synced_parameters. The image itself is only processed
+    # by _process_image.
+    PREVIEW_OPERATION: ClassVar[str | None] = None
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = []
+    # Image parameters the preview shows, mapped to the key the widget reads each one's URL from
+    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {"input_image": "image_url"}
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
@@ -67,6 +83,9 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
                 },
             )
         )
+
+        if self.PREVIEW_OPERATION is not None:
+            self._add_preview_parameter()
 
         self._setup_custom_parameters()
 
@@ -125,6 +144,61 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
     @abstractmethod
     def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
         """Process the PIL image. Override in subclasses."""
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Give the preview widget the new image when one of its images changes."""
+        if self.PREVIEW_OPERATION is not None and parameter.name in self.PREVIEW_IMAGES:
+            self._update_preview()
+        return super().after_value_set(parameter, value)
+
+    def _add_preview_parameter(self) -> None:
+        """Add the preview widget. It shows the input image, so the plain input row would be a second copy."""
+        input_image = self.get_parameter_by_name("input_image")
+        if input_image is not None:
+            input_image.hide_property = True
+
+        self.add_parameter(
+            ParameterDict(
+                name="preview",
+                default_value={"operation": self.PREVIEW_OPERATION},
+                tooltip="Preview of the result. The image is only processed when the node runs.",
+                allowed_modes={ParameterMode.PROPERTY},
+                traits={
+                    Widget(
+                        name="ImageProcessorPreview",
+                        library="Griptape Nodes Library",
+                        synced_parameters=list(self.PREVIEW_PARAMETERS),
+                    )
+                },
+            )
+        )
+
+    def _update_preview(self) -> None:
+        """Give the preview widget browser URLs for its images. Its settings reach it from their own parameters."""
+        preview: dict[str, Any] = {"operation": self.PREVIEW_OPERATION}
+        for parameter_name, key in self.PREVIEW_IMAGES.items():
+            preview[key] = self._resolve_image_url(self.get_parameter_value(parameter_name))
+        if preview == self.get_parameter_value("preview"):
+            return
+        self.set_parameter_value("preview", preview)
+        self.publish_update_to_parameter("preview", preview)
+
+    def _resolve_image_url(self, image: Any) -> str:
+        """Return a browser-accessible URL for an image artifact or its dict form."""
+        raw = image.get("value") if isinstance(image, dict) else getattr(image, "value", image)
+        if not raw or not isinstance(raw, str):
+            return ""
+        if raw.startswith(("http://", "https://", "data:")):
+            return raw
+        try:
+            resolved = File(raw).resolve()
+            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
+        except Exception as e:
+            logger.warning(f"{self.name}: could not build a preview URL for {raw!r}: {e}")
+            return raw
+        if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+            return result.url
+        return raw
 
     def _setup_logging_group(self) -> None:
         """Setup the common logging parameter group."""

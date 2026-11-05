@@ -13,6 +13,8 @@ from griptape_nodes_library.utils.image_utils import (
 class GrayscaleImage(BaseImageProcessor):
     """Convert image to grayscale using PIL's ImageEnhance."""
 
+    PREVIEW_OPERATION = "grayscale"
+
     def _setup_custom_parameters(self) -> None:
         """Setup brightness/contrast-specific parameters."""
 

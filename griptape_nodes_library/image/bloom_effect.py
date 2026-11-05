@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -16,6 +16,9 @@ from griptape_nodes_library.utils.image_utils import (
 
 class BloomEffect(BaseImageProcessor):
     """Apply a bloom/glow effect to images with configurable intensity and radius."""
+
+    PREVIEW_OPERATION = "bloom"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["bloom_amount", "bloom_radius"]
 
     # Bloom amount constants
     MIN_BLOOM_AMOUNT = 0.0
