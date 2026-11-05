@@ -4,7 +4,6 @@ import asyncio
 import base64
 import json
 import math
-from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 from griptape.artifacts import ImageArtifact
@@ -12,9 +11,7 @@ from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, P
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
-from PIL import Image, ImageOps
-
-from griptape_nodes_library.utils.image_utils import grayscale_to_eight_bit
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat, ImageMetadata, ResizeFilter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -71,9 +68,9 @@ def image_reference(index: int) -> str:
     return f"[image {index + 1}]"
 
 
-def _fit_to_image_limits(image: Image.Image, reference: str) -> Image.Image:
+def _fit_to_image_limits(image: GriptapeImage, reference: str) -> GriptapeImage:
     """Scale an image into JEV's size limits, keeping its aspect ratio."""
-    width, height = image.size
+    width, height = image.width, image.height
     scale = min(1.0, IMAGE_MAX_SIDE / max(width, height))
     scale = max(scale, IMAGE_MIN_SIDE / min(width, height), math.sqrt(IMAGE_MIN_PIXELS / (width * height)))
     if scale == 1.0:
@@ -86,7 +83,7 @@ def _fit_to_image_limits(image: Image.Image, reference: str) -> Image.Image:
             f"{reference} is {width}x{height} px. JEV needs each side between {IMAGE_MIN_SIDE} and "
             f"{IMAGE_MAX_SIDE} px, which this aspect ratio can't fit. Crop it closer to square."
         )
-    return image.resize(size, Image.Resampling.LANCZOS)
+    return GriptapeImagePipeline(image).resize(*size, ResizeFilter.LANCZOS).end()
 
 
 async def _read_image_bytes(image: Any, reference: str) -> bytes:
@@ -107,30 +104,23 @@ async def _read_image_bytes(image: Any, reference: str) -> bytes:
         raise ValueError(f"{reference} couldn't be loaded: {e}") from e
 
 
-def _to_rgb(image: Image.Image) -> Image.Image:
+def _to_rgb(image: GriptapeImage) -> GriptapeImage:
     """Convert an image to upright 8-bit RGB, flattening transparency onto white."""
-    image = ImageOps.exif_transpose(image)
-    image = grayscale_to_eight_bit(image)
-    if image.mode in ("RGBA", "LA", "PA") or "transparency" in image.info:
-        rgba = image.convert("RGBA")
-        flattened = Image.new("RGB", rgba.size, IMAGE_BACKGROUND)
-        flattened.paste(rgba, mask=rgba.getchannel("A"))
-        return flattened
-    return image.convert("RGB")
+    return GriptapeImagePipeline(image).exif_transpose().to_uint8().flatten(IMAGE_BACKGROUND).end()
 
 
 def _encode_image(data: bytes, reference: str) -> str:
     """Decode image bytes, fit them to JEV's limits, and return base64 JPEG."""
     try:
-        image = Image.open(BytesIO(data))
-        image.load()
+        # Running the pipeline decodes the pixels, so an unreadable image fails here
+        image = _to_rgb(GriptapeImage.open(data))
     except Exception as e:
         raise ValueError(f"{reference} couldn't be read as an image: {e}") from e
 
-    image = _fit_to_image_limits(_to_rgb(image), reference)
-    buffer = BytesIO()
-    image.save(buffer, format="JPEG", quality=IMAGE_JPEG_QUALITY)
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
+    image = _fit_to_image_limits(image, reference)
+    # Only the pixels are sent; the source's EXIF and text stay behind, as they did before
+    encoded = image.encode(ImageFormat.JPEG, quality=IMAGE_JPEG_QUALITY, metadata=ImageMetadata())
+    return base64.b64encode(encoded).decode("ascii")
 
 
 async def _to_image_asset(image: Any, reference: str) -> dict[str, str]:

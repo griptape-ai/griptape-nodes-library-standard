@@ -1,4 +1,3 @@
-import io
 import logging
 from typing import Any
 
@@ -13,11 +12,10 @@ from griptape_nodes.files.file import File
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from PIL import Image
 from sklearn.cluster import KMeans  # type: ignore[import-untyped]
 from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
 
-from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact
+from griptape_nodes_library.utils.image_utils import ImageMode, dict_to_image_url_artifact, open_image_bytes, pixels_of
 
 logger = logging.getLogger(__name__)
 
@@ -333,16 +331,8 @@ class ExtractKeyColors(SuccessFailureNode):
             ValueError: If image processing fails
         """
         try:
-            # Convert bytes to PIL Image
-            image_io = io.BytesIO(image_bytes)
-            pil_image = Image.open(image_io)
-
-            # Convert to RGB if necessary
-            if pil_image.mode != "RGB":
-                pil_image = pil_image.convert("RGB")
-
-            # Convert image to numpy array and get all pixels
-            image_array = np.array(pil_image)
+            # Decode the bytes and get all pixels as 8-bit RGB
+            image_array = pixels_of(open_image_bytes(image_bytes), ImageMode.RGB)
             pixels = image_array.reshape(-1, 3)
 
             # Split buckets using MMCQ algorithm
@@ -369,16 +359,8 @@ class ExtractKeyColors(SuccessFailureNode):
             ValueError: If image processing or clustering fails
         """
         try:
-            # Convert bytes to PIL Image
-            image_io = io.BytesIO(image_bytes)
-            pil_image = Image.open(image_io)
-
-            # Convert to RGB if necessary
-            if pil_image.mode != "RGB":
-                pil_image = pil_image.convert("RGB")
-
-            # Convert image to numpy array and reshape to list of pixels
-            image_array = np.array(pil_image)
+            # Decode the bytes and get all pixels as 8-bit RGB
+            image_array = pixels_of(open_image_bytes(image_bytes), ImageMode.RGB)
             pixels = image_array.reshape(-1, 3)
 
             # Perform KMeans clustering

@@ -1,12 +1,19 @@
+from enum import StrEnum
 from typing import ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
-from PIL import Image, ImageOps
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
+
+
+class FlipDirection(StrEnum):
+    HORIZONTAL = "horizontal"
+    VERTICAL = "vertical"
+    BOTH = "both"
 
 
 class FlipImage(BaseImageProcessor):
@@ -21,10 +28,10 @@ class FlipImage(BaseImageProcessor):
             # Flip direction parameter
             direction_parameter = ParameterString(
                 name="direction",
-                default_value="horizontal",
+                default_value=FlipDirection.HORIZONTAL,
                 tooltip="Flip direction: horizontal, vertical, or both",
             )
-            direction_parameter.add_trait(Options(choices=["horizontal", "vertical", "both"]))
+            direction_parameter.add_trait(Options(choices=[d.value for d in FlipDirection]))
             self.add_parameter(direction_parameter)
 
         self.add_node_element(flip_group)
@@ -33,29 +40,33 @@ class FlipImage(BaseImageProcessor):
         """Get description of what this processor does."""
         return "image flipping"
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
-        """Process the PIL image by flipping it."""
-        direction = kwargs.get("direction", "horizontal")
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
+        """Process the image by flipping it."""
+        direction = kwargs.get("direction") or FlipDirection.HORIZONTAL
 
         logger.debug(f"{self.name}: Flipping image with direction={direction}")
 
         # Apply flip based on direction
-        if direction == "horizontal":
-            pil_image = ImageOps.mirror(pil_image)
-        elif direction == "vertical":
-            pil_image = ImageOps.flip(pil_image)
-        elif direction == "both":
-            pil_image = ImageOps.mirror(pil_image)
-            pil_image = ImageOps.flip(pil_image)
+        pipeline = GriptapeImagePipeline(image)
+        match direction:
+            case FlipDirection.HORIZONTAL:
+                pipeline.flip_horizontal()
+            case FlipDirection.VERTICAL:
+                pipeline.flip_vertical()
+            case FlipDirection.BOTH:
+                pipeline.flip_horizontal().flip_vertical()
+            case _:
+                msg = f"Direction must be one of {[d.value for d in FlipDirection]}, got {direction}"
+                raise ValueError(msg)
 
-        return pil_image
+        return pipeline.end()
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate flip parameters."""
         exceptions = []
 
         direction = self.get_parameter_value("direction")
-        valid_choices = ["horizontal", "vertical", "both"]
+        valid_choices = [d.value for d in FlipDirection]
         if direction is not None and direction not in valid_choices:
             msg = f"Direction must be one of {valid_choices}, got {direction}"
             exceptions.append(ValueError(msg))
@@ -70,5 +81,5 @@ class FlipImage(BaseImageProcessor):
 
     def _get_output_suffix(self, **kwargs) -> str:
         """Get output filename suffix."""
-        direction = kwargs.get("direction", "horizontal")
+        direction = kwargs.get("direction", FlipDirection.HORIZONTAL)
         return f"_flipped_{direction}"

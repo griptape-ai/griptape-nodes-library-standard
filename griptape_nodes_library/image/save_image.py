@@ -1,5 +1,4 @@
 from enum import StrEnum, auto
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -9,14 +8,14 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.files.file import File
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     image_to_bytes,
     load_image_from_url_artifact,
-    validate_pil_format,
+    validate_image_format,
 )
 from griptape_nodes_library.utils.situation_utils import (
     add_situation_parameter,
@@ -26,6 +25,10 @@ from griptape_nodes_library.utils.situation_utils import (
 
 PREVIEW_LENGTH = 50
 DEFAULT_FILENAME = "griptape_nodes.png"
+# JPEG has no alpha; transparent pixels are composited over this
+JPEG_MATTE = (0, 0, 0)
+GRAY_ALPHA_CHANNELS = 2
+RGBA_CHANNELS = 4
 
 
 class SaveImageStatus(StrEnum):
@@ -72,8 +75,8 @@ class SaveImage(SuccessFailureNode):
         add_situation_parameter(self, self._output_file)
         self._output_file.add_parameter()
 
-    def _get_target_pil_format(self) -> str:
-        """Determine the target PIL format string from the output_file parameter."""
+    def _get_target_format(self) -> str:
+        """Determine the target image format string from the output_file parameter."""
         param_value = self.get_parameter_value("output_file")
         filename = param_value if isinstance(param_value, str) and param_value else DEFAULT_FILENAME
         ext = Path(filename).suffix.lstrip(".").upper()
@@ -81,15 +84,15 @@ class SaveImage(SuccessFailureNode):
 
     def _extract_format_from_artifact(self, image_artifact: Any) -> str | None:
         """Detect the format of an image artifact (e.g. 'png', 'jpeg'), or None if unknown."""
-        # Try to get format from PIL Image
+        # Try to get format from the image header
         if hasattr(image_artifact, "value"):
             try:
                 if isinstance(image_artifact.value, bytes):
-                    pil_image = Image.open(BytesIO(image_artifact.value))
-                    if pil_image.format:
-                        return pil_image.format.lower()
+                    image_format = GriptapeImage.open(image_artifact.value).format
+                    if image_format:
+                        return image_format.lower()
             except Exception:
-                logger.debug("Failed to extract format from PIL Image", exc_info=True)
+                logger.debug("Failed to extract format from image header", exc_info=True)
 
         # Check artifact metadata
         if hasattr(image_artifact, "meta") and image_artifact.meta:
@@ -150,9 +153,9 @@ class SaveImage(SuccessFailureNode):
         logger.debug("Source image format detected: %s", source_format)
 
         # Determine and validate target format from output filename
-        target_format = self._get_target_pil_format()
+        target_format = self._get_target_format()
         try:
-            validate_pil_format(target_format)
+            validate_image_format(target_format)
         except ValueError as e:
             error_details = f"Unsupported output file extension: {e!s}"
             self._handle_error_with_graceful_exit(error_details, e, input_info)
@@ -167,14 +170,12 @@ class SaveImage(SuccessFailureNode):
                 image_bytes = File(image_artifact.value).read_bytes()
             else:
                 image_bytes = image_artifact.to_bytes()
-            pil_image = Image.open(BytesIO(image_bytes))
-            if target_format == "JPEG" and pil_image.mode in ("RGBA", "LA", "P"):
+            source_image = GriptapeImage.open(image_bytes)
+            if target_format == "JPEG" and source_image.channels in (GRAY_ALPHA_CHANNELS, RGBA_CHANNELS):
                 # JPEG has no alpha. Composite over black so transparent pixels come out
                 # black, rather than showing the straight-alpha RGB stored under them.
-                rgba = pil_image.convert("RGBA")
-                matte = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
-                pil_image = Image.alpha_composite(matte, rgba).convert("RGB")
-            converted_bytes = image_to_bytes(pil_image, target_format)
+                source_image = GriptapeImagePipeline(source_image).flatten(JPEG_MATTE).end()
+            converted_bytes = image_to_bytes(source_image, target_format)
             dest = self._output_file.build_file()
             saved = dest.write_bytes(converted_bytes)
             saved_path = saved.location

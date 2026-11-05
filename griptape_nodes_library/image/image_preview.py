@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, ClassVar
 
-import PIL
+import OpenImageIO as oiio  # noqa: N813
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -13,9 +13,11 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.widget import Widget
-from PIL import ImageFont
 
-from griptape_nodes_library.utils.image_utils import load_pil_from_url
+from griptape_nodes_library.utils.image_utils import get_image_color_info, load_image_from_url
+
+# The font OpenImageIO's render_text uses when given no font name
+_DEFAULT_FONT_FILE = "DroidSans.ttf"
 
 
 class ImagePreviewMixin(BaseNode):
@@ -166,7 +168,7 @@ class ImagePreviewMixin(BaseNode):
         return path
 
     def _image_mode(self, parameter_name: str) -> str:
-        """The Pillow mode of an image parameter's image, or "" when it can't be read.
+        """The mode of an image parameter's image, named as Pillow names it, or "" when it can't be read.
 
         The browser decodes every image to RGBA, so nodes that treat RGB, RGBA and greyscale images
         differently send the mode with the preview.
@@ -174,28 +176,29 @@ class ImagePreviewMixin(BaseNode):
         return self._mode_of(self.get_parameter_value(parameter_name))
 
     def _mode_of(self, image: Any) -> str:
-        """The Pillow mode of an image artifact or its dict form, or "" when it can't be read."""
+        """The mode of an image artifact or its dict form, named as Pillow names it, or "" when it can't be read."""
         raw = image.get("value") if isinstance(image, dict) else getattr(image, "value", image)
         if not raw or not isinstance(raw, str):
             return ""
         try:
-            return load_pil_from_url(raw).mode
+            return get_image_color_info(load_image_from_url(raw)).color_space
         except Exception as e:
             logger.debug(f"{self.name}: could not read the mode of {raw!r} for the preview: {e}")
             return ""
 
-    def _pillow_font_url(self) -> str:
-        """URL of the font Pillow's ImageFont.load_default uses, so text previews match the node.
+    def _font_url(self) -> str:
+        """URL of the font OpenImageIO draws text with by default, so text previews match the node.
 
-        The font comes from the installed Pillow rather than the library, written to a temporary file.
+        The font comes from the installed OpenImageIO rather than the library, copied to a temporary file.
         Nodes return it from _preview_session_extras, since the path and URL differ between machines,
-        Pillow versions and sessions. Where the static server can't serve the file, the preview falls
-        back to the browser's sans-serif.
+        OpenImageIO versions and sessions. Where the font can't be found or the static server can't serve
+        the file, the preview falls back to the browser's sans-serif.
         """
-        path = Path(tempfile.gettempdir()) / f"griptape-nodes-pillow-{PIL.__version__}-default-font.ttf"
+        path = Path(tempfile.gettempdir()) / f"griptape-nodes-oiio-{oiio.__version__}-default-font.ttf"
         if not path.exists():
-            font = ImageFont.load_default(size=10)
-            if not isinstance(font, ImageFont.FreeTypeFont) or font.font_bytes is None:
+            font_files = oiio.get_string_attribute("font_file_list").split(";")
+            source = next((Path(font) for font in font_files if Path(font).name == _DEFAULT_FONT_FILE), None)
+            if source is None:
                 return ""
-            path.write_bytes(font.font_bytes)
+            path.write_bytes(source.read_bytes())
         return self._static_url(str(path))

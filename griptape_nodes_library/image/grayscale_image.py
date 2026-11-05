@@ -1,11 +1,11 @@
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image, ImageEnhance
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 
 
 class GrayscaleImage(BaseImageProcessor):
-    """Convert image to grayscale using PIL's ImageEnhance."""
+    """Convert image to grayscale by removing its saturation."""
 
     PREVIEW_OPERATION = "grayscale"
 
@@ -16,17 +16,14 @@ class GrayscaleImage(BaseImageProcessor):
         """Get description of what this processor does."""
         return "grayscale conversion"
 
-    def _process_image(self, pil_image: Image.Image) -> Image.Image:
-        """Process the PIL image by converting to grayscale."""
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:  # noqa: ARG002
+        """Process the image by converting to grayscale."""
         saturation = 0
 
         logger.debug(f"{self.name}: Processing image with saturation={saturation}")
 
         # Apply saturation adjustment
-        enhancer = ImageEnhance.Color(pil_image)
-        pil_image = enhancer.enhance(saturation)
-
-        return pil_image
+        return GriptapeImagePipeline(image).saturation(saturation).end()
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate custom parameters."""

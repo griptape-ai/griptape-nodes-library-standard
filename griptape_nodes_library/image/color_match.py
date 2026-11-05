@@ -17,15 +17,17 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     dict_to_image_url_artifact,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
+    pixels_of,
 )
 
 
@@ -138,12 +140,12 @@ class ColorMatch(SuccessFailureNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="colormatch.png")
         self._output_file.add_parameter()
 
-    def _process_images(self, target_pil: Image.Image, ref_pil: Image.Image) -> Image.Image:
-        """Process the PIL images by applying color transfer.
+    def _process_images(self, target: GriptapeImage, ref: GriptapeImage) -> GriptapeImage:
+        """Process the images by applying color transfer.
 
         Args:
-            target_pil: The target image to apply color transfer to
-            ref_pil: The reference image providing the color palette
+            target: The target image to apply color transfer to
+            ref: The reference image providing the color palette
 
         Returns:
             The color-matched image
@@ -156,17 +158,11 @@ class ColorMatch(SuccessFailureNode):
         # Skip processing if strength is 0
         if strength == 0:
             logger.debug(f"{self.name}: Strength is 0, returning target image unchanged")
-            return target_pil
+            return target
 
-        # Convert images to RGB if necessary
-        if target_pil.mode != "RGB":
-            target_pil = target_pil.convert("RGB")
-        if ref_pil.mode != "RGB":
-            ref_pil = ref_pil.convert("RGB")
-
-        # Convert to float32 numpy arrays in 0-1 range (format expected by color-matcher)
-        target_np = np.array(target_pil, dtype=np.float32) / 255.0
-        ref_np = np.array(ref_pil, dtype=np.float32) / 255.0
+        # Convert to RGB float32 numpy arrays in 0-1 range (format expected by color-matcher)
+        target_np = pixels_of(target, ImageMode.RGB).astype(np.float32) / 255.0
+        ref_np = pixels_of(ref, ImageMode.RGB).astype(np.float32) / 255.0
 
         # Ensure C-contiguous arrays
         if not target_np.flags["C_CONTIGUOUS"]:
@@ -190,9 +186,9 @@ class ColorMatch(SuccessFailureNode):
         # Clamp values to valid range
         result = np.clip(result, 0, 1)
 
-        # Convert back to PIL Image
+        # Convert back to an 8-bit RGB image, keeping the target's metadata
         result_uint8 = (result * 255).astype(np.uint8)
-        return Image.fromarray(result_uint8, mode="RGB")
+        return GriptapeImage.from_array(result_uint8, metadata=target.metadata)
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Validate parameters before running."""
@@ -247,12 +243,12 @@ class ColorMatch(SuccessFailureNode):
             if isinstance(ref_image, dict):
                 ref_image = dict_to_image_url_artifact(ref_image)
 
-            # Load PIL images
-            target_pil = load_pil_from_url(target_image.value)
-            ref_pil = load_pil_from_url(ref_image.value)
+            # Load images
+            target = load_image_from_url(target_image.value)
+            ref = load_image_from_url(ref_image.value)
 
             # Process with current settings
-            processed_image = self._process_images(target_pil, ref_pil)
+            processed_image = self._process_images(target, ref)
 
             # Save and set output
             image_bytes = image_to_bytes(processed_image, "PNG")
@@ -269,8 +265,8 @@ class ColorMatch(SuccessFailureNode):
             success_details = (
                 f"Successfully applied color transfer\n"
                 f"Method: {method}, Strength: {strength}\n"
-                f"Target: {target_pil.width}x{target_pil.height}\n"
-                f"Reference: {ref_pil.width}x{ref_pil.height}\n"
+                f"Target: {target.width}x{target.height}\n"
+                f"Reference: {ref.width}x{ref.height}\n"
                 f"Output: {processed_image.width}x{processed_image.height}"
             )
             self._set_status_results(was_successful=True, result_details=f"SUCCESS: {success_details}")

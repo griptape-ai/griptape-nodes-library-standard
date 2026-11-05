@@ -12,7 +12,7 @@ from griptape_nodes.retained_mode.events.parameter_events import (
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 
-from griptape_nodes_library.utils.image_utils import load_pil_image_from_artifact
+from griptape_nodes_library.utils.image_utils import load_image_from_artifact
 
 
 class ReadImageMetadataNode(SuccessFailureNode):
@@ -324,15 +324,15 @@ class ReadImageMetadataNode(SuccessFailureNode):
             self._fail(ValueError("Connect an image to 'Image'."), raise_on_failure=raise_on_failure)
             return
 
-        # Load PIL image
+        # Load image
         try:
-            pil_image = load_pil_image_from_artifact(image, self.name)
+            image_data = load_image_from_artifact(image, self.name)
         except (TypeError, ValueError) as e:
             self._fail(e, raise_on_failure=raise_on_failure)
             return
 
         # Detect format
-        image_format = pil_image.format
+        image_format = image_data.format
         if not image_format:
             error_msg = "The image format could not be detected."
             self._fail(ValueError(error_msg), raise_on_failure=raise_on_failure)
@@ -345,7 +345,7 @@ class ReadImageMetadataNode(SuccessFailureNode):
             metadata = {}
         else:
             try:
-                metadata = driver.extract_metadata(pil_image)
+                metadata = driver.extract_metadata(image_data)
             except Exception as e:
                 error_msg = f"Failed to read metadata: {e}"
                 self._fail(ValueError(error_msg), raise_on_failure=raise_on_failure)

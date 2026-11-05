@@ -6,11 +6,17 @@ from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, text_size
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
-from PIL import Image, ImageDraw, ImageFont
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
+from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact, load_image_from_url
+
+# Label text and its background
+_LABEL_TEXT_COLOR = (255, 255, 255)
+_LABEL_BACKGROUND_COLOR = (0, 0, 0)
 
 
 class AddBoundingBoxes(BaseImageProcessor):
@@ -18,6 +24,8 @@ class AddBoundingBoxes(BaseImageProcessor):
 
     # Label font size as percentage of image height
     LABEL_HEIGHT_PERCENT = 0.04  # % of image height
+    # Label font size when the image is too short for the percentage to give one
+    FALLBACK_LABEL_FONT_SIZE = 10
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
@@ -209,10 +217,8 @@ class AddBoundingBoxes(BaseImageProcessor):
             msg = f"Bounding box at index {idx} has non-positive height value: {height}. height must be > 0"
             exceptions.append(ValueError(msg))
 
-    def _get_image_input_data_safe(self) -> tuple[Image.Image, str] | None:
-        """Safely get PIL image and detected format, returning None if not available."""
-        from griptape_nodes_library.utils.image_utils import dict_to_image_url_artifact, load_pil_from_url
-
+    def _get_image_input_data_safe(self) -> tuple[GriptapeImage, str] | None:
+        """Safely get the image and detected format, returning None if not available."""
         image = self.parameter_values.get("input_image")
 
         if not image:
@@ -228,19 +234,17 @@ class AddBoundingBoxes(BaseImageProcessor):
         if not hasattr(image, "value") or not image.value:
             return None
 
-        # Load PIL image using existing utility
+        # Load the image using existing utility
         try:
-            pil_image = load_pil_from_url(image.value)
-            detected_format = self._detect_image_format(pil_image)
+            loaded = load_image_from_url(image.value)
+            detected_format = self._detect_image_format(loaded)
         except Exception:
             return None
         else:
-            return pil_image, detected_format
+            return loaded, detected_format
 
     def process(self) -> AsyncResult[None]:
         """Override process to make image input optional."""
-        from griptape_nodes.retained_mode.griptape_nodes import logger
-
         # Reset execution state and result details at the start of each run
         self._clear_execution_status()
 
@@ -261,9 +265,9 @@ class AddBoundingBoxes(BaseImageProcessor):
             return
 
         try:
-            pil_image, detected_format = image_data
+            image, detected_format = image_data
             self._log_format_detection(detected_format)
-            self._log_image_properties(pil_image)
+            self._log_image_properties(image)
 
             # Get custom parameters from subclasses
             custom_params = self._get_custom_parameters()
@@ -273,11 +277,13 @@ class AddBoundingBoxes(BaseImageProcessor):
 
             # Run the image processing
             self.append_value_to_parameter("logs", "[Started image processing..]\n")
-            yield lambda: self._process(pil_image, detected_format, **custom_params)
+            yield lambda: self._process(image, detected_format, **custom_params)
             self.append_value_to_parameter("logs", "[Finished image processing.]\n")
 
             # Success case
-            success_details = f"Successfully processed image: {self._get_processing_description()} ({pil_image.width}x{pil_image.height})"
+            success_details = (
+                f"Successfully processed image: {self._get_processing_description()} ({image.width}x{image.height})"
+            )
             self._set_status_results(was_successful=True, result_details=f"SUCCESS: {success_details}")
             logger.info(f"{self.__class__.__name__} '{self.name}': {success_details}")
 
@@ -286,7 +292,7 @@ class AddBoundingBoxes(BaseImageProcessor):
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
             self._handle_failure_exception(e)
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
         """Process the image by drawing bounding boxes."""
         bounding_boxes = kwargs.get("bounding_boxes")
         box_color = kwargs.get("box_color", "#FF0000")
@@ -303,12 +309,11 @@ class AddBoundingBoxes(BaseImageProcessor):
         color_rgb = self._parse_box_color(box_color)
         boxes_list = [bounding_boxes] if isinstance(bounding_boxes, dict) else bounding_boxes
 
-        # Create a copy of the image to draw on
-        image_copy = pil_image.copy()
-        draw = ImageDraw.Draw(image_copy)
+        # Queue the drawing on a pipeline; the input image is left untouched
+        pipeline = GriptapeImagePipeline(image)
 
-        # Load font for labels
-        font = self._load_font_for_labels(pil_image.height)
+        # Font size for labels
+        font_size = self._label_font_size(image.height)
 
         # Draw each bounding box
         draw_config = {
@@ -316,12 +321,12 @@ class AddBoundingBoxes(BaseImageProcessor):
             "line_thickness": line_thickness,
             "show_labels": show_labels,
             "label_key": label_key,
-            "font": font,
+            "font_size": font_size,
         }
         for box in boxes_list:
-            self._draw_single_bounding_box(draw, box, draw_config)
+            self._draw_single_bounding_box(pipeline, box, draw_config)
 
-        return image_copy
+        return pipeline.end()
 
     def _parse_box_color(self, box_color: str) -> tuple[int, int, int]:
         """Parse color string to RGB tuple."""
@@ -332,18 +337,14 @@ class AddBoundingBoxes(BaseImageProcessor):
             msg = f"Could not read 'Box Color' value '{box_color}': {e}"
             raise ValueError(msg) from e
 
-    def _load_font_for_labels(self, image_height: int) -> Any:
-        """Load font for label rendering based on image height."""
+    def _label_font_size(self, image_height: int) -> int:
+        """Font size for label rendering based on image height."""
         font_size = int(image_height * self.LABEL_HEIGHT_PERCENT)
-        try:
-            return ImageFont.load_default(size=font_size)
-        except Exception:
-            try:
-                return ImageFont.load_default()
-            except Exception:
-                return None
+        if font_size < 1:
+            return self.FALLBACK_LABEL_FONT_SIZE
+        return font_size
 
-    def _draw_single_bounding_box(self, draw: ImageDraw.ImageDraw, box: dict, config: dict) -> None:
+    def _draw_single_bounding_box(self, pipeline: GriptapeImagePipeline, box: dict, config: dict) -> None:
         """Draw a single bounding box with optional label."""
         x, y, width, height = box["x"], box["y"], box["width"], box["height"]
 
@@ -351,17 +352,17 @@ class AddBoundingBoxes(BaseImageProcessor):
         x1, y1 = x, y
         x2, y2 = x + width, y + height
 
-        # Draw rectangle
-        draw.rectangle([(x1, y1), (x2, y2)], outline=config["color_rgb"], width=config["line_thickness"])
+        # Draw rectangle; (x2, y2) is included, as Pillow's rectangle included it
+        pipeline.draw_rectangle(x1, y1, x2 + 1, y2 + 1, outline=config["color_rgb"], width=config["line_thickness"])
 
         # Draw label if enabled
         show_labels = config["show_labels"]
         label_key = config["label_key"]
         if show_labels and label_key and label_key != "none" and label_key.strip():
-            self._draw_label_for_box(draw, box, label_key, (x1, y1), font=config["font"])
+            self._draw_label_for_box(pipeline, box, label_key, (x1, y1), font_size=config["font_size"])
 
     def _draw_label_for_box(
-        self, draw: ImageDraw.ImageDraw, box: dict, label_key: str, position: tuple[int, int], *, font: Any
+        self, pipeline: GriptapeImagePipeline, box: dict, label_key: str, position: tuple[int, int], *, font_size: int
     ) -> None:
         """Draw label for a bounding box."""
         x1, y1 = position
@@ -372,14 +373,10 @@ class AddBoundingBoxes(BaseImageProcessor):
         if not label_value:
             return
 
-        if not font:
-            self.append_value_to_parameter("logs", "Warning: Font not available for label rendering\n")
-            return
-
         try:
-            # Get text bbox at origin to measure dimensions
-            temp_bbox = draw.textbbox((0, 0), label_value, font=font)
-            text_height = temp_bbox[3] - temp_bbox[1]
+            # Measure the label
+            label_size = text_size(label_value, font_size)
+            text_height = label_size.height
 
             # Position label with gap above bounding box
             label_x = x1
@@ -391,11 +388,16 @@ class AddBoundingBoxes(BaseImageProcessor):
                 label_y = y1 + gap
 
             # Draw text background for better visibility
-            label_bbox = draw.textbbox((label_x, label_y), label_value, font=font)
-            draw.rectangle(label_bbox, fill=(0, 0, 0, 180))
+            pipeline.draw_rectangle(
+                label_x,
+                label_y,
+                label_x + label_size.width,
+                label_y + text_height,
+                fill=_LABEL_BACKGROUND_COLOR,
+            )
 
             # Draw text label
-            draw.text((label_x, label_y), label_value, fill=(255, 255, 255), font=font)
+            pipeline.draw_text(label_value, label_x, label_y, size=font_size, color=_LABEL_TEXT_COLOR)
         except Exception as e:
             self.append_value_to_parameter("logs", f"Warning: Could not draw text label: {e}\n")
 

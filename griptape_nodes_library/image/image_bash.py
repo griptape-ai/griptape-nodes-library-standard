@@ -1,5 +1,4 @@
 import base64
-from io import BytesIO
 from typing import Any
 from urllib.parse import unquote, urlparse
 
@@ -8,15 +7,19 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.files.file import File
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ResizeFilter
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
-from PIL import Image, ImageEnhance
 
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
+    converted,
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    image_to_bytes,
+    load_image_from_url,
+    scale_alpha,
 )
 
 CANVAS_DIMENSIONS = {
@@ -169,8 +172,8 @@ class ImageBash(DataNode):
         try:
             image_bytes = File(image_url).read_bytes()
 
-            with Image.open(BytesIO(image_bytes)) as img:
-                return img.size  # Returns (width, height)
+            with GriptapeImage.open(image_bytes) as img:
+                return (img.width, img.height)
         except Exception:
             # Fallback to default dimensions if we can't load the image
             return (400, 300)
@@ -659,7 +662,7 @@ class ImageBash(DataNode):
 
         # Create base canvas
         r, g, b, a = parse_color_to_rgba(background_hex)
-        canvas = Image.new("RGBA", (canvas_width, canvas_height), (r, g, b, a))
+        canvas = GriptapeImagePipeline(GriptapeImage.new(canvas_width, canvas_height, (r, g, b, a)))
 
         # Prepare layer sources
         konva_json = meta.get("konva_json", {}) or {}
@@ -682,14 +685,11 @@ class ImageBash(DataNode):
 
             # Load image
             try:
-                layer_img = load_pil_from_url(src)
+                layer_img = converted(load_image_from_url(src), ImageMode.RGBA)
             except Exception as e:
                 msg = f"{self.name}: Error loading image from {src}: {e}"
                 logger.warning(msg)
                 continue
-
-            if layer_img.mode != "RGBA":
-                layer_img = layer_img.convert("RGBA")
 
             # Apply scale and base dimensions
             base_w = layer.get("width", layer_img.width) or layer_img.width
@@ -698,14 +698,18 @@ class ImageBash(DataNode):
             scale_y = float(layer.get("scaleY", 1.0) or 1.0)
             target_w = max(1, round(base_w * scale_x))
             target_h = max(1, round(base_h * scale_y))
-            if layer_img.size != (target_w, target_h):
-                layer_img = layer_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            if (layer_img.width, layer_img.height) != (target_w, target_h):
+                layer_img = GriptapeImagePipeline(layer_img).resize(target_w, target_h, ResizeFilter.LANCZOS).end()
 
             # Apply rotation (Konva uses degrees; rotate around center)
             rotation = float(layer.get("rotation", 0) or 0)
             if rotation != 0:
-                # PIL rotates counter-clockwise for positive angles; negate if needed for Konva's clockwise
-                layer_img = layer_img.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
+                # rotate() turns counter-clockwise for positive angles; negate for Konva's clockwise
+                layer_img = (
+                    GriptapeImagePipeline(layer_img)
+                    .rotate(-rotation, expand=True, resize_filter=ResizeFilter.BICUBIC)
+                    .end()
+                )
 
             # Apply opacity
             try:
@@ -713,9 +717,7 @@ class ImageBash(DataNode):
             except Exception:
                 opacity = 1.0
             if opacity < 1.0:
-                alpha = layer_img.getchannel("A")
-                alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
-                layer_img.putalpha(alpha)
+                layer_img = scale_alpha(layer_img, opacity)
 
             # Position: Konva x/y represent center
             x = float(layer.get("x", canvas_width / 2))
@@ -723,29 +725,23 @@ class ImageBash(DataNode):
             paste_x = round(x - layer_img.width / 2)
             paste_y = round(y - layer_img.height / 2)
 
-            # Paste with alpha mask
-            canvas.paste(layer_img, (paste_x, paste_y), layer_img)
+            # Composite over the layers below, using the layer's alpha
+            canvas.composite(layer_img, paste_x, paste_y)
 
         # Save composed image and publish
         dest = self._output_file.build_file()
-        saved = dest.write_bytes(self._pil_to_bytes(canvas, "PNG"))
+        saved = dest.write_bytes(self._image_to_bytes(canvas.end(), "PNG"))
         output_artifact = ImageUrlArtifact(value=saved.location)
         self.set_parameter_value("output_image", output_artifact)
         self.parameter_output_values["output_image"] = output_artifact
         self.publish_update_to_parameter("output_image", output_artifact)
         logger.debug(f"Output image saved to {output_artifact.value}")
 
-    def _pil_to_bytes(self, img: Image.Image, img_format: str) -> bytes:
-        """Convert PIL Image to bytes."""
-        import io
+    def _image_to_bytes(self, image: GriptapeImage, img_format: str) -> bytes:
+        """Encode the image in the named format."""
+        img_data = image_to_bytes(image, img_format)
 
-        img_data = None
-        with io.BytesIO() as img_byte_arr:
-            img.save(img_byte_arr, format=img_format)
-            img_byte_arr.seek(0)
-            img_data = img_byte_arr.getvalue()
-
-        if img_data is None or len(img_data) == 0:
+        if len(img_data) == 0:
             msg = "The composed image could not be encoded as PNG."
             raise ValueError(msg)
 

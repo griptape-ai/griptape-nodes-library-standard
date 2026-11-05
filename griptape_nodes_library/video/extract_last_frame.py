@@ -6,7 +6,7 @@ from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
-from PIL import Image
+from griptape_nodes.image import GriptapeImage
 
 from griptape_nodes_library.utils.image_utils import image_to_bytes
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
@@ -130,11 +130,11 @@ class ExtractLastFrame(BaseVideoProcessor):
             # Check if output file was created
             _validate_output_file(temp_image_path)
 
-            # Load the extracted frame as PIL Image
-            last_frame_pil = Image.open(temp_image_path)
+            # Load the extracted frame
+            last_frame = GriptapeImage.open(temp_image_path)
 
             # Save as ImageUrlArtifact
-            image_bytes = image_to_bytes(last_frame_pil, "PNG")
+            image_bytes = image_to_bytes(last_frame, "PNG")
             dest = self._output_file.build_file()
             saved = dest.write_bytes(image_bytes)
             image_artifact = ImageUrlArtifact(saved.location)

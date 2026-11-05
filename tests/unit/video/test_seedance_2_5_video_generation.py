@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import base64
-import io
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
+from griptape_nodes.image import GriptapeImage, ImageFormat
 from griptape_nodes.traits.options import Options
-from PIL import Image
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -490,15 +489,14 @@ async def test_1080p_reaches_the_payload_verbatim() -> None:
 
 
 def _image_data_uri(width: int, height: int) -> str:
-    buffer = io.BytesIO()
-    Image.new("RGB", (width, height), color=(90, 120, 60)).save(buffer, format="JPEG", quality=90)
-    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+    data = GriptapeImage.new(width, height, (90, 120, 60)).encode(ImageFormat.JPEG, quality=90)
+    return "data:image/jpeg;base64," + base64.b64encode(data).decode()
 
 
 def _decode_image_size(data_uri: str) -> tuple[int, int]:
     _, _, encoded = data_uri.partition(";base64,")
-    with Image.open(io.BytesIO(base64.b64decode(encoded))) as img:
-        return img.size
+    with GriptapeImage.open(base64.b64decode(encoded)) as img:
+        return (img.width, img.height)
 
 
 @pytest.mark.asyncio
@@ -531,12 +529,12 @@ async def test_within_limit_frame_bytes_pass_through_unchanged() -> None:
 
 @pytest.mark.asyncio
 async def test_undecodable_image_data_uri_passes_through_unchanged() -> None:
-    # Seedance accepts formats PIL has no codec for (HEIC/HEIF), so bytes PIL cannot decode must
+    # Seedance accepts formats there's no local codec for (HEIC/HEIF), so bytes that can't be decoded must
     # be sent unchanged rather than blocked by the downscale check.
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.FIRST_LAST_FRAME)
     node.set_parameter_value("prompt", "Drone Shot")
-    heic_like_uri = "data:image/heic;base64," + base64.b64encode(b"not decodable by PIL").decode()
+    heic_like_uri = "data:image/heic;base64," + base64.b64encode(b"not a decodable image").decode()
     node.set_parameter_value("first_frame", ImageUrlArtifact(heic_like_uri))
 
     payload = await node._build_payload()

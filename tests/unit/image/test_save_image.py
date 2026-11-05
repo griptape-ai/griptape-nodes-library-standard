@@ -11,21 +11,19 @@ resolve correctly. Raw-bytes ``ImageArtifact`` inputs continue to use
 
 from __future__ import annotations
 
-from io import BytesIO
 from typing import Any
 
+import numpy as np
 import pytest
 from griptape.artifacts import ImageArtifact
 from griptape_nodes.files import file as file_module
-from PIL import Image
+from griptape_nodes.image import GriptapeImage, ImageFormat
 
 from griptape_nodes_library.image.save_image import SaveImage
 
 
 def _make_png_bytes() -> bytes:
-    buf = BytesIO()
-    Image.new("RGB", (1, 1), color="red").save(buf, "PNG")
-    return buf.getvalue()
+    return GriptapeImage.new(1, 1, (255, 0, 0)).encode(ImageFormat.PNG)
 
 
 CANNED_BYTES = _make_png_bytes()
@@ -118,23 +116,22 @@ def test_jpeg_composites_transparent_pixels_over_black(
 ) -> None:
     """JPEG has no alpha, so straight-alpha RGB under alpha 0 must not show through."""
     # Left half transparent, right half opaque, both with the same RGB.
-    source = Image.new("RGBA", (16, 8), (200, 120, 40, 255))
-    source.paste((200, 120, 40, 0), (0, 0, 8, 8))
-    buf = BytesIO()
-    source.save(buf, "PNG")
-    artifact = ImageArtifact(value=buf.getvalue(), format="png", width=16, height=8)
+    pixels = np.full((8, 16, 4), (200, 120, 40, 255), dtype=np.uint8)
+    pixels[:, :8, 3] = 0
+    source = GriptapeImage.from_array(pixels).encode(ImageFormat.PNG)
+    artifact = ImageArtifact(value=source, format="png", width=16, height=8)
 
     node = SaveImage(name="save")
-    monkeypatch.setattr(node, "_get_target_pil_format", lambda: "JPEG")
+    monkeypatch.setattr(node, "_get_target_format", lambda: "JPEG")
     node.set_parameter_value("image", artifact)
     node.process()
 
-    saved = Image.open(BytesIO(stub_output_file["written"]))
-    assert saved.format == "JPEG"
+    saved = GriptapeImage.open(stub_output_file["written"])
+    assert saved.format == ImageFormat.JPEG
     # JPEG is lossy, so sample away from the edge and allow a small tolerance.
-    transparent = saved.getpixel((2, 4))
-    opaque = saved.getpixel((13, 4))
-    assert isinstance(transparent, tuple)
-    assert isinstance(opaque, tuple)
+    saved_pixels = saved.to_array()
+    transparent = tuple(int(c) for c in saved_pixels[4, 2])
+    opaque = tuple(int(c) for c in saved_pixels[4, 13])
+    assert len(transparent) == len(opaque) == 3
     assert all(c < 20 for c in transparent), transparent
     assert all(abs(a - b) < 20 for a, b in zip(opaque, (200, 120, 40), strict=True)), opaque

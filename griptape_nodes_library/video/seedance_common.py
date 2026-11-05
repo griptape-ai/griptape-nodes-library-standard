@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import io
 import json as _json
 import logging
 from abc import ABC
@@ -32,9 +31,9 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat, ImageMetadata, ResizeFilter
 from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from PIL import Image, ImageOps
 
 from griptape_nodes_library.assets import (
     ASSET_KIND_AUDIO,
@@ -137,34 +136,33 @@ class DownscaledImage(NamedTuple):
     new_size: tuple[int, int]
 
 
-def _downscale_decoded_image(decoded_image: Image.Image) -> DownscaledImage | None:
+def _downscale_decoded_image(decoded_image: GriptapeImage) -> DownscaledImage | None:
     """Downscale a decoded image whose width or height exceeds SEEDANCE_MAX_IMAGE_DIMENSION_PX.
 
     Returns None when the image is within the cap. EXIF orientation is baked in before resizing,
     because the re-encoded copy no longer carries the original's EXIF and would otherwise render
     rotated. PNG stays PNG to preserve alpha; every other format re-encodes as JPEG.
     """
-    original_size = decoded_image.size
+    original_size = (decoded_image.width, decoded_image.height)
     if max(original_size) <= SEEDANCE_MAX_IMAGE_DIMENSION_PX:
         return None
 
-    image = ImageOps.exif_transpose(decoded_image)
-    width, height = image.size
+    image = GriptapeImagePipeline(decoded_image).exif_transpose().end()
+    width, height = image.width, image.height
     scale = SEEDANCE_MAX_IMAGE_DIMENSION_PX / max(width, height)
     new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
-    resized = image.resize(new_size, Image.Resampling.LANCZOS)
+    resized = GriptapeImagePipeline(image).resize(*new_size, ResizeFilter.LANCZOS).end()
 
-    buffer = io.BytesIO()
-    if (decoded_image.format or "").upper() == "PNG":
-        resized.save(buffer, format="PNG")
+    # The copy carries pixels only, none of the source's metadata
+    if decoded_image.format == ImageFormat.PNG:
+        encoded_bytes = resized.encode(ImageFormat.PNG, metadata=ImageMetadata())
         mime = "image/png"
     else:
-        if resized.mode not in ("RGB", "L"):
-            resized = resized.convert("RGB")
-        resized.save(buffer, format="JPEG", quality=92)
+        # JPEG drops any alpha
+        encoded_bytes = resized.encode(ImageFormat.JPEG, quality=92, metadata=ImageMetadata())
         mime = "image/jpeg"
 
-    encoded_output = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    encoded_output = base64.b64encode(encoded_bytes).decode("utf-8")
     return DownscaledImage(
         data_uri=f"data:{mime};base64,{encoded_output}",
         original_size=original_size,
@@ -176,19 +174,19 @@ def downscale_oversized_image_data_uri(data_uri: str) -> DownscaledImage | None:
     """Downscale an image data URI whose width or height exceeds SEEDANCE_MAX_IMAGE_DIMENSION_PX.
 
     Returns None when no downscale is needed: the image is within the cap, or the payload is not
-    an image data URI, or PIL cannot decode the bytes. The unreadable case must pass through
-    unchanged rather than fail -- Seedance accepts formats PIL has no codec for (HEIC/HEIF), and
-    the provider is the authority on what it can decode.
+    an image data URI, or the bytes can't be decoded. The unreadable case must pass through
+    unchanged rather than fail -- Seedance accepts formats there's no local codec for (HEIC/HEIF),
+    and the provider is the authority on what it can decode.
     """
     header, separator, encoded = data_uri.partition(";base64,")
     if not separator or not header.startswith("data:image/"):
         return None
 
-    # binascii.Error (a ValueError) for malformed base64; UnidentifiedImageError (an OSError) for
-    # formats PIL cannot decode, e.g. HEIC; OSError for truncated image data.
+    # binascii.Error (a ValueError) for malformed base64; ValueError for formats that can't be
+    # decoded, e.g. HEIC, and for truncated image data; OSError for unreadable files.
     try:
         raw_bytes = base64.b64decode(encoded)
-        with Image.open(io.BytesIO(raw_bytes)) as decoded_image:
+        with GriptapeImage.open(raw_bytes) as decoded_image:
             return _downscale_decoded_image(decoded_image)
     except (OSError, ValueError):
         return None
@@ -197,12 +195,12 @@ def downscale_oversized_image_data_uri(data_uri: str) -> DownscaledImage | None:
 def downscale_oversized_image_file(path: str) -> DownscaledImage | None:
     """Downscale an image file whose width or height exceeds SEEDANCE_MAX_IMAGE_DIMENSION_PX.
 
-    Returns None when no downscale is needed or the path is not an image PIL can open. Opening
-    reads only the image header, so measuring a file that turns out to be within the cap does not
-    read it into memory.
+    Returns None when no downscale is needed or the path is not an image that can be opened.
+    Measuring decodes only the image header, so a file that turns out to be within the cap is
+    never decoded.
     """
     try:
-        with Image.open(path) as decoded_image:
+        with GriptapeImage.open(Path(path)) as decoded_image:
             return _downscale_decoded_image(decoded_image)
     except (OSError, ValueError):
         return None

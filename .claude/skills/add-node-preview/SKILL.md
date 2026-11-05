@@ -45,7 +45,7 @@ Class attributes and hooks:
 | `PREVIEW_IMAGES` | Media parameters, mapped to `image_url` or `video_url`. Default `{"input_image": "image_url"}`; `BaseVideoProcessor` uses `{"video": "video_url"}`; `{}` for generated output (Color Bars, Create Text Image). |
 | `PREVIEW_PARAMETER_NAME` | Defaults to `"preview"`. Override when the node already has a parameter by that name (Image Grid Splitter uses `"grid_preview"`). |
 | `_preview_extras()` | Data the node works out that isn't a parameter: `{"image_mode": self._image_mode("input_image")}`, a detected grid, a list of masks. Stored with the preview. |
-| `_preview_session_extras()` | Values only valid in this engine session, such as `self._pillow_font_url()`. Recomputed whenever the preview's value is set, including on load. |
+| `_preview_session_extras()` | Values only valid in this engine session, such as `self._font_url()`. Recomputed whenever the preview's value is set, including on load. |
 | `_is_preview_source(name)` | Which parameters trigger a recompute. Override for sources `PREVIEW_IMAGES` can't list, such as the items of a `ParameterList` (Combine Masks). |
 
 Also:
@@ -106,5 +106,5 @@ Traps found this way:
 - `initial_setup=True` (loading a workflow) skips `before_value_set` and `after_value_set`. The mixin handles the preview by overriding `set_parameter_value`; don't rely on `after_value_set` alone for anything that must be right after a load.
 - Put `PREVIEW_*` attributes **below** the class docstring, or it stops being `__doc__`. When inserting them with a script, add any import first and find the insertion point after, or the offsets shift.
 - A `ParameterList` can't take a single image connection; connect to an item. With the MCP, `AddParameterToNodeRequest(parent_container_name="masks")` adds one.
-- Don't redistribute fonts. Text previews get Pillow's built-in font from the node at runtime (`_pillow_font_url`, a session extra).
+- Don't redistribute fonts. Text previews get OpenImageIO's default font from the node at runtime (`_font_url`, a session extra).
 - Image Blend Compositor has no preview yet: its `exclusion` and `logical_*` modes raise on RGB images and `logical_and` falls back to normal. Fix those first.

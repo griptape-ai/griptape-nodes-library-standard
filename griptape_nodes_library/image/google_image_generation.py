@@ -598,7 +598,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
         if not data_uri:
             return None
 
-        # Run CPU-bound base64 decode + PIL image resizing in a thread pool
+        # Run CPU-bound base64 decode + image resizing in a thread pool
         # to avoid blocking the event loop for large images.
         return await asyncio.to_thread(
             self._extract_mime_and_base64_from_data_uri, data_uri, auto_image_resize=auto_image_resize

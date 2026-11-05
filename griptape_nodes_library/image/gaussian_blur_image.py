@@ -2,15 +2,15 @@ from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.slider import Slider
-from PIL import Image, ImageFilter
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 
 
 class GaussianBlurImage(BaseImageProcessor):
-    """Apply Gaussian blur to an image using PIL's ImageFilter."""
+    """Apply Gaussian blur to an image using the engine's Gaussian blur filter."""
 
     PREVIEW_OPERATION = "gaussian_blur"
     PREVIEW_PARAMETERS: ClassVar[list[str]] = ["radius"]
@@ -38,8 +38,8 @@ class GaussianBlurImage(BaseImageProcessor):
         """Get description of what this processor does."""
         return "Gaussian blur"
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
-        """Process the PIL image by applying Gaussian blur."""
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
+        """Process the image by applying Gaussian blur."""
         radius = kwargs.get("radius", self.DEFAULT_RADIUS)
 
         # Debug logging
@@ -47,10 +47,10 @@ class GaussianBlurImage(BaseImageProcessor):
 
         # Apply Gaussian blur
         if radius > 0:
-            blurred_image = pil_image.filter(ImageFilter.GaussianBlur(radius=radius))
+            blurred_image = GriptapeImagePipeline(image).gaussian_blur(radius).end()
             return blurred_image
         # If radius is 0, return original image (no blur)
-        return pil_image
+        return image
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate blur parameters."""

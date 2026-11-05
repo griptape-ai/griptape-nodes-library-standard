@@ -9,7 +9,7 @@ import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList
-from PIL import Image
+from griptape_nodes.image import GriptapeImage
 
 from griptape_nodes_library.files.extract_pdf_images import ExtractPdfImages
 from griptape_nodes_library.image import image_grid_splitter, image_preview
@@ -87,11 +87,11 @@ OPERATIONS_JS = Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" 
 def no_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Nodes that read an image's mode or detect a grid load the image; give them one without fetching."""
 
-    def load(_url: str) -> Image.Image:
-        return Image.new("RGB", (8, 8))
+    def load(_url: str) -> GriptapeImage:
+        return GriptapeImage.new(8, 8, (0, 0, 0))
 
-    monkeypatch.setattr(image_preview, "load_pil_from_url", load)
-    monkeypatch.setattr(image_grid_splitter, "load_pil_from_url", load)
+    monkeypatch.setattr(image_preview, "load_image_from_url", load)
+    monkeypatch.setattr(image_grid_splitter, "load_image_from_url", load)
 
 
 @pytest.fixture(autouse=True)
@@ -212,11 +212,11 @@ def test_grid_splitter_sends_the_detected_grid() -> None:
 def test_grid_splitter_with_an_unreadable_image_has_an_empty_preview(
     monkeypatch: pytest.MonkeyPatch, *, initial_setup: bool
 ) -> None:
-    def unreadable(_url: str) -> Image.Image:
+    def unreadable(_url: str) -> GriptapeImage:
         msg = "the file is gone"
         raise ValueError(msg)
 
-    monkeypatch.setattr(image_grid_splitter, "load_pil_from_url", unreadable)
+    monkeypatch.setattr(image_grid_splitter, "load_image_from_url", unreadable)
     node = ImageGridSplitter(name="test_node")
 
     # Loading a workflow whose image was moved or whose URL expired must not fail the value set.
@@ -262,7 +262,7 @@ def test_a_saved_font_url_is_replaced_with_this_sessions(
     node_class: type[ImagePreviewMixin], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     node = node_class(name="test_node")
-    monkeypatch.setattr(node, "_pillow_font_url", lambda: "http://localhost:8124/fresh-font.ttf")
+    monkeypatch.setattr(node, "_font_url", lambda: "http://localhost:8124/fresh-font.ttf")
     saved = {**node.get_parameter_value("preview"), "font_url": "http://elsewhere:8124/stale-font.ttf"}
 
     # Loading a workflow sets values with initial_setup, which skips after_value_set.

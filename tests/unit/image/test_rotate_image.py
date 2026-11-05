@@ -2,16 +2,35 @@
 
 from __future__ import annotations
 
-import io
-
+import numpy as np
 import pytest
 from griptape.artifacts import ImageUrlArtifact
-from PIL import Image
+from griptape_nodes.image import EXIF_ORIENTATION_TAG, Exif, GriptapeImage, ImageFormat, ImageMetadata
 
 from griptape_nodes_library.image.rotate_image import ROTATION_ICONS, RotateImage, Rotation
 
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
+
+
+def solid(width: int, height: int, color: tuple[int, ...]) -> np.ndarray:
+    """A height x width uint8 array of one color."""
+    return np.full((height, width, len(color)), color, dtype=np.uint8)
+
+
+def size_of(image: GriptapeImage) -> tuple[int, int]:
+    return image.width, image.height
+
+
+def pixel(image: GriptapeImage, x: int, y: int) -> tuple[int, ...]:
+    return tuple(int(v) for v in image.to_array()[y, x])
+
+
+def colors(image: GriptapeImage) -> list[tuple[tuple[int, ...], int]]:
+    """Each distinct color and how many pixels have it, like Pillow's getcolors."""
+    pixels = image.to_array()
+    values, counts = np.unique(pixels.reshape(-1, pixels.shape[2]), axis=0, return_counts=True)
+    return sorted((tuple(int(v) for v in value), int(count)) for value, count in zip(values, counts, strict=True))
 
 
 @pytest.fixture
@@ -20,11 +39,11 @@ def node() -> RotateImage:
 
 
 @pytest.fixture
-def landscape() -> Image.Image:
+def landscape() -> GriptapeImage:
     """A 4x2 image, red with a blue top-left pixel."""
-    img = Image.new("RGB", (4, 2), RED)
-    img.putpixel((0, 0), BLUE)
-    return img
+    pixels = solid(4, 2, RED)
+    pixels[0, 0] = BLUE
+    return GriptapeImage.from_array(pixels)
 
 
 @pytest.mark.parametrize(
@@ -37,38 +56,39 @@ def landscape() -> Image.Image:
 )
 def test_quarter_turns_are_lossless(
     node: RotateImage,
-    landscape: Image.Image,
+    landscape: GriptapeImage,
     rotation: Rotation,
     size: tuple[int, int],
     blue_at: tuple[int, int],
 ) -> None:
     result = node._process_image(landscape, rotation=rotation)
 
-    assert result.size == size
-    assert result.mode == "RGB"
-    assert result.getpixel(blue_at) == BLUE
-    assert sorted(result.getcolors() or []) == sorted(landscape.getcolors() or [])
+    assert size_of(result) == size
+    assert result.channels == 3  # noqa: PLR2004
+    assert pixel(result, *blue_at) == BLUE
+    assert colors(result) == colors(landscape)
 
 
-def test_quarter_turn_accepts_plain_string(node: RotateImage, landscape: Image.Image) -> None:
-    assert node._process_image(landscape, rotation="90° clockwise").size == (2, 4)
+def test_quarter_turn_accepts_plain_string(node: RotateImage, landscape: GriptapeImage) -> None:
+    assert size_of(node._process_image(landscape, rotation="90° clockwise")) == (2, 4)
 
 
 def test_custom_angle_matches_quarter_turn_direction(node: RotateImage) -> None:
-    img = Image.new("RGB", (40, 20), RED)
-    img.paste(BLUE, (0, 0, 10, 10))
+    pixels = solid(40, 20, RED)
+    pixels[0:10, 0:10] = BLUE
+    img = GriptapeImage.from_array(pixels)
 
     result = node._process_image(
         img, rotation=Rotation.CUSTOM, angle=90.0, expand_canvas=True, background_color="#000000ff"
     )
 
-    assert result.size == (20, 40)
+    assert size_of(result) == (20, 40)
     # Clockwise: the top-left corner moves to the top-right.
-    assert result.getpixel((15, 5)) == BLUE
+    assert pixel(result, 15, 5) == BLUE
 
 
 def test_custom_angle_expands_canvas_with_transparent_corners(node: RotateImage) -> None:
-    img = Image.new("RGB", (100, 50), RED)
+    img = GriptapeImage.from_array(solid(100, 50, RED))
 
     result = node._process_image(
         img, rotation=Rotation.CUSTOM, angle=45.0, expand_canvas=True, background_color="#00000000"
@@ -76,49 +96,52 @@ def test_custom_angle_expands_canvas_with_transparent_corners(node: RotateImage)
 
     assert result.width > img.width
     assert result.height > img.height
-    assert result.mode == "RGBA"
-    assert result.getpixel((0, 0)) == (0, 0, 0, 0)
-    assert result.getpixel((result.width // 2, result.height // 2)) == (*RED, 255)
+    assert result.channels == 4  # noqa: PLR2004
+    assert pixel(result, 0, 0) == (0, 0, 0, 0)
+    assert pixel(result, result.width // 2, result.height // 2) == (*RED, 255)
 
 
 def test_custom_angle_without_expand_keeps_size(node: RotateImage) -> None:
-    img = Image.new("RGB", (100, 50), RED)
+    img = GriptapeImage.from_array(solid(100, 50, RED))
 
     result = node._process_image(
         img, rotation=Rotation.CUSTOM, angle=30.0, expand_canvas=False, background_color="#00ff00ff"
     )
 
-    assert result.size == img.size
-    assert result.mode == "RGB"
-    assert result.getpixel((0, 0)) == (0, 255, 0)
+    assert size_of(result) == size_of(img)
+    assert result.channels == 3  # noqa: PLR2004
+    assert pixel(result, 0, 0) == (0, 255, 0)
 
 
 def test_custom_angle_converts_grayscale_for_color_fill(node: RotateImage) -> None:
-    img = Image.new("L", (100, 50), 128)
+    img = GriptapeImage.new(100, 50, (128,))
 
     result = node._process_image(
         img, rotation=Rotation.CUSTOM, angle=10.0, expand_canvas=True, background_color="#ff0000ff"
     )
 
-    assert result.mode == "RGBA"
-    assert result.getpixel((0, 0)) == (255, 0, 0, 255)
+    assert result.channels == 4  # noqa: PLR2004
+    assert pixel(result, 0, 0) == (255, 0, 0, 255)
 
 
-@pytest.mark.parametrize(("mode", "value", "expected"), [("I;16", 20000, 78), ("I", 20000, 78), ("F", 0.5, 127)])
+# One-channel float pixels are data, scaled linearly, so 0.5 is 128.
+@pytest.mark.parametrize(
+    ("dtype", "value", "expected"), [(np.uint16, 20000, 78), (np.float32, 0.5, 128)], ids=["uint16", "float32"]
+)
 def test_custom_angle_scales_high_bit_depth_grayscale(
-    node: RotateImage, mode: str, value: float, expected: int
+    node: RotateImage, dtype: type, value: float, expected: int
 ) -> None:
-    img = Image.new(mode, (100, 50), value)
+    img = GriptapeImage.from_array(np.full((50, 100), value, dtype=dtype))
 
     result = node._process_image(
         img, rotation=Rotation.CUSTOM, angle=10.0, expand_canvas=True, background_color="#00000000"
     )
 
-    assert result.mode == "RGBA"
-    assert result.getpixel((result.width // 2, result.height // 2)) == (expected, expected, expected, 255)
+    assert result.channels == 4  # noqa: PLR2004
+    assert pixel(result, result.width // 2, result.height // 2) == (expected, expected, expected, 255)
 
 
-def test_unknown_rotation_raises(node: RotateImage, landscape: Image.Image) -> None:
+def test_unknown_rotation_raises(node: RotateImage, landscape: GriptapeImage) -> None:
     with pytest.raises(ValueError, match="Unknown rotation"):
         node._process_image(landscape, rotation="sideways")
 
@@ -137,16 +160,14 @@ def test_custom_parameters_are_hidden_until_custom_is_picked(node: RotateImage) 
 
 def test_rotates_from_exif_orientation(node: RotateImage) -> None:
     """A sideways phone photo is rotated as it is displayed, not as it is stored."""
-    stored = Image.new("RGB", (40, 20), RED)
-    exif = stored.getexif()
-    exif[0x0112] = 6  # displayed rotated 90° clockwise, as 20x40
-    buffer = io.BytesIO()
-    stored.save(buffer, format="JPEG", exif=exif)
-    photo = Image.open(io.BytesIO(buffer.getvalue()))
+    exif = Exif()
+    exif[EXIF_ORIENTATION_TAG] = 6  # displayed rotated 90° clockwise, as 20x40
+    stored = GriptapeImage.from_array(solid(40, 20, RED), metadata=ImageMetadata(exif=exif))
+    photo = GriptapeImage.open(stored.encode(ImageFormat.JPEG))
 
     result = node._process_image(photo, rotation=Rotation.COUNTER_CLOCKWISE_90)
 
-    assert result.size == (40, 20)
+    assert size_of(result) == (40, 20)
 
 
 def test_dropdown_shows_an_icon_for_every_choice(node: RotateImage) -> None:

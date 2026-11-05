@@ -1,6 +1,6 @@
 from typing import ClassVar
 
-from PIL import Image
+from griptape_nodes.image import GriptapeImage
 
 from griptape_nodes_library.image.base_alpha_conversion import BaseAlphaConversion
 from griptape_nodes_library.utils.image_utils import unpremultiply_rgba
@@ -23,5 +23,5 @@ class UnpremultiplyImage(BaseAlphaConversion):
     DEFAULT_FILENAME: ClassVar[str] = "unpremultiplied.png"
     ACTION: ClassVar[str] = "unpremultiply"
 
-    def _convert(self, image: Image.Image, *, invert: bool) -> Image.Image:
+    def _convert(self, image: GriptapeImage, *, invert: bool) -> GriptapeImage:
         return unpremultiply_rgba(image, invert=invert)

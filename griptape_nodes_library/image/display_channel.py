@@ -6,7 +6,7 @@ from griptape_nodes_library.image.display_mask import DisplayMask
 from griptape_nodes_library.utils.image_utils import (
     extract_channel_from_image,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
 )
 
 
@@ -38,10 +38,10 @@ class DisplayChannel(DisplayMask):
     def _extract_channel(self, image_artifact: ImageUrlArtifact, channel: str) -> None:
         """Extract a channel from the input image and set as output."""
         # Load image
-        image_pil = load_pil_from_url(image_artifact.value)
+        image = load_image_from_url(image_artifact.value)
 
         # Extract the specified channel as mask
-        mask = extract_channel_from_image(image_pil, channel, "image")
+        mask = extract_channel_from_image(image, channel, "image")
 
         # Save output mask and create URL artifact
         image_bytes = image_to_bytes(mask, "PNG")
