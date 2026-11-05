@@ -1125,7 +1125,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         # Block an output too large to host before `_build_payload`, so nothing is uploaded.
         # A broken estimator must not block runs, so a failure to estimate is logged and skipped.
         try:
-            estimate_bytes = self._estimate_output_bytes()
+            # Off the event loop: estimators probe the input (e.g. ffprobe) synchronously.
+            estimate_bytes = await asyncio.to_thread(self._estimate_output_bytes)
         except Exception as e:
             self._log(f"Could not estimate the output size, skipping the size check: {e}")
             estimate_bytes = None
@@ -1545,6 +1546,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         position: int = 0,
         media_kind: str = "video",
         action: str = "generated",
+        output_file: ProjectFileParameter | None = None,
     ) -> bool:
         """Save one piece of the generation's hosted media to project storage.
 
@@ -1564,6 +1566,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
             media_kind: Human-readable media type for log and status messages.
             action: Past-tense verb describing what the node produced (e.g. "generated",
                 "edited", "extended"), used in the success message.
+            output_file: The project file destination to save to, for nodes with more than
+                one saved output. Defaults to the node's ``_output_file``.
 
         Returns:
             Whether the media was saved. Callers that report their own status only do
@@ -1574,16 +1578,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         try:
             artifact = await self._hosted_artifact(generation_id, kind=kind, position=position)
-            if artifact.direct:
-                # Provider URLs (direct mode, or the hosted-mode fallback) are often huge: never buffer.
-                saved = await self._stream_artifact_to_project(artifact, generation_id)
-            else:
-                self._log(
-                    f"Downloading hosted artifact {artifact.index} ({artifact.kind}) of generation {generation_id}"
-                )
-                media_bytes = await self._download_artifact(artifact)
-                dest = self._output_file.build_file()
-                saved = await dest.awrite_bytes(media_bytes)
+            saved = await self._save_artifact_to_project(artifact, generation_id, output_file=output_file)
         except Exception as e:
             self.parameter_output_values[output_param] = None
             self._set_status_results(
@@ -1600,7 +1595,28 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         )
         return True
 
-    async def _stream_artifact_to_project(self, artifact: HostedArtifact, generation_id: str) -> File:
+    async def _save_artifact_to_project(
+        self, artifact: HostedArtifact, generation_id: str, *, output_file: ProjectFileParameter | None = None
+    ) -> File:
+        """Save one resolved artifact to a project destination and return the saved file.
+
+        Sets no status and no output parameter, so a node saving several outputs can report the
+        combined result itself. Provider-URL artifacts are streamed, never buffered.
+
+        Raises:
+            Exception: If the download or the write fails.
+        """
+        if artifact.direct:
+            # Provider URLs (direct mode, or the hosted-mode fallback) are often huge: never buffer.
+            return await self._stream_artifact_to_project(artifact, generation_id, output_file=output_file)
+        self._log(f"Downloading hosted artifact {artifact.index} ({artifact.kind}) of generation {generation_id}")
+        media_bytes = await self._download_artifact(artifact)
+        dest = (output_file or self._output_file).build_file()
+        return await dest.awrite_bytes(media_bytes)
+
+    async def _stream_artifact_to_project(
+        self, artifact: HostedArtifact, generation_id: str, *, output_file: ProjectFileParameter | None = None
+    ) -> File:
         """Stream one provider-URL artifact straight into the project's output directory.
 
         Outputs here can be multiple gigabytes, so the bytes are never held in memory and the
@@ -1622,11 +1638,13 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         Limitation: the engine only sniffs non-empty content, so its write-time vetting, codec
         checks and extension coercion are bypassed for these downloads. The file keeps the
         destination's extension as named.
+
+        ``output_file`` selects the destination parameter, defaulting to ``self._output_file``.
         """
         self._log(
             f"Streaming direct-download artifact {artifact.index} ({artifact.kind}) of generation {generation_id}"
         )
-        dest = self._output_file.build_file()
+        dest = (output_file or self._output_file).build_file()
         if getattr(dest, "_existing_file_policy", None) == ExistingFilePolicy.OVERWRITE:
             target = Path(dest.resolve())
             if target.exists():

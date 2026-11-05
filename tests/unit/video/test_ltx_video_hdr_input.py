@@ -34,7 +34,7 @@ async def test_hdr_uses_public_url_when_available(monkeypatch: pytest.MonkeyPatc
 
     payload = await node._build_payload()
 
-    assert payload == {"video_uri": _PUBLIC_URL}
+    assert payload == {"video_uri": _PUBLIC_URL, "output_colorspace": "acescg"}
     prepare.assert_not_called()
 
 
@@ -44,7 +44,7 @@ async def test_hdr_falls_back_to_data_uri_when_upload_unavailable(monkeypatch: p
     monkeypatch.setattr(node, "_upload_video_to_public_url", AsyncMock(return_value=None))
     monkeypatch.setattr(node, "_prepare_video_data_uri_async", AsyncMock(return_value=_SMALL_DATA_URI))
 
-    assert await node._build_payload() == {"video_uri": _SMALL_DATA_URI}
+    assert await node._build_payload() == {"video_uri": _SMALL_DATA_URI, "output_colorspace": "acescg"}
 
 
 @pytest.mark.asyncio
