@@ -54,7 +54,12 @@ MAX_ASPECT_SHORT = 9
 
 
 class _ProbeResult(NamedTuple):
-    """Probed input properties, with width and height already swapped for a quarter-turned video."""
+    """Probed input properties.
+
+    For a quarter-turned video, width and height are swapped to the dimensions the viewer sees.
+    Every limit check uses the long side, the short side or their ratio, so the swap changes no
+    decision. It only orders the two numbers shown in error messages.
+    """
 
     width: int
     height: int
@@ -301,7 +306,8 @@ class LTXVideoAlphaGen(PublicVideoUrlMixin, GriptapeProxyNode):
             height = int(stream.get("height") or 0)
             if width <= 0 or height <= 0:
                 return None
-            # A quarter-turned clip is stored on its side, so swap to the dimensions the viewer sees.
+            # A quarter-turned clip is stored on its side. The swap decides nothing (every check is
+            # orientation-agnostic); it only keeps the dimensions in error messages as the viewer sees them.
             if is_quarter_turned(stream):
                 width, height = height, width
 
