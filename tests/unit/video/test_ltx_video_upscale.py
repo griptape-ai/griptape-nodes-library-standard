@@ -370,3 +370,19 @@ def test_warns_only_when_the_proxy_downloads_the_users_own_link(connected: str, 
 
     details = node.get_parameter_value("result_details") or ""
     assert ("link to another website" in details) is warns
+
+
+def test_supports_direct_download() -> None:
+    assert LTXVideoUpscale.SUPPORTS_DIRECT_DOWNLOAD
+
+
+def test_direct_download_urls_map_the_live_result_to_one_video() -> None:
+    # Shape of a real completed job from api.ltx.video (2026-11-06), URL shortened.
+    result_json = {"id": "job", "status": "completed", "result": {"video_url": "https://storage.example/video.mp4"}}
+
+    assert _node()._direct_download_result_urls(result_json) == [("video", "https://storage.example/video.mp4")]
+
+
+@pytest.mark.parametrize("result_json", [{}, {"result": None}, {"result": {"video_url": ""}}])
+def test_direct_download_urls_are_empty_without_a_video_url(result_json: dict[str, Any]) -> None:
+    assert _node()._direct_download_result_urls(result_json) == []

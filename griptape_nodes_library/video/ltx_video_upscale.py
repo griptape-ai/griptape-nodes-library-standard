@@ -123,6 +123,7 @@ class LTXVideoUpscale(PublicVideoUrlMixin, GriptapeProxyNode):
           at most 7680x4320, sent as a public URL or base64)
         - resolution (str): Output resolution (1080p, 4k or 8k, default 4k)
         - model (str): Model to use (LTX)
+        - direct_download (bool): Download the output straight from LTX instead of Griptape Cloud hosting it
         (Always polls for result: 5s interval, 20 min timeout)
 
     Outputs:
@@ -139,6 +140,7 @@ class LTXVideoUpscale(PublicVideoUrlMixin, GriptapeProxyNode):
     # create call, allowing up to 150 s for that download, so wait longer than that for the response.
     SUBMIT_TIMEOUT_SECONDS = 200
     DEFAULT_MAX_ATTEMPTS = 240
+    SUPPORTS_DIRECT_DOWNLOAD = True
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -410,8 +412,16 @@ class LTXVideoUpscale(PublicVideoUrlMixin, GriptapeProxyNode):
         # An in-progress message: leaves the success flag that routes the node untouched.
         self.status_component.clear_execution_status(initial_message=message)
 
+    def _direct_download_result_urls(self, result_json: dict[str, Any]) -> list[tuple[str, str]]:
+        """Map the LTX job result to the hosted-artifact order: the upscaled MP4 only."""
+        result = result_json.get("result") if isinstance(result_json, dict) else None
+        if not isinstance(result, dict):
+            return []
+        url = result.get("video_url")
+        return [(ArtifactKind.VIDEO, url)] if isinstance(url, str) and url else []
+
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
-        """Save the hosted video. LTX returns the media as the response body itself."""
+        """Save the upscaled video, hosted by Griptape Cloud or, in direct-download mode, fetched from LTX."""
         await self._save_generated_media(
             generation_id,
             "video_url",
