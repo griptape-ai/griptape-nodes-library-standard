@@ -40,6 +40,7 @@ from griptape_nodes_library.video.kling_text_to_video_generation import KlingTex
 from griptape_nodes_library.video.ltx_audio_to_video_generation import LTXAudioToVideoGeneration
 from griptape_nodes_library.video.ltx_image_to_video_generation import LTXImageToVideoGeneration
 from griptape_nodes_library.video.ltx_text_to_video_generation import LTXTextToVideoGeneration
+from griptape_nodes_library.video.ltx_video_alpha_gen import LTXVideoAlphaGen
 from griptape_nodes_library.video.ltx_video_extend import LTXVideoExtend
 from griptape_nodes_library.video.ltx_video_retake import LTXVideoRetake
 from griptape_nodes_library.video.ltx_video_to_video_hdr import LTXVideoToVideoHDR
@@ -89,7 +90,9 @@ SUFFIXED_NODES = [
     (LTXAudioToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:audio-to-video"),
     (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
     (LTXVideoRetake, "ltx-2-3-pro", "ltx-2-3-pro:retake"),
-    (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
+    # New nodes default to ltx-hdr-2; the legacy ltx-2-3-pro value is covered in test_ltx_video_hdr_outputs.py.
+    (LTXVideoToVideoHDR, "ltx-hdr-2", "ltx-hdr-2:video-to-video-hdr"),
+    (LTXVideoAlphaGen, "ltx", "ltx:video-alpha-gen"),
     (LTXVideoUpscale, "ltx", "ltx:video-upscale"),
     (KlingTextToVideoGeneration, "kling-v3", "kling-v3:text2video"),
     (KlingImageToVideoGeneration, "kling-v3", "kling-v3:image2video"),
