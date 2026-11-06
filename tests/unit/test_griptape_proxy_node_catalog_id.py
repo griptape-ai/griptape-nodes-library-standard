@@ -41,6 +41,7 @@ from griptape_nodes_library.video.ltx_audio_to_video_generation import LTXAudioT
 from griptape_nodes_library.video.ltx_image_to_video_generation import LTXImageToVideoGeneration
 from griptape_nodes_library.video.ltx_text_to_video_generation import LTXTextToVideoGeneration
 from griptape_nodes_library.video.ltx_video_extend import LTXVideoExtend
+from griptape_nodes_library.video.ltx_video_reframe import LTXVideoReframe
 from griptape_nodes_library.video.ltx_video_retake import LTXVideoRetake
 from griptape_nodes_library.video.ltx_video_to_video_hdr import LTXVideoToVideoHDR
 
@@ -87,6 +88,7 @@ SUFFIXED_NODES = [
     (LTXImageToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:image-to-video"),
     (LTXAudioToVideoGeneration, "ltx-2-5-fast", "ltx-2-5-fast:audio-to-video"),
     (LTXVideoExtend, "ltx-2-3-pro", "ltx-2-3-pro:extend"),
+    (LTXVideoReframe, "ltx", "ltx:video-to-video-reframe"),
     (LTXVideoRetake, "ltx-2-3-pro", "ltx-2-3-pro:retake"),
     (LTXVideoToVideoHDR, "ltx-2-3-pro", "ltx-2-3-pro:video-to-video-hdr"),
     (KlingTextToVideoGeneration, "kling-v3", "kling-v3:text2video"),

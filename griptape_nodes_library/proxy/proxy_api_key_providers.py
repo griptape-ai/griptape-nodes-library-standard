@@ -139,6 +139,7 @@ _NODE_PROVIDER_CONFIGS = {
     "LTXImageToVideoGeneration": LTX,
     "LTXTextToVideoGeneration": LTX,
     "LTXVideoExtend": LTX,
+    "LTXVideoReframe": LTX,
     "LTXVideoRetake": LTX,
     "LTXVideoToVideoHDR": LTX,
     "MinimaxHailuoVideoGeneration": MINIMAX,
