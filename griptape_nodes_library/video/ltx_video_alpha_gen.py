@@ -142,7 +142,8 @@ class LTXVideoAlphaGen(PublicVideoUrlMixin, GriptapeProxyNode):
                 tooltip=(
                     "Also save the input video as a ProRes 4444 .mov with the matte as its alpha channel. "
                     "ProRes files are very large: about 42 MB per second at 1080p and 172 MB per second at 4K. "
-                    "When off, the ProRes file is never downloaded."
+                    "When off, the ProRes file is never downloaded, by this machine or by Griptape Cloud: the "
+                    "matte is fetched straight from LTX."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "output RGBA ProRes"},
@@ -229,6 +230,12 @@ class LTXVideoAlphaGen(PublicVideoUrlMixin, GriptapeProxyNode):
 
     def _prores_requested(self) -> bool:
         return bool(self.get_parameter_value(PRORES_PARAMETER))
+
+    def _direct_download_enabled(self) -> bool:
+        # LTX produces the ProRes cutout whether or not it is wanted, and hosting it would make
+        # Griptape Cloud download and store gigabytes nobody reads. Without the ProRes the only
+        # output is the small matte, so the run fetches it from LTX directly.
+        return super()._direct_download_enabled() or not self._prores_requested()
 
     async def _process_generation(self) -> None:
         self._reset_video_uploads()

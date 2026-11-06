@@ -13,6 +13,7 @@ import pytest
 from griptape.artifacts import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, Parameter
 
+from griptape_nodes_library.proxy.griptape_proxy_node import DIRECT_DOWNLOAD_PARAMETER
 from griptape_nodes_library.proxy.hosted_artifacts import ArtifactKind, HostedArtifact, HostedArtifactError
 from griptape_nodes_library.proxy.output_size import estimate_prores_4444_bytes
 from griptape_nodes_library.video import ltx_video_alpha_gen as alpha_module
@@ -236,6 +237,17 @@ def test_rgba_visibility_is_correct_on_workflow_load() -> None:
 
 
 # --- direct download --------------------------------------------------------------------------
+
+
+def test_direct_download_is_used_whenever_the_prores_is_not_requested() -> None:
+    node = _node()
+    assert node._direct_download_enabled()
+
+    node.set_parameter_value(TOGGLE, True)
+    assert not node._direct_download_enabled()
+
+    node.set_parameter_value(DIRECT_DOWNLOAD_PARAMETER, True)
+    assert node._direct_download_enabled()
 
 
 def test_direct_download_urls_keep_mask_then_prores_order() -> None:
