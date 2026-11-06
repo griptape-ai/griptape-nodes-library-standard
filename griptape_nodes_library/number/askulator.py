@@ -93,7 +93,7 @@ class Askulator(BaseTask):
         instruction = self.get_parameter_value("instruction")
         model = self._require_permitted_model()
 
-        toolsets = build_toolsets([{"tool_type": ToolType.CALCULATOR}])
+        toolsets = build_toolsets([{"tool_type": ToolType.CALCULATOR}], node=self)
         user_input = f"Give me the answer for: {instruction}\n."
 
         if instruction and not instruction.isspace():

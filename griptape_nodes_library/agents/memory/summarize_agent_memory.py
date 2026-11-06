@@ -7,6 +7,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
 from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
 from griptape_nodes_library.llm.runner import output_to_text, prompt_model
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 
 class SummarizeAgentMemory(ControlNode):
@@ -57,8 +58,10 @@ class SummarizeAgentMemory(ControlNode):
             return
 
         prompt = self.get_parameter_value("prompt")
+        model_config = state.model or default_cloud_model_config()
+        require_model_invocation_sync(self, model_config.model)
         summary = yield lambda: prompt_model(
-            state.model or default_cloud_model_config(),
+            model_config,
             prompt,
             rulesets=state.rulesets,
             message_history=messages_from_runs(runs),

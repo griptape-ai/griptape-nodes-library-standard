@@ -21,16 +21,16 @@ from griptape_nodes.agents.pydantic_ai.mcp_servers import mcp_server_from_config
 from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.utils.budget_refusal import BudgetExceededError
-from openai import OpenAI
 from pydantic_ai import FunctionToolset, Tool, ToolOutput
 
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.runner import build_agent, output_to_text, run_agent_async
 from griptape_nodes_library.llm.web import format_search_results, scrape_url, search_web
-from griptape_nodes_library.utils.secret_utils import get_secret
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.utilities import to_pascal_case
 
 if TYPE_CHECKING:
+    from griptape_nodes.exe_types.node_types import BaseNode
     from pydantic_ai import Agent
     from pydantic_ai.toolsets import AbstractToolset
 
@@ -41,7 +41,6 @@ class ToolType(StrEnum):
     WEB_SCRAPER = "WebScraper"
     DATE_TIME = "DateTime"
     FILE_MANAGER = "FileManager"
-    AUDIO_TRANSCRIPTION = "AudioTranscription"
     WEB_SEARCH = "WebSearch"
     AGENT_TOOL = "AgentTool"
 
@@ -253,32 +252,18 @@ def _file_manager(config: dict) -> FunctionToolset:
     return FunctionToolset([list_files_from_disk, load_files_from_disk, save_content_to_file])
 
 
-def _audio_transcription(config: dict) -> FunctionToolset:
-    model = config.get("model", "whisper-1")
-
-    def transcribe_audio_from_disk(path: str) -> str:
-        """Generate a transcription of an audio file on disk.
-
-        Args:
-            path: Path to an audio file on disk.
-        """
-        try:
-            api_key = get_secret("OPENAI_API_KEY", error_on_missing=False)
-            with Path(path).open("rb") as audio:
-                return OpenAI(api_key=api_key).audio.transcriptions.create(model=model, file=audio).text
-        except Exception as e:
-            return _error(e)
-
-    return FunctionToolset([transcribe_audio_from_disk])
-
-
-def _agent_tool(config: dict) -> FunctionToolset:
+def _agent_tool(config: dict, node: BaseNode) -> FunctionToolset:
     state = AgentState.from_wire(config.get("agent_dict"))
+    name = to_pascal_case(config.get("name") or "AgentTool")
 
     async def run_agent_tool(input: str) -> str:  # noqa: A002
+        # The sub-agent's model differs from the running agent's, so it is gated on its own.
+        # A denial is outside the try below so it stops the run instead of being answered around.
+        model = state.model.model if state.model is not None else None
+        await asyncio.to_thread(require_model_invocation_sync, node, model, purpose=f"agent tool '{name}'")
         # Building resolves credentials and attribution synchronously; keep it off the loop.
         try:
-            agent = await asyncio.to_thread(build_agent_from_state, state)
+            agent = await asyncio.to_thread(build_agent_from_state, state, node=node)
             result = await run_agent_async(agent, input, message_history=state.messages)
         except BudgetExceededError:
             # A refused sub-agent stops the whole run rather than being answered around.
@@ -288,7 +273,7 @@ def _agent_tool(config: dict) -> FunctionToolset:
         return output_to_text(result.output)
 
     description = config.get("description") or "An agent tool"
-    tool = Tool(run_agent_tool, name=to_pascal_case(config.get("name") or "AgentTool"), description=description)
+    tool = Tool(run_agent_tool, name=name, description=description)
     return FunctionToolset([tool])
 
 
@@ -307,7 +292,8 @@ def _mcp(config: dict) -> AbstractToolset[Any]:
     return built.toolset
 
 
-def build_toolset(config: dict) -> AbstractToolset[Any]:
+def build_toolset(config: dict, *, node: BaseNode) -> AbstractToolset[Any]:
+    """Build the toolset for one config. Tools that call a model gate against `node`, the node running the agent."""
     match config.get("tool_type"):
         case ToolType.MCP:
             return _mcp(config)
@@ -319,18 +305,16 @@ def build_toolset(config: dict) -> AbstractToolset[Any]:
             return _date_time()
         case ToolType.FILE_MANAGER:
             return _file_manager(config)
-        case ToolType.AUDIO_TRANSCRIPTION:
-            return _audio_transcription(config)
         case ToolType.WEB_SEARCH:
             return _web_search(config.get("engine", "DuckDuckGo"))
         case ToolType.AGENT_TOOL:
-            return _agent_tool(config)
+            return _agent_tool(config, node)
         case other:
             msg = f"Unknown tool_type in config: {other!r}"
             raise ValueError(msg)
 
 
-def build_toolsets(configs: list[dict]) -> list[AbstractToolset[Any]]:
+def build_toolsets(configs: list[dict], *, node: BaseNode) -> list[AbstractToolset[Any]]:
     """Build one toolset per distinct config. Duplicates (same JSON) are built once."""
     seen: set[str] = set()
     toolsets: list[AbstractToolset[Any]] = []
@@ -339,12 +323,12 @@ def build_toolsets(configs: list[dict]) -> list[AbstractToolset[Any]]:
         if key in seen:
             continue
         seen.add(key)
-        toolsets.append(build_toolset(config))
+        toolsets.append(build_toolset(config, node=node))
     return toolsets
 
 
 def build_agent_from_state(
-    state: AgentState, *, output_type: Any = str, instructions: str | None = None
+    state: AgentState, *, node: BaseNode, output_type: Any = str, instructions: str | None = None
 ) -> Agent[None, Any]:
     if state.model is None:
         msg = "Agent has no model configured."
@@ -353,6 +337,6 @@ def build_agent_from_state(
         state.model,
         instructions=instructions,
         rulesets=state.rulesets,
-        toolsets=build_toolsets(state.tools),
+        toolsets=build_toolsets(state.tools, node=node),
         output_type=output_type,
     )

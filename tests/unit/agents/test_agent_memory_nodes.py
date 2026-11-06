@@ -169,7 +169,7 @@ def test_agent_to_tool_emits_a_buildable_agent_tool_config() -> None:
     assert tool["tool_type"] == "AgentTool"
     assert tool["agent_dict"] == AGENT_WIRE
     assert (tool["name"], tool["description"]) == ("Helper", "Helps")
-    assert len(build_toolsets([tool])) == 1
+    assert len(build_toolsets([tool], node=node)) == 1
 
 
 def test_agent_to_tool_without_agent_emits_nothing() -> None:

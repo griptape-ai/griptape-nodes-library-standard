@@ -137,7 +137,7 @@ class SearchWeb(BaseTask):
 
             def _process() -> str:
                 if summarize:
-                    toolsets = build_toolsets([{"tool_type": ToolType.WEB_SEARCH, "engine": search_engine}])
+                    toolsets = build_toolsets([{"tool_type": ToolType.WEB_SEARCH, "engine": search_engine}], node=self)
                     result = self._process(user_input, model, toolsets=toolsets)
                     # Streaming appended any pre-tool preamble; keep only the final answer.
                     self._set_output(result.text)

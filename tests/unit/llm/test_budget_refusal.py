@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.utils.budget_refusal import BUDGET_HALT_PREFIX, BudgetExceededError
 from pydantic_ai import Agent as PydanticAgent
@@ -206,7 +207,8 @@ class TestAHaltInsideAToolStopsTheRun:
     def test_an_agent_tool_refusal_is_raised_instead_of_answered_around(self, refusing_cloud: _Cloud) -> None:
         """A tool's ordinary error goes back to the model as text; a budget refusal does not."""
         toolset = build_toolset(
-            {"tool_type": "AgentTool", "name": "Helper", "agent_dict": AgentState(model=CLOUD).to_wire()}
+            {"tool_type": "AgentTool", "name": "Helper", "agent_dict": AgentState(model=CLOUD).to_wire()},
+            node=DataNode(name="runner"),
         )
         assert toolset is not None
 

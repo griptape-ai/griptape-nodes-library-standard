@@ -368,7 +368,7 @@ class MCPTaskNode(SuccessFailureNode):
         Skips the agent's own tool for the same server, whose tool names would collide.
         """
         try:
-            mcp_toolset = build_toolset(mcp_tool_config)
+            mcp_toolset = build_toolset(mcp_tool_config, node=self)
         except ValueError as e:
             msg = f"Failed to create MCP tool for server '{mcp_server_name}': {e}"
             raise RuntimeError(msg) from e
@@ -377,7 +377,7 @@ class MCPTaskNode(SuccessFailureNode):
             for tool in state.tools
             if not (tool.get("tool_type") == ToolType.MCP and tool.get("mcp_server_name") == mcp_server_name)
         ]
-        return [*build_toolsets(agent_tools), mcp_toolset]
+        return [*build_toolsets(agent_tools, node=self), mcp_toolset]
 
     def _execute_with_streaming(  # noqa: PLR0913
         self,

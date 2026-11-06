@@ -473,7 +473,7 @@ class DescribeImage(ControlNode):
 
         # Build in the worker thread: building a Cloud model makes a blocking engine round trip.
         result = yield lambda: run_agent(
-            build_agent_from_state(agent_state, output_type=output_type),
+            build_agent_from_state(agent_state, node=self, output_type=output_type),
             [prompt, *image_contents],
             message_history=agent_state.messages,
         )

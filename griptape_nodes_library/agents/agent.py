@@ -569,7 +569,7 @@ class Agent(ControlNode):
         callbacks = RunCallbacks(
             on_text=on_text, on_tool_call=on_tool_call, is_cancelled=lambda: self.is_cancellation_requested
         )
-        agent = build_agent_from_state(state, output_type=output_type)
+        agent = build_agent_from_state(state, node=self, output_type=output_type)
         try:
             return run_agent(agent, prompt, message_history=state.messages, callbacks=callbacks)
         except AgentRunCancelledError:

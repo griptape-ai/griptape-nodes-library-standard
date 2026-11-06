@@ -23,7 +23,7 @@ def test_tool_node_emits_a_buildable_config(node_class: type[BaseTool], tool_typ
 
     config = node.parameter_output_values["tool"]
     assert config["tool_type"] == tool_type
-    assert len(build_toolsets([config])) == 1
+    assert len(build_toolsets([config], node=node)) == 1
 
 
 def test_base_tool_emits_no_tool() -> None:

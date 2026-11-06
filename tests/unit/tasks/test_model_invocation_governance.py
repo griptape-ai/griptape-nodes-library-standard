@@ -32,14 +32,19 @@ from griptape_nodes.retained_mode.managers.authorization_checkpoint import (
     CheckpointDenial,
     CheckpointFailure,
 )
-from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import FunctionModel
 
 from griptape_nodes_library.llm.agent_state import AgentState
-from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider, cloud_model_config
 from griptape_nodes_library.llm.models import override_model
 from griptape_nodes_library.llm.testing import fake_model
+from griptape_nodes_library.llm.tools import build_toolset
 from griptape_nodes_library.tasks.mcp_task import MCPTaskNode
 from griptape_nodes_library.text.random_text import RandomText
+from griptape_nodes_library.video import split_video as split_video_module
+from griptape_nodes_library.video.split_video import SplitVideo
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -188,6 +193,59 @@ class TestInvokeModelDenialStopsOwnCallSites:
 
         with override_model(calls.model), pytest.raises(RuntimeError, match="denied"):
             thunk()
+
+        assert calls.count == 0
+
+
+class TestInvokeModelDenialStopsMemoryAndVideoNodes:
+    """Nodes outside the agent and task families that prompt a model directly."""
+
+    def test_summarize_agent_memory_denied_invocation_raises_before_yielding(
+        self,
+        authorization_hook: Callable[[AuthorizationHook], None],
+    ) -> None:
+        node = _create_node("SummarizeAgentMemory")
+        agent = AgentState().with_runs([{"input": "hi", "output": "hello"}]).to_wire()
+        node.set_parameter_value("agent", agent)
+        authorization_hook(_deny_hook(CheckpointAction.INVOKE_MODEL, "gtc_claude_sonnet_5"))
+
+        with pytest.raises(RuntimeError, match="denied"):
+            _first_yielded_thunk(node)
+
+    def test_split_video_denied_invocation_never_calls_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        authorization_hook: Callable[[AuthorizationHook], None],
+    ) -> None:
+        monkeypatch.setattr(split_video_module, "resolve_cloud_api_key", lambda: "key")
+        node = cast("SplitVideo", _create_node("SplitVideo"))
+        calls = ModelCalls()
+        authorization_hook(_deny_hook(CheckpointAction.INVOKE_MODEL, "gtc_gpt_4_1_mini"))
+
+        with override_model(calls.model), pytest.raises(RuntimeError, match="denied"):
+            node._parse_timecodes_with_agent("00:00:00:00-00:00:01:00")
+
+        assert calls.count == 0
+
+
+class TestInvokeModelDenialStopsAgentTools:
+    def test_denied_sub_agent_stops_the_run_without_calling_its_model(
+        self,
+        authorization_hook: Callable[[AuthorizationHook], None],
+    ) -> None:
+        """The sub-agent behind an agent tool is gated on its own model, not the running agent's."""
+        node = _create_node("Agent")
+        sub_agent = AgentState(model=cloud_model_config("gpt-4.1")).to_wire()
+        toolset = build_toolset({"tool_type": "AgentTool", "name": "Helper", "agent_dict": sub_agent}, node=node)
+        calls = ModelCalls()
+        authorization_hook(_deny_hook(CheckpointAction.INVOKE_MODEL, "gtc_gpt_4_1"))
+
+        def call_helper(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+            return ModelResponse(parts=[ToolCallPart("Helper", {"input": "hi"})])
+
+        parent = PydanticAgent(FunctionModel(call_helper), toolsets=[toolset])
+        with override_model(calls.model), pytest.raises(RuntimeError, match="denied"):
+            parent.run_sync("hello")
 
         assert calls.count == 0
 
