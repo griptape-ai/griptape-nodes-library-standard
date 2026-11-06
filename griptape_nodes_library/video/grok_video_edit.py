@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from pathlib import Path
 from typing import Any, ClassVar
-from urllib.parse import urlsplit
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterMode
@@ -17,9 +14,11 @@ from griptape_nodes.files.file import File, FileLoadError
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.utils.ffmpeg_utils import extract_video_metadata_structured
-
-logger = logging.getLogger("griptape_nodes")
+from griptape_nodes_library.utils.video_utils import (
+    find_mp4_video_input_problems,
+    has_media_value,
+    probe_video_duration,
+)
 
 __all__ = ["GrokVideoEdit"]
 
@@ -139,35 +138,8 @@ class GrokVideoEdit(GriptapeProxyNode):
 
         self.set_initial_node_size(height=1145)
 
-    @staticmethod
-    def _has_media_value(value: Any) -> bool:
-        if value is None:
-            return False
-        if hasattr(value, "value"):
-            return bool(value.value)
-        return bool(value)
-
-    @staticmethod
-    def _container_token(video_value: str) -> str:
-        """Return the container named by the value's extension or MIME subtype, or "" if neither."""
-        if video_value.startswith("data:"):
-            header = video_value.removeprefix("data:").split(",", 1)[0]
-            return header.split(";", 1)[0].split("/", 1)[-1].lower()
-        return Path(urlsplit(video_value).path).suffix.lstrip(".").lower()
-
     def _probe_duration(self, video_value: str) -> float | None:
-        """Return the video's duration in seconds, or None when it cannot be determined.
-
-        Probing is best-effort. A missing ffprobe or an unreadable remote URL should not block a
-        request that xAI might accept, so failures are logged and skipped.
-        """
-        try:
-            location = File(video_value).resolve()
-            metadata = extract_video_metadata_structured(location)
-        except (FileLoadError, ValueError, RuntimeError) as e:
-            logger.warning("%s: could not probe input video duration, skipping the check: %s", self.name, e)
-            return None
-        return metadata.file_details.optional_duration
+        return probe_video_duration(video_value, node_name=self.name)
 
     def _find_input_problems(self, video_value: str) -> list[str]:
         """Return one short sentence pair per xAI input limit the video breaks.
@@ -177,20 +149,14 @@ class GrokVideoEdit(GriptapeProxyNode):
         take a multi-megabyte data URI as an argument, so a data URI's duration goes unchecked
         and xAI enforces it.
         """
-        problems = []
-
-        token = self._container_token(video_value)
-        if token and token != SUPPORTED_CONTAINER:
-            problems.append(f"It's a .{token} file. Grok needs .mp4.")
-
-        if not video_value.startswith("data:"):
-            duration = self._probe_duration(video_value)
-            if duration is not None and duration > MAX_INPUT_DURATION_SECONDS:
-                problems.append(
-                    f"It's {duration:.2f} seconds long. Grok's limit is {MAX_INPUT_DURATION_SECONDS:g} seconds."
-                )
-
-        return problems
+        return find_mp4_video_input_problems(
+            video_value,
+            service_label="Grok",
+            max_duration_seconds=MAX_INPUT_DURATION_SECONDS,
+            duration_prober=self._probe_duration,
+            supported_container=SUPPORTED_CONTAINER,
+            container_message="Grok needs .mp4.",
+        )
 
     async def _check_input_limits(self, video_value: str) -> None:
         """Raise a short, user-facing error if the video breaks any of xAI's input limits."""
@@ -235,7 +201,7 @@ class GrokVideoEdit(GriptapeProxyNode):
             exceptions.append(ValueError("A prompt is required for video editing. Enter one in 'prompt'."))
 
         video_value = self.get_parameter_value("video")
-        if not self._has_media_value(video_value):
+        if not has_media_value(video_value):
             exceptions.append(ValueError("A video is required for editing. Connect one to 'Video'."))
 
         return exceptions if exceptions else None

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from contextlib import suppress
+from functools import partial
 from typing import Any, ClassVar
 from uuid import uuid4
 
@@ -19,7 +20,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.node_library import library_registry
 from griptape_nodes.traits.options import Options
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
@@ -191,6 +192,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="input_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str"],
                 default_value=[],
                 tooltip="Optional input images for reference-image generation or edits (up to 16)",
@@ -427,11 +431,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self._react_to_parameter_change(param_name, final_value, sync_only=True)
 
     def after_value_set(self, parameter: Any, value: Any) -> None:
-        if parameter.name == "input_images" and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value("input_images", updated_list)
-
         self._react_to_parameter_change(parameter.name, value, sync_only=False)
         return super().after_value_set(parameter, value)
 
@@ -705,8 +704,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     def _get_input_images_value(self) -> list[Any]:
         input_images = self.get_parameter_list_value("input_images")
-        if not input_images:
-            input_images = self.parameter_values.get("input_images") or []
 
         if not isinstance(input_images, list):
             input_images = [input_images] if input_images else []

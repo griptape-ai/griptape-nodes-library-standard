@@ -4,6 +4,7 @@ import json
 import logging
 from copy import deepcopy
 from enum import StrEnum
+from functools import partial
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -21,7 +22,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from griptape_nodes.utils.artifact_normalization import normalize_artifact_list
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 
@@ -166,6 +167,9 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="reference_images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=[
                     "ImageArtifact",
                     "ImageUrlArtifact",
@@ -319,12 +323,6 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             if current_duration != "8":
                 logger.warning("%s: 1080p resolution only supports 8 second duration", self.name)
         elif parameter.name == "reference_images":
-            # Normalize reference images (converts string paths to ImageUrlArtifact)
-            if isinstance(value, list):
-                updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-                if updated_list != value:
-                    self.set_parameter_value("reference_images", updated_list)
-                    value = updated_list
             self._handle_reference_images_change(value)
 
         return super().after_value_set(parameter, value)
