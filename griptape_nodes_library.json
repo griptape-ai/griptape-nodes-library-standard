@@ -1365,6 +1365,11 @@
       "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
+      "name": "BoundingBoxEditor",
+      "path": "widgets/BoundingBoxEditor/BoundingBoxEditor.js",
+      "description": "Interactive bounding box editor — drag to move/resize/draw a box on a fixed-size canvas, optionally over an image, with live coordinate readout."
+    },
+    {
       "name": "ImageProcessorPreview",
       "path": "widgets/ImageProcessorPreview/ImageProcessorPreview.js",
       "description": "Live preview for the image and video processor nodes, drawn on the image or on a frame of the video picked with a scrubber, on a canvas that scales with the node."
@@ -5357,6 +5362,24 @@
           "image",
           "annotation",
           "composite",
+          "detection"
+        ]
+      }
+    },
+    {
+      "class_name": "CreateBoundingBox",
+      "file_path": "griptape_nodes_library/image/create_bounding_box.py",
+      "metadata": {
+        "category": "image",
+        "description": "Draw a bounding box on a canvas and output it as an array and a dictionary, with configurable coordinate order. Optionally fit the canvas to an image.",
+        "display_name": "Create Bounding Box",
+        "icon": "square-dashed",
+        "group": "detection",
+        "tags": [
+          "image",
+          "bounding box",
+          "bbox",
+          "annotation",
           "detection"
         ]
       }
