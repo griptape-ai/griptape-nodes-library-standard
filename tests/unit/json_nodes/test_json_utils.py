@@ -40,6 +40,7 @@ def test_extract_value_parses_string_input(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_find_raises_on_invalid_string_with_node_name() -> None:
     node = JsonFind("finder")
+    node.set_parameter_value("json", "{bad")
 
     with pytest.raises(ValueError, match="finder: Invalid JSON string"):
-        node.set_parameter_value("json", "{bad")
+        node.process()
