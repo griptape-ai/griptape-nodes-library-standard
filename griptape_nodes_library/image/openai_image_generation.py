@@ -19,6 +19,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.node_library import library_registry
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -248,7 +249,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 default_value=self.DEFAULT_OUTPUT_FORMAT,
                 tooltip="Output image format",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.OUTPUT_FORMAT_OPTIONS)},
+                traits={Options(choices=self.OUTPUT_FORMAT_OPTIONS), FileFormat(kind=FileFormatKind.IMAGE)},
             )
 
             ParameterInt(
