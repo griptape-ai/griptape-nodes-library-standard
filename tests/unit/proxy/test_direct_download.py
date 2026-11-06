@@ -270,7 +270,9 @@ class _PolicyDest:
 
 
 def _direct_save_node(monkeypatch: pytest.MonkeyPatch, folder: Path, policy: str) -> Any:
-    async def fake_stream(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:  # noqa: ARG001
+    async def fake_stream(  # noqa: ARG001
+        url: str, path: Path, *, headers: dict[str, str] | None = None, follow_redirects: bool = True
+    ) -> None:
         # The download must land beside the destination, never in the system temp dir.
         assert path.parent.is_relative_to(folder)
         # Not staged directly in the system temp dir, where mkstemp() would put it (a RAM-backed
@@ -395,6 +397,63 @@ async def test_hosted_mode_fallback_save_streams_and_never_buffers(
 
     buffered.assert_not_called()
     assert (tmp_path / "out.mp4").read_bytes() == b"big"
+
+
+@pytest.mark.asyncio
+async def test_hosted_save_streams_with_the_proxy_credential_and_no_redirects(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    node = _direct_save_node(monkeypatch, tmp_path, "create_new")
+    node.set_parameter_value(DIRECT_DOWNLOAD_PARAMETER, False)
+    hosted = [HostedArtifact(index=0, kind="video", url=HOSTED_URL)]
+    monkeypatch.setattr(f"{proxy_module.__name__}.fetch_hosted_artifacts", AsyncMock(return_value=hosted))
+    streams: list[tuple[str, dict[str, str] | None, bool]] = []
+
+    async def recording_stream(
+        url: str, path: Path, *, headers: dict[str, str] | None = None, follow_redirects: bool = True
+    ) -> None:
+        streams.append((url, headers, follow_redirects))
+        path.write_bytes(b"hosted")
+
+    monkeypatch.setattr(GriptapeProxyNode, "_download_url_to_file", staticmethod(recording_stream))
+    buffered = AsyncMock()
+    monkeypatch.setattr(GriptapeProxyNode, "_download_bytes_from_url", staticmethod(buffered))
+
+    assert await _save(node)
+
+    buffered.assert_not_called()
+    assert streams == [(HOSTED_URL, {}, False)]
+    assert (tmp_path / "out.mp4").read_bytes() == b"hosted"
+
+
+@pytest.mark.asyncio
+async def test_hosted_save_still_buffers_on_nodes_without_direct_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, str] | None]] = []
+    _record_downloads(monkeypatch, calls)
+    hosted = [HostedArtifact(index=0, kind="video", url=HOSTED_URL)]
+    monkeypatch.setattr(f"{proxy_module.__name__}.fetch_hosted_artifacts", AsyncMock(return_value=hosted))
+    streamed = AsyncMock()
+    monkeypatch.setattr(GriptapeProxyNode, "_download_url_to_file", staticmethod(streamed))
+    node = _node(Flux2ImageGeneration)
+    node._set_status_results = lambda **_: None  # type: ignore[method-assign]
+    written: list[bytes] = []
+
+    class _Dest:
+        async def awrite_bytes(self, content: bytes) -> _FakeFile:
+            written.append(content)
+            return _FakeFile()
+
+    class _OutputFile:
+        def build_file(self, **_: Any) -> _Dest:
+            return _Dest()
+
+    node._output_file = _OutputFile()  # type: ignore[assignment]
+
+    assert await _save(node)
+
+    streamed.assert_not_called()
+    assert calls == [(HOSTED_URL, {})]
+    assert written == [b"bytes"]
 
 
 @pytest.mark.asyncio
