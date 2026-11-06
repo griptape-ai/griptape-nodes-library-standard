@@ -89,9 +89,9 @@ HTTP_BAD_REQUEST = 400
 DIRECT_DOWNLOAD_HEADER = "X-GTC-Proxy-Direct-Download"
 DIRECT_DOWNLOAD_PARAMETER = "direct_download"
 # Outputs estimated above this must use direct download rather than be re-hosted by Griptape
-# Cloud. This is 2 GiB (about 2.15 GB), deliberately matching the server's 2 GiB
-# PROXY_ARTIFACT_MAX_BYTES hosting cap. Messages show it via format_gb (decimal GB).
-DIRECT_DOWNLOAD_REQUIRED_BYTES = 2 * 1024**3
+# Cloud. This is 4 GiB (about 4.29 GB), matching the server's PROXY_ARTIFACT_MAX_BYTES hosting
+# cap; an artifact over it is never hosted. Messages show it via format_gb (decimal GB).
+DIRECT_DOWNLOAD_REQUIRED_BYTES = 4 * 1024**3
 DOWNLOAD_STREAM_CHUNK_BYTES = 1024 * 1024
 # Cancellation is cleanup on the way out of a cancelled node, so it gets a short timeout.
 CANCEL_REQUEST_TIMEOUT_SECONDS = 10
@@ -197,8 +197,8 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
                     default_value=False,
                     tooltip=(
                         "Download outputs straight from the provider to this machine, skipping Griptape Cloud "
-                        "hosting. Use it for very large outputs. Griptape Cloud does not keep the outputs, and "
-                        "the provider's links expire, so Refresh may fail some time after the run."
+                        "hosting. Use it for very large outputs. Griptape Cloud does not keep the outputs, so "
+                        "Refresh fetches them from the provider again and fails once the provider has removed them."
                     ),
                     allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 )
@@ -218,7 +218,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """Map a completed provider result to ``(ArtifactKind, url)`` pairs, in hosted-index order.
 
         Subclasses with ``SUPPORTS_DIRECT_DOWNLOAD = True`` must override this. The URLs are
-        signed provider URLs and are downloaded without any Griptape credential. Nodes that
+        the provider's own output URLs and are downloaded without any Griptape credential. Nodes that
         implement it also fall back to these URLs in hosted mode when the proxy failed to host
         an artifact of a generation that completed.
         """
@@ -1510,14 +1510,21 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         msg = f"Generation {generation_id} hosts no {wanted} at position {position} (hosted artifacts: {hosted})."
         raise HostedArtifactError(msg)
 
+    def _artifact_request(self, artifact: HostedArtifact) -> tuple[dict[str, str] | None, bool]:
+        """The ``(headers, follow_redirects)`` to download ``artifact`` with.
+
+        A provider URL never receives the Griptape API key, so it gets no headers and redirects are
+        followed. A proxy-hosted URL gets the credential it needs and redirects are not followed, so
+        that credential never leaves the proxy's host.
+        """
+        if artifact.direct:
+            return None, True
+        return artifact_download_headers(artifact.url, self._validate_api_key(), self._proxy_base), False
+
     async def _download_artifact(self, artifact: HostedArtifact) -> bytes:
         """Download one hosted artifact's bytes."""
-        if artifact.direct:
-            # Signed provider URL: never send the Griptape API key to it.
-            # Redirects are followed, still without any credential: no headers are passed.
-            return await self._download_bytes_from_url(artifact.url, follow_redirects=True)
-        headers = artifact_download_headers(artifact.url, self._validate_api_key(), self._proxy_base)
-        return await self._download_bytes_from_url(artifact.url, headers=headers)
+        headers, follow_redirects = self._artifact_request(artifact)
+        return await self._download_bytes_from_url(artifact.url, headers=headers, follow_redirects=follow_redirects)
 
     async def _load_generated_media(self, generation_id: str, *, kind: str | None = None, position: int = 0) -> bytes:
         """Download one piece of the generation's hosted media.
@@ -1574,8 +1581,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         try:
             artifact = await self._hosted_artifact(generation_id, kind=kind, position=position)
-            if artifact.direct:
-                # Provider URLs (direct mode, or the hosted-mode fallback) are often huge: never buffer.
+            if artifact.direct or self.SUPPORTS_DIRECT_DOWNLOAD:
+                # Provider URLs, and any output of a node that supports direct download, can be
+                # gigabytes up to the hosting cap: never buffer them.
                 saved = await self._stream_artifact_to_project(artifact, generation_id)
             else:
                 self._log(
@@ -1601,7 +1609,7 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         return True
 
     async def _stream_artifact_to_project(self, artifact: HostedArtifact, generation_id: str) -> File:
-        """Stream one provider-URL artifact straight into the project's output directory.
+        """Stream one artifact straight into the project's output directory.
 
         Outputs here can be multiple gigabytes, so the bytes are never held in memory and the
         blocking disk work runs in threads. The download is streamed into a hidden temporary
@@ -1623,19 +1631,23 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         checks and extension coercion are bypassed for these downloads. The file keeps the
         destination's extension as named.
         """
-        self._log(
-            f"Streaming direct-download artifact {artifact.index} ({artifact.kind}) of generation {generation_id}"
-        )
+        source = "provider" if artifact.direct else "hosted"
+        self._log(f"Streaming {source} artifact {artifact.index} ({artifact.kind}) of generation {generation_id}")
+        headers, follow_redirects = self._artifact_request(artifact)
         dest = self._output_file.build_file()
         if getattr(dest, "_existing_file_policy", None) == ExistingFilePolicy.OVERWRITE:
             target = Path(dest.resolve())
             if target.exists():
-                await self._download_into_place(artifact.url, target)
+                await self._download_into_place(
+                    artifact.url, target, headers=headers, follow_redirects=follow_redirects
+                )
                 return self._macro_form(dest, target)
         reserved = await dest.awrite_bytes(b"")
         reserved_path = Path(reserved.resolve())
         try:
-            await self._download_into_place(artifact.url, reserved_path)
+            await self._download_into_place(
+                artifact.url, reserved_path, headers=headers, follow_redirects=follow_redirects
+            )
         except BaseException:
             # The placeholder is the empty file claimed just above, so removing it loses nothing.
             reserved_path.unlink(missing_ok=True)
@@ -1648,7 +1660,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         return mapper(File(str(target))) if mapper is not None else File(str(target))
 
     @staticmethod
-    async def _download_into_place(url: str, target: Path) -> None:
+    async def _download_into_place(
+        url: str, target: Path, *, headers: dict[str, str] | None = None, follow_redirects: bool = True
+    ) -> None:
         """Download ``url`` into a hidden sibling of ``target``, then ``os.replace`` it over ``target``.
 
         The sibling is named like the engine's ``atomic_write_bytes`` scratch file: dot-prefixed,
@@ -1657,7 +1671,9 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         """
         partial = target.parent / f".gtn-download-partial-{uuid.uuid4().hex}{target.suffix}.partial"
         try:
-            await GriptapeProxyNode._download_url_to_file(url, partial)
+            await GriptapeProxyNode._download_url_to_file(
+                url, partial, headers=headers, follow_redirects=follow_redirects
+            )
             await asyncio.to_thread(os.replace, partial, target)
         finally:
             partial.unlink(missing_ok=True)
@@ -1696,18 +1712,20 @@ class GriptapeProxyNode(SuccessFailureNode, ABC):
         raise httpx.HTTPError(msg)
 
     @staticmethod
-    async def _download_url_to_file(url: str, path: Path, *, headers: dict[str, str] | None = None) -> None:
+    async def _download_url_to_file(
+        url: str, path: Path, *, headers: dict[str, str] | None = None, follow_redirects: bool = True
+    ) -> None:
         """Stream a URL to ``path`` in chunks, retrying once on transient failures.
 
-        Same retry and URL-redaction behaviour as ``_download_bytes_from_url``. Redirects are followed;
-        pass no ``headers`` for provider URLs so no credential follows them.
+        Same retry and URL-redaction behaviour as ``_download_bytes_from_url``. Pass no ``headers``
+        for provider URLs so no credential follows a redirect, and no redirects with ``headers``.
         """
         timeout = httpx.Timeout(30.0, read=300.0)
 
         async def attempt() -> None:
             async with (
                 httpx.AsyncClient() as client,
-                client.stream("GET", url, headers=headers, timeout=timeout, follow_redirects=True) as resp,
+                client.stream("GET", url, headers=headers, timeout=timeout, follow_redirects=follow_redirects) as resp,
             ):
                 resp.raise_for_status()
                 with path.open("wb") as f:
