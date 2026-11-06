@@ -83,7 +83,7 @@ class DateAndTime(BaseTask):
         if date_format == "Custom format":
             date_format = self.get_parameter_value("custom_format")
 
-        toolsets = build_toolsets([{"tool_type": ToolType.DATE_TIME}])
+        toolsets = build_toolsets([{"tool_type": ToolType.DATE_TIME}], node=self)
         user_input = f"Get date and time information for: {prompt}\n in the following format: {date_format}\nOnly return the answer, no other text."
 
         if prompt and not prompt.isspace():

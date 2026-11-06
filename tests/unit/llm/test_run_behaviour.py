@@ -11,6 +11,7 @@ from cohere import (
     ToolCallV2Function,
     V2ChatResponse,
 )
+from griptape_nodes.exe_types.node_types import DataNode
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCalls, FunctionModel
 
@@ -129,7 +130,7 @@ class TestNativeTools:
             override_model(FunctionModel(lambda m, i: ModelResponse(parts=[]))),
             pytest.raises(ValueError, match="use_native_tools"),
         ):
-            build_agent(config, toolsets=build_toolsets([{"tool_type": "Calculator"}]))
+            build_agent(config, toolsets=build_toolsets([{"tool_type": "Calculator"}], node=DataNode(name="runner")))
 
     def test_opt_out_without_tools_runs(self) -> None:
         config = CLOUD.model_copy(update={"options": {USE_NATIVE_TOOLS_OPTION: False}})
@@ -174,7 +175,7 @@ def test_cohere_runs_without_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("cohere.AsyncClientV2.chat", chat, raising=False)
     agent = build_agent(
         ModelConfig(provider=ModelProvider.COHERE, model="command-a"),
-        toolsets=build_toolsets([{"tool_type": "Calculator"}]),
+        toolsets=build_toolsets([{"tool_type": "Calculator"}], node=DataNode(name="runner")),
     )
     texts: list[str] = []
     calls: list[str] = []

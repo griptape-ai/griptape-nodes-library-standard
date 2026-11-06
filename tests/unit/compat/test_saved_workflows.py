@@ -11,6 +11,7 @@ import shutil
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.llm.agent_state import AgentState
@@ -311,7 +312,7 @@ class TestMcpAndAgentTools:
         tool = saved_values("mcp_and_agent_tools")[("poet_tool", "tool", True)]
         assert tool["agent_dict"]["agent"]["type"] == "GriptapeNodesAgent"
 
-        toolset = build_toolset(tool)
+        toolset = build_toolset(tool, node=DataNode(name="runner"))
         assert toolset is not None
         assert list(toolset.tools) == ["Poet"]  # type: ignore[attr-defined]
         result = await toolset.tools["Poet"].function("cats")  # type: ignore[attr-defined]

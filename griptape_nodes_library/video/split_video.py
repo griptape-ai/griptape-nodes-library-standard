@@ -26,6 +26,7 @@ from griptape_nodes_library.utils.ffmpeg_utils import (
     get_ffmpeg_paths,
     run_ffmpeg_cmd,
 )
+from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.video_utils import (
     MIN_VIDEO_FILE_SIZE,
     VIDEO_DURATION_BUFFER,
@@ -216,6 +217,7 @@ Return in this EXACT format with no commentary or other text:
 
 If no title is provided, just use "Segment X:" format.
 """
+        require_model_invocation_sync(self, MODEL)
         output = prompt_model(cloud_model_config(MODEL), msg)
         output_text = output_to_text(output) if output else ""
         self.append_value_to_parameter("logs", f"Agent output: {output_text}\n")

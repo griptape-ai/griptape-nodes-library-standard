@@ -24,6 +24,7 @@ from griptape.drivers.prompt.openai import OpenAiChatPromptDriver
 from griptape.memory.structure import ConversationMemory, Run
 from griptape.rules import Rule, Ruleset
 from griptape.structures import Agent as GtAgent
+from griptape_nodes.exe_types.node_types import DataNode
 from pydantic import BaseModel
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
@@ -403,7 +404,7 @@ def test_tool_errors_go_back_to_the_model() -> None:
             return ModelResponse(parts=[TextPart(str(returns[0].content))])
         return ModelResponse(parts=[ToolCallPart("add_timedelta", {"timedelta_kwargs": {"years": 4}})])
 
-    toolset = build_toolset({"tool_type": "DateTime"})
+    toolset = build_toolset({"tool_type": "DateTime"}, node=DataNode(name="runner"))
     assert toolset is not None
     result = PydanticAgent(FunctionModel(respond), toolsets=[toolset]).run_sync("in four years")
     assert result.output.startswith("Error: 'years' is an invalid keyword argument")

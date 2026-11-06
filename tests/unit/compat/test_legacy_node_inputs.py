@@ -156,7 +156,7 @@ async def test_agent_to_tool(legacy: dict, prompts: list[list[str]]) -> None:
     node.set_parameter_value("name", "Helper")
     node.set_parameter_value("description", "Helps.")
     node.process()
-    toolset = build_toolset(node.parameter_output_values["tool"])
+    toolset = build_toolset(node.parameter_output_values["tool"], node=node)
     assert toolset is not None
     result = await toolset.tools["Helper"].function("hello")  # type: ignore[attr-defined]
     assert result == "reply 1"

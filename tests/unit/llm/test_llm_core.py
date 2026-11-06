@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 import httpx2
 import pytest
+from griptape_nodes.exe_types.node_types import DataNode
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo
 from pydantic_ai.models.test import TestModel
@@ -248,7 +249,10 @@ class TestAgentState:
 
         with override_model(fake_model(respond)):
             result = run_agent(
-                build_agent_from_state(AgentState(model=CLOUD, tools=[{"tool_type": "Calculator"}])), "add"
+                build_agent_from_state(
+                    AgentState(model=CLOUD, tools=[{"tool_type": "Calculator"}]), node=DataNode(name="runner")
+                ),
+                "add",
             )
 
         compacted = compact_messages(result.all_messages())
@@ -329,7 +333,7 @@ class TestTools:
         state = AgentState(model=CLOUD, tools=[{"tool_type": "Calculator"}, {"tool_type": "Calculator"}])
         with override_model(fake_model(respond)):
             run_agent(
-                build_agent_from_state(state),
+                build_agent_from_state(state, node=DataNode(name="runner")),
                 "add",
                 callbacks=RunCallbacks(
                     on_tool_call=lambda n, a: calls.append(n), on_tool_result=lambda n, r: results.append(r)
@@ -355,7 +359,9 @@ class TestTools:
         results: list[str] = []
         with override_model(fake_model(respond)):
             run_agent(
-                build_agent_from_state(AgentState(model=CLOUD, tools=[{"tool_type": "DateTime"}])),
+                build_agent_from_state(
+                    AgentState(model=CLOUD, tools=[{"tool_type": "DateTime"}]), node=DataNode(name="runner")
+                ),
                 "diff",
                 callbacks=RunCallbacks(on_tool_result=lambda n, r: results.append(r)),
             )
@@ -375,7 +381,7 @@ class TestTools:
         state = AgentState(model=CLOUD, tools=[{"tool_type": "AgentTool", "agent_dict": sub, "name": "researcher"}])
         with override_model(fake_model(respond)):
             run_agent(
-                build_agent_from_state(state),
+                build_agent_from_state(state, node=DataNode(name="runner")),
                 "go",
                 callbacks=RunCallbacks(on_tool_result=lambda n, r: results.append(r)),
             )
@@ -384,7 +390,7 @@ class TestTools:
 
     def test_unknown_tool_type_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown tool_type"):
-            build_toolsets([{"tool_type": "Nope"}])
+            build_toolsets([{"tool_type": "Nope"}], node=DataNode(name="runner"))
 
     def test_non_config_tool_input_raises(self) -> None:
         with pytest.raises(TypeError):

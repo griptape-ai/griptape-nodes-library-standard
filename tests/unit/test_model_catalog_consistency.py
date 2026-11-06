@@ -46,6 +46,7 @@ from griptape_nodes_library.tasks.base_task import MODEL_CHOICES as TASK_MODEL_C
 from griptape_nodes_library.tasks.mcp_task import DEFAULT_MODEL as MCP_TASK_DEFAULT_MODEL
 from griptape_nodes_library.tasks.mcp_task import MCP_TASK_MODEL_CHOICES
 from griptape_nodes_library.text.random_text import MODEL as RANDOM_TEXT_MODEL
+from griptape_nodes_library.video.split_video import MODEL as SPLIT_VIDEO_MODEL
 
 LIBRARY_JSON = Path(__file__).parents[2] / "griptape_nodes_library.json"
 
@@ -100,7 +101,7 @@ def _provider(library: dict[str, Any], provider_id: str) -> dict[str, Any]:
     return catalog["providers"][provider_id]
 
 
-@pytest.mark.parametrize("class_name", ["Agent", "GriptapeCloudPrompt"])
+@pytest.mark.parametrize("class_name", ["Agent", "GriptapeCloudPrompt", "SummarizeAgentMemory"])
 def test_chat_node_model_usage_matches_static_choices(class_name: str) -> None:
     """The chat model list in Python and the models the node declares must agree.
 
@@ -140,6 +141,7 @@ def test_mcp_task_default_model_is_one_of_the_models_it_declares() -> None:
         ("OpenAiPrompt", OPENAI_MODEL_CHOICES),
         ("AmazonBedrockPrompt", AMAZON_BEDROCK_MODEL_CHOICES),
         ("RandomText", [RANDOM_TEXT_MODEL]),
+        ("SplitVideo", [SPLIT_VIDEO_MODEL]),
         ("GenerateImage", GENERATE_IMAGE_MODEL_CHOICES),
         ("GriptapeCloudImage", GRIPTAPE_CLOUD_IMAGE_MODEL_CHOICES),
         ("OpenAiImage", OPENAI_IMAGE_MODEL_CHOICES),
