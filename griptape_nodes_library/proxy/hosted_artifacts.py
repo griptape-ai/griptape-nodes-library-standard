@@ -106,8 +106,8 @@ class HostedArtifact:
     url: str
     content_type: str | None = None
     size_bytes: int | None = None
-    # True for a signed provider URL taken from the generation result rather than hosted by the
-    # proxy. It authenticates itself, so it is downloaded without any Griptape credential.
+    # True for the provider's own output URL, taken from the generation result rather than hosted
+    # by the proxy. It is downloaded without any Griptape credential.
     direct: bool = False
 
     @classmethod
