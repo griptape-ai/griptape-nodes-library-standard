@@ -7,6 +7,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.node_types import AsyncResult
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
@@ -72,6 +73,7 @@ class ExtractAudio(BaseVideoProcessor):
                 tooltip="Output audio format",
             )
             format_param.add_trait(Options(choices=self.AUDIO_FORMATS))
+            format_param.add_trait(FileFormat(kind=FileFormatKind.AUDIO))
             self.add_parameter(format_param)
 
             # Audio quality parameter

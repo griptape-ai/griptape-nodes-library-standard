@@ -15,6 +15,7 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path
@@ -72,7 +73,7 @@ class CombineAudio(SuccessFailureNode):
                 allow_output=False,
                 default_value="mp3",
                 tooltip="Output audio format",
-                traits={Options(choices=["mp3", "wav", "flac", "aac", "ogg"])},
+                traits={Options(choices=["mp3", "wav", "flac", "aac", "ogg"]), FileFormat(kind=FileFormatKind.AUDIO)},
             )
 
             self.quality = ParameterString(
