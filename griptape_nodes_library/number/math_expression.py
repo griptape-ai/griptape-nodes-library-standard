@@ -5,7 +5,7 @@ from typing import Any
 
 from asteval import Interpreter  # type: ignore[reportMissingImports]
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -25,8 +25,12 @@ MIN_PRECISION = 0
 MAX_PRECISION = 15
 
 
-class MathExpression(BaseNode):
-    """MathExpression Node that evaluates mathematical expressions with variable inputs."""
+class MathExpression(ControlNode):
+    """MathExpression Node that evaluates mathematical expressions with variable inputs.
+
+    Extends ControlNode to support control flow, enabling use in For loops
+    and other control flow constructs.
+    """
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
@@ -72,11 +76,11 @@ class MathExpression(BaseNode):
         self._update_variable_visibility()
 
         # Add output type parameter
-        output_type_choices = ["float", "int"]
+        output_type_choices = ["float", "int", "bool"]
         self.add_parameter(
             Parameter(
                 name="output_type",
-                tooltip="Output type: float or int",
+                tooltip="Output type: float, int, or bool. bool is true for a true comparison or a non-zero result",
                 type="str",
                 default_value="float",
                 allowed_modes={ParameterMode.PROPERTY},
@@ -299,54 +303,66 @@ class MathExpression(BaseNode):
 
         return expression
 
-    def _evaluate_expression(self, expression: str) -> float | int:  # noqa: PLR0911
+    def _evaluate_number(self, expression: str) -> float | None:  # noqa: PLR0911
         """Safely evaluate the mathematical expression using asteval.
 
-        An expression that can't be evaluated returns 0.0 instead of raising, on purpose: a typo or a
-        division by zero gives 0 rather than stopping the run. Don't change these returns into raises
-        to fail the node.
+        Returns None when the expression can't be evaluated.
         """
         if not expression or not expression.strip():
-            return 0.0
+            return None
 
         try:
             # Preprocess to handle implicit multiplication
             processed_expr = self._preprocess_expression(expression.strip())
         except (TypeError, ValueError, AttributeError):
-            # Return 0.0 on preprocessing error
-            return 0.0
+            return None
 
         try:
             # Create interpreter with variables and math functions
             interpreter = self._create_interpreter()
         except (TypeError, ValueError, AttributeError):
-            # Return 0.0 on interpreter creation error
-            return 0.0
+            return None
 
         try:
             # Evaluate expression using asteval
             result = interpreter(processed_expr)
         except (TypeError, ValueError, ZeroDivisionError, AttributeError, NameError, SyntaxError):
-            # Return 0.0 on evaluation error
-            return 0.0
+            return None
 
         # Handle None result (asteval returns None for invalid expressions)
         if result is None:
-            return 0.0
+            return None
 
-        # Check if result is numeric (int or float) before converting to float
+        # Check if result is numeric (int, float, or a comparison's bool) before converting to float
         # Exclude complex as it cannot be converted to float
         if not isinstance(result, (int, float)):
-            return 0.0
+            return None
 
-        # Convert result to float
         try:
-            result = float(result)
+            return float(result)
         except (TypeError, ValueError):
+            return None
+
+    def _evaluate_expression(self, expression: str) -> float | int | bool:
+        """Evaluate the expression and format the result for the selected output type.
+
+        An expression that can't be evaluated gives 0.0 (or False for bool output) instead of raising,
+        on purpose: a typo or a division by zero gives 0 rather than stopping the run. Don't change this
+        into a raise to fail the node.
+        """
+        output_type = self.get_parameter_value("output_type") or "float"
+        result = self._evaluate_number(expression)
+
+        if output_type == "bool":
+            return result is not None and result != 0 and not math.isnan(result)
+
+        if result is None:
             return 0.0
 
-        # Get output type and precision settings
-        output_type = self.get_parameter_value("output_type") or "float"
+        if output_type == "int":
+            # Convert to int (rounds towards zero)
+            return int(result)
+
         precision = self.get_parameter_value("precision")
 
         # Handle precision (ensure it's a valid integer between MIN and MAX)
@@ -356,15 +372,20 @@ class MathExpression(BaseNode):
         except (ValueError, TypeError):
             precision = DEFAULT_PRECISION
 
-        # Format result based on output type
-        if output_type == "int":
-            # Convert to int (rounds towards zero)
-            return int(result)
+        return round(result, precision)
 
-        # Format as float with specified precision
-        # Round to precision decimal places
-        rounded = round(float(result), precision)
-        return rounded
+    def _update_output_type(self) -> None:
+        """Match the result's type to output_type and show precision only for float output."""
+        output_type = self.get_parameter_value("output_type") or "float"
+        result_param = self.get_parameter_by_name("result")
+        if result_param is not None:
+            result_type = "bool" if output_type == "bool" else "float"
+            result_param.type = result_type
+            result_param.output_type = result_type
+
+        precision_param = self.get_parameter_by_name("precision")
+        if precision_param is not None:
+            precision_param.hide = output_type != "float"
 
     def after_value_set(
         self,
@@ -374,6 +395,9 @@ class MathExpression(BaseNode):
         # Handle num_variables change - update visibility of variable parameters
         if parameter.name == "num_variables":
             self._update_variable_visibility()
+
+        if parameter.name == "output_type":
+            self._update_output_type()
 
         # Update result when expression, variables, output_type, or precision changes
         num_variables = self._get_num_variables()

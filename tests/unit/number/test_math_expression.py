@@ -90,3 +90,48 @@ class TestMathExpressionSandbox:
     )
     def test_statements_are_rejected(self, node: MathExpression, expression: str) -> None:
         assert node._evaluate_expression(expression) == 0.0
+
+
+class TestMathExpressionBoolOutput:
+    @pytest.mark.parametrize(
+        ("expression", "expected"),
+        [
+            ("a < b", True),
+            ("a > b", False),
+            ("a + b == 5", True),
+            ("a < b and b < c", True),
+            ("a > b or b > c", False),
+            ("not a > b", True),
+            ("a - a", False),
+            ("a * b", True),
+            ("nan", False),
+            ("a / 0", False),
+            ("not valid (", False),
+            ("", False),
+        ],
+    )
+    def test_bool_output(self, node: MathExpression, expression: str, *, expected: bool) -> None:
+        node.parameter_values["output_type"] = "bool"
+        assert node._evaluate_expression(expression) is expected
+
+    def test_float_output_still_gives_numbers_for_comparisons(self, node: MathExpression) -> None:
+        assert node._evaluate_expression("a < b") == 1.0
+
+    def test_bool_output_switches_result_type_and_hides_precision(self, node: MathExpression) -> None:
+        node.set_parameter_value("output_type", "bool")
+        result = node.get_parameter_by_name("result")
+        precision = node.get_parameter_by_name("precision")
+        assert result is not None
+        assert precision is not None
+        assert result.output_type == "bool"
+        assert precision.hide is True
+
+        node.set_parameter_value("output_type", "float")
+        assert result.output_type == "float"
+        assert precision.hide is False
+
+
+class TestMathExpressionControlFlow:
+    def test_has_execution_pins(self, node: MathExpression) -> None:
+        assert node.get_parameter_by_name("exec_in") is not None
+        assert node.get_parameter_by_name("exec_out") is not None
