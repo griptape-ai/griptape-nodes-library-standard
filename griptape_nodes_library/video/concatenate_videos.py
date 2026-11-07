@@ -12,6 +12,7 @@ from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -108,6 +109,7 @@ class ConcatenateVideos(BaseVideoProcessor):
                 tooltip="Output video format (mp4, avi, mov, mkv, webm)",
             )
             format_parameter.add_trait(Options(choices=["mp4", "avi", "mov", "mkv", "webm"]))
+            format_parameter.add_trait(FileFormat(kind=FileFormatKind.VIDEO))
             self.add_parameter(format_parameter)
 
             # Video codec parameter

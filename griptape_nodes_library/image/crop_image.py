@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.color_picker import ColorPicker
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.traits.widget import Widget
@@ -169,7 +170,7 @@ class CropImage(ControlNode):
                 name="output_format",
                 default_value="PNG",
                 tooltip="Output format: PNG, JPEG, WEBP",
-                traits={Options(choices=["PNG", "JPEG", "WEBP"])},
+                traits={Options(choices=["PNG", "JPEG", "WEBP"]), FileFormat(kind=FileFormatKind.IMAGE)},
             )
 
             ParameterFloat(

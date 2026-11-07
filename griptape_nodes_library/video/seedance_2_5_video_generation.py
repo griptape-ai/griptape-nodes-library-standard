@@ -17,6 +17,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -429,7 +430,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                     "post-production and is recommended for video editing and extension."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(OUTPUT_FORMAT_CHOICES))},
+                traits={Options(choices=list(OUTPUT_FORMAT_CHOICES)), FileFormat(kind=FileFormatKind.VIDEO)},
             )
 
             ParameterBool(

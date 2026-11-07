@@ -50,6 +50,20 @@ def run_test_in_isolated_env() -> Generator[None, None, None]:
         yield
 
 
+@pytest.fixture
+def open_workflow() -> None:
+    """Open a workflow, as the editor always has one open.
+
+    Engine 0.107 binds each request to an open workflow and allows one at a time. A test that builds
+    a node straight from the library and runs it sends its model invocation declaration unbound, and
+    the engine falls back to the one open workflow; with none open it denies the invocation. Tests
+    that open their own workflow must not use this.
+    """
+    engine = GriptapeNodes()
+    entry = engine.workflow_registry.register_unsaved("test workflow")
+    engine.open_workflow(entry.workflow_id)
+
+
 @pytest.fixture(autouse=True)
 def stub_public_artifact_cloud_credential(monkeypatch: pytest.MonkeyPatch) -> None:
     """Satisfy the Cloud credential lookup in ``PublicArtifactUrlParameter``.
