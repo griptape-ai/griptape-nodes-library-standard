@@ -96,6 +96,9 @@ class LTXVideoToVideoHDR(PublicVideoUrlMixin, GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     SUPPORTS_DIRECT_DOWNLOAD = True
+    # A maximum-size job (273 frames at 1080p) takes LTX about ten minutes, longer than the
+    # default polling window, so poll for up to 15 minutes.
+    DEFAULT_MAX_ATTEMPTS = 180
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
