@@ -186,6 +186,20 @@ class TestMathExpressionResultConnections:
 
         assert self._targets(expression) == {math_node}
 
+    def test_switching_type_drops_every_incompatible_connection(self, flow_name: str) -> None:
+        expression = self._create("MathExpression", flow_name)
+        if_elses = [self._create("IfElse", flow_name) for _ in range(3)]
+        node = GriptapeNodes.NodeManager().get_node_by_name(expression)
+
+        node.set_parameter_value("output_type", "bool")
+        for if_else in if_elses:
+            self._connect(expression, if_else, "evaluate")
+        assert self._targets(expression) == set(if_elses)
+
+        node.set_parameter_value("output_type", "float")
+
+        assert self._targets(expression) == set()
+
     def test_bool_output_switches_result_type_and_hides_precision(self, flow_name: str) -> None:
         node = GriptapeNodes.NodeManager().get_node_by_name(self._create("MathExpression", flow_name))
         node.set_parameter_value("output_type", "bool")

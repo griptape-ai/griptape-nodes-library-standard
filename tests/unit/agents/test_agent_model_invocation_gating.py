@@ -14,8 +14,8 @@ import pytest
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.node_library.library_registry import LibraryRegistry
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-import griptape_nodes_library.agents.agent as agent_module
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.agents.agent import Agent
 from griptape_nodes_library.llm.agent_state import AgentState
@@ -54,7 +54,7 @@ def _stub_secret(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
         def get_secret(self, _name: str, **_kwargs: object) -> str | None:
             return value
 
-    monkeypatch.setattr(agent_module.GriptapeNodes, "SecretsManager", lambda: _FakeSecrets())
+    monkeypatch.setattr(GriptapeNodes, "SecretsManager", lambda: _FakeSecrets())
 
 
 @pytest.fixture
