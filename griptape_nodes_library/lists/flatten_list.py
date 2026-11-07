@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import (
@@ -7,6 +6,8 @@ from griptape_nodes.exe_types.core_types import (
 )
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+
+from griptape_nodes_library.json.json_utils import parse_json_input
 
 
 def flatten(items: list[Any], depth: int) -> list[Any]:
@@ -66,12 +67,5 @@ class FlattenList(ControlNode):
         """Normalize the input to a list, parsing JSON text and wrapping a single value."""
         if value is None:
             return []
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-            except json.JSONDecodeError:
-                return [value]
-            return parsed if isinstance(parsed, list) else [parsed]
-        if isinstance(value, list):
-            return value
-        return [value]
+        parsed = parse_json_input(self.name, value)
+        return parsed if isinstance(parsed, list) else [parsed]

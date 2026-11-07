@@ -51,8 +51,14 @@ class TestFlattenList:
 
         assert node.parameter_output_values["output"] == [1, 2, 3, 4]
 
-    def test_single_value_becomes_one_item_list(self, node: FlattenList) -> None:
-        node.set_parameter_value("items", "not json")
+    def test_single_json_value_becomes_one_item_list(self, node: FlattenList) -> None:
+        node.set_parameter_value("items", '{"k": 1}')
         node.process()
 
-        assert node.parameter_output_values["output"] == ["not json"]
+        assert node.parameter_output_values["output"] == [{"k": 1}]
+
+    def test_invalid_json_text_raises(self, node: FlattenList) -> None:
+        node.set_parameter_value("items", "[1, [2, 3]")
+
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            node.process()
