@@ -99,6 +99,7 @@ def test_perform_extraction_saves_numbered_images_in_the_output_folder(
     pdf_path.write_bytes(_pdf([_scan((120, 160)), _scan((80, 100))]))
     out_dir = tmp_path / "extracted_v001"
     monkeypatch.setattr(node, "_resolve_output_dir", lambda: out_dir)
+    monkeypatch.setattr(node, "_build_preview_url", lambda _path: "")
     node.set_parameter_value("path", str(pdf_path))
 
     node._perform_extraction()
@@ -116,6 +117,7 @@ def test_prefix_padding_and_format_name_the_files(
     pdf_path = tmp_path / "scan.pdf"
     pdf_path.write_bytes(_pdf([_scan((40, 40))]))
     monkeypatch.setattr(node, "_resolve_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(node, "_build_preview_url", lambda _path: "")
     node.set_parameter_value("path", str(pdf_path))
     node.set_parameter_value("file_prefix", "scan")
     node.set_parameter_value("number_padding", "2")
