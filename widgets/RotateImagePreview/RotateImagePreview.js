@@ -1,10 +1,11 @@
-// Display-only preview of what Rotate Image will produce. The rotation is drawn on a canvas in the
+// Display-only preview of what Rotate Image (and Extract PDF Images) will produce. The rotation is drawn on a canvas in the
 // browser; the node rotates the real image with PIL when it runs.
 
-const WIDGET_VERSION = "1.0.0";
+const WIDGET_VERSION = "1.1.0";
 const CHECKER = 10;
 
 const QUARTER_TURNS = {
+  "none": 0,
   "90° clockwise": 90,
   "180°": 180,
   "90° counter-clockwise": -90,
