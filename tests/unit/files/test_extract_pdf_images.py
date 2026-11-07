@@ -2,12 +2,15 @@
 
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
+from griptape_nodes_library.files import extract_pdf_images
 from griptape_nodes_library.files.extract_pdf_images import ExtractPdfImages, OutputFormat, Rotation
 
 RED = (255, 0, 0)
@@ -207,10 +210,26 @@ def test_changing_rotation_updates_the_preview_without_rebuilding_the_image(
     }
 
 
-def test_build_preview_url_saves_a_small_copy_of_the_first_image(node: ExtractPdfImages, tmp_path: Path) -> None:
+def test_build_preview_url_saves_a_small_copy_of_the_first_image(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pdf_path = tmp_path / "scan.pdf"
     pdf_path.write_bytes(_pdf([_scan((2000, 3000))]))
+    requested: list[Path] = []
+
+    class FakeStaticUrl:
+        url = "http://static/preview.jpg"
+
+    def fake_handle_request(request: Any) -> FakeStaticUrl:
+        requested.append(Path(request.file_path))
+        return FakeStaticUrl()
+
+    # Serving the file is the engine's job. Stub it so this test does not start static file machinery.
+    monkeypatch.setattr(extract_pdf_images, "CreateStaticFileDownloadUrlFromPathResultSuccess", FakeStaticUrl)
+    monkeypatch.setattr(extract_pdf_images, "GriptapeNodes", SimpleNamespace(handle_request=fake_handle_request))
 
     url = node._build_preview_url(str(pdf_path))
 
-    assert url.startswith("http")
+    assert url == "http://static/preview.jpg"
+    preview = _decode(requested[0].read_bytes())
+    assert max(preview.size) == 1000  # noqa: PLR2004
