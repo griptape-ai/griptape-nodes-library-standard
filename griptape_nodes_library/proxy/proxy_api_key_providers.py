@@ -142,6 +142,7 @@ _NODE_PROVIDER_CONFIGS = {
     "LTXVideoExtend": LTX,
     "LTXVideoRetake": LTX,
     "LTXVideoToVideoHDR": LTX,
+    "LTXVideoUpscale": LTX,
     "MinimaxHailuoVideoGeneration": MINIMAX,
     "OmnihumanSubjectDetection": SEED,
     "OmnihumanSubjectRecognition": SEED,
