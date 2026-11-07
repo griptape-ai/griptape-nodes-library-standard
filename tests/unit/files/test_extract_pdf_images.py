@@ -233,3 +233,44 @@ def test_build_preview_url_saves_a_small_copy_of_the_first_image(
     assert url == "http://static/preview.jpg"
     preview = _decode(requested[0].read_bytes())
     assert max(preview.size) == 1000  # noqa: PLR2004
+
+
+@pytest.mark.parametrize("output_format", [OutputFormat.ORIGINAL, OutputFormat.PNG])
+def test_fax_compressed_scan_is_saved_as_a_real_png(node: ExtractPdfImages, output_format: OutputFormat) -> None:
+    buffer = BytesIO()
+    Image.new("1", (64, 64), 1).save(buffer, format="PDF")
+    stored = next(iter(PdfReader(BytesIO(buffer.getvalue())).pages[0].images)).data
+    assert _decode(stored).format == "TIFF"
+
+    result = node._extract_images(buffer.getvalue(), "", Rotation.NONE, output_format)
+
+    assert result[0].extension == ".png"
+    assert _decode(result[0].data).format == "PNG"
+
+
+def test_stored_jpeg_is_not_passed_through_as_png(node: ExtractPdfImages) -> None:
+    result = node._extract_images(_pdf([_scan((60, 80))]), "", Rotation.NONE, OutputFormat.PNG)
+
+    assert _decode(result[0].data).format == "PNG"
+
+
+def test_entering_the_password_after_the_path_builds_the_preview(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf_path = tmp_path / "protected.pdf"
+    pdf_path.write_bytes(_pdf([_scan((60, 80))]))
+    password = {"value": ""}
+
+    def build(_path: str) -> str:
+        return "http://static/preview.jpg" if password["value"] == "secret" else ""
+
+    monkeypatch.setattr(node, "_build_preview_url", build)
+    node.set_parameter_value("path", str(pdf_path))
+    node.after_value_set(node.path, str(pdf_path))
+    assert node.get_parameter_value("rotation_preview")["image_url"] == ""
+
+    password["value"] = "secret"
+    node.set_parameter_value("password", "secret")
+    node.after_value_set(node.get_parameter_by_name("password"), "secret")  # type: ignore[arg-type]
+
+    assert node.get_parameter_value("rotation_preview")["image_url"] == "http://static/preview.jpg"

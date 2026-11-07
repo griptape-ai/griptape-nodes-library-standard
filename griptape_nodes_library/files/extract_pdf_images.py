@@ -71,6 +71,10 @@ class OutputFormat(StrEnum):
     WEBP = "webp"
 
 
+# Image formats whose stored bytes can be written to disk unchanged.
+STORED_FORMATS = {"JPEG": OutputFormat.JPG, "PNG": OutputFormat.PNG}
+
+
 class ExtractedImage:
     """An image pulled out of a PDF page, encoded and ready to write."""
 
@@ -218,6 +222,10 @@ class ExtractPdfImages(ControlNode):
         match parameter.name:
             case "path":
                 self._refresh_preview_image(value)
+            case "password":
+                # A protected PDF has no preview until the password is right, so try again.
+                self._preview_source = None
+                self._refresh_preview_image(self.get_parameter_value("path"))
             case "rotation":
                 self._publish_preview({**self._current_preview(), "rotation": value or Rotation.NONE})
             case "directory":
@@ -357,10 +365,11 @@ class ExtractPdfImages(ControlNode):
 
     def _encode(self, data: bytes, clockwise_degrees: int, output_format: OutputFormat) -> ExtractedImage:
         with Image.open(BytesIO(data)) as image:
-            stored_extension = ".jpg" if image.format == "JPEG" else ".png"
+            stored_format = STORED_FORMATS.get(image.format or "")
             match output_format:
                 case OutputFormat.ORIGINAL:
-                    target = OutputFormat.JPG if image.format == "JPEG" else OutputFormat.PNG
+                    # Formats other than JPEG and PNG (fax-compressed TIFF, JPEG 2000) are re-encoded as PNG.
+                    target = stored_format or OutputFormat.PNG
                 case OutputFormat.PNG | OutputFormat.JPG | OutputFormat.WEBP:
                     target = output_format
                 case _:
@@ -368,7 +377,7 @@ class ExtractPdfImages(ControlNode):
                     raise ValueError(msg)
             extension = f".{target.value}"
 
-            if clockwise_degrees == 0 and extension == stored_extension:
+            if clockwise_degrees == 0 and target == stored_format:
                 # Untouched images keep their stored bytes, so JPEGs are not re-encoded.
                 return ExtractedImage(data, extension)
 
