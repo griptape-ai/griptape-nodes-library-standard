@@ -91,10 +91,9 @@ class TestSequenceOutputWiring:
             _write_frames(tmp_path, frames)
             return [tmp_path / f"frames.{str(n).zfill(4)}.png" for n in frames]
 
-        monkeypatch.setattr(node, "_resolve_output_dir", lambda: tmp_path)
         monkeypatch.setattr(node, "_extract_frames", fake_extract_frames)
 
-        node._perform_extraction("unused.mp4", frames)
+        node._perform_extraction("unused.mp4", frames, tmp_path)
 
         sequence = node.parameter_output_values["sequence"]
         assert sequence is not None
