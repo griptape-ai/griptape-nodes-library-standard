@@ -4,8 +4,8 @@ from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode, NodeDependencies
+from griptape_nodes.exe_types.core_types import NodeError, NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import AsyncResult, NodeDependencies, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
@@ -83,7 +83,7 @@ class ExtractedImage:
         self.extension = extension
 
 
-class ExtractPdfImages(ControlNode):
+class ExtractPdfImages(SuccessFailureNode):
     """Extract the images embedded in a PDF, such as the pages of a scanned document.
 
     Images come out at the resolution they are stored at in the PDF. Nothing is resampled.
@@ -214,6 +214,11 @@ class ExtractPdfImages(ControlNode):
             )
         )
 
+        self._create_status_parameters(
+            result_details_tooltip="Details about the extraction, or why it failed.",
+            result_details_placeholder="Results will appear here after the node runs.",
+        )
+
         self._preview_source: str | None = None
 
     # ── Lifecycle hooks ─────────────────────────────────────────────────────────
@@ -318,7 +323,21 @@ class ExtractPdfImages(ControlNode):
         self.parameter_output_values["images"] = []
         self.parameter_output_values["image_count"] = 0
         self.parameter_output_values["output_directory"] = ""
-        yield lambda: self._perform_extraction()
+        yield lambda: self._run_extraction()
+
+    def _run_extraction(self) -> None:
+        self._clear_execution_status()
+        try:
+            self._perform_extraction()
+        except Exception as exc:
+            self._set_status_results(was_successful=False, result_details=str(exc))
+            self._handle_failure_exception(exc)
+            return
+        count = self.parameter_output_values["image_count"]
+        self._set_status_results(
+            was_successful=True,
+            result_details=f"Extracted {count} image(s) to '{self.parameter_output_values['output_directory']}'.",
+        )
 
     def _perform_extraction(self) -> None:
         path = self.get_parameter_value("path")
@@ -331,7 +350,7 @@ class ExtractPdfImages(ControlNode):
         extracted = self._extract_images(File(path).read_bytes(), password, rotation, output_format)
         if not extracted:
             msg = f"No embedded images found in '{path}'. The PDF may hold text and vector graphics only."
-            raise ValueError(msg)
+            raise NodeError(msg)
 
         output_dir = self._resolve_output_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -355,7 +374,7 @@ class ExtractPdfImages(ControlNode):
         reader = PdfReader(BytesIO(pdf_bytes))
         if reader.is_encrypted and not reader.decrypt(password):
             msg = "The PDF is password protected and the password is missing or wrong. Set 'password'."
-            raise ValueError(msg)
+            raise NodeError(msg)
 
         extracted: list[ExtractedImage] = []
         for page in reader.pages:

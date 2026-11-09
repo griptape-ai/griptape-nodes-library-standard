@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
@@ -175,7 +176,7 @@ def test_encrypted_pdf_needs_the_password(node: ExtractPdfImages) -> None:
     buffer = BytesIO()
     writer.write(buffer)
 
-    with pytest.raises(ValueError, match="password"):
+    with pytest.raises(NodeError, match="password"):
         node._extract_images(buffer.getvalue(), "wrong", Rotation.NONE)
 
     assert len(node._extract_images(buffer.getvalue(), "secret", Rotation.NONE)) == 1
@@ -276,3 +277,20 @@ def test_entering_the_password_after_the_path_builds_the_preview(
     node.after_value_set(node.get_parameter_by_name("password"), "secret")  # type: ignore[arg-type]
 
     assert node.get_parameter_value("rotation_preview")["image_url"] == "http://static/preview.jpg"
+
+
+def test_failure_raises_when_failed_is_unwired(node: ExtractPdfImages) -> None:
+    node.set_parameter_value("path", "unused.pdf")
+    node._perform_extraction = lambda: (_ for _ in ()).throw(NodeError("No embedded images found"))  # type: ignore[method-assign]
+    node._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+    with pytest.raises(NodeError, match="No embedded images"):
+        node._run_extraction()
+    assert node.parameter_output_values["was_successful"] is False
+
+
+def test_failure_follows_failed_when_wired(node: ExtractPdfImages) -> None:
+    node._perform_extraction = lambda: (_ for _ in ()).throw(NodeError("No embedded images found"))  # type: ignore[method-assign]
+    node._has_outgoing_connections = lambda _param: True  # type: ignore[method-assign]
+    node._run_extraction()
+    assert node.parameter_output_values["was_successful"] is False
+    assert "No embedded images" in node.parameter_output_values["result_details"]
