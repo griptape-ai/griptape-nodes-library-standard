@@ -11,6 +11,7 @@ from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList
 from PIL import Image
 
+from griptape_nodes_library.files.extract_pdf_images import ExtractPdfImages
 from griptape_nodes_library.image import image_grid_splitter, image_preview
 from griptape_nodes_library.image.add_text_to_existing_image import AddTextToExistingImage
 from griptape_nodes_library.image.add_text_to_image import AddTextToImage
@@ -53,6 +54,7 @@ PREVIEWED = [
     GrayscaleImage,
     RescaleImage,
     RotateImage,
+    ExtractPdfImages,
     AddColorCurves,
     AddFilmGrain,
     AddRGBShift,

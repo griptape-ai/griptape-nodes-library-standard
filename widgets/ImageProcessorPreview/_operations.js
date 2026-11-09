@@ -32,6 +32,7 @@ const num = (value, fallback) => {
 // ── Rotate Image ─────────────────────────────────────────────────────────────
 
 const QUARTER_TURNS = {
+  none: 0,
   "90° clockwise": 90,
   "180°": 180,
   "90° counter-clockwise": -90,

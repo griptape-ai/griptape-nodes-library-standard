@@ -1337,11 +1337,6 @@
       "description": "Live preview for the image and video processor nodes, drawn on the image or on a frame of the video picked with a scrubber, on a canvas that scales with the node."
     },
     {
-      "name": "RotateImagePreview",
-      "path": "widgets/RotateImagePreview/RotateImagePreview.js",
-      "description": "Display-only preview of the Rotate Image node's rotation, drawn on a canvas that scales with the node."
-    },
-    {
       "name": "CropVideoEditor",
       "path": "widgets/CropVideoEditor/CropVideoEditor.js",
       "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
