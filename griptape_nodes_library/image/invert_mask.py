@@ -6,13 +6,17 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.image import GriptapeImagePipeline
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
+    converted,
     dict_to_image_url_artifact,
+    extract_channel_from_image,
+    get_image_color_info,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
 )
 
 
@@ -73,35 +77,26 @@ class InvertMask(DataNode):
         """
         try:
             # Load mask
-            mask_pil = load_pil_from_url(mask_artifact.value)
-            logger.debug(f"{self.name}: Processing mask with mode {mask_pil.mode}, size {mask_pil.size}")
+            mask = load_image_from_url(mask_artifact.value)
+            mode_name = get_image_color_info(mask).color_space
+            logger.debug(f"{self.name}: Processing mask with mode {mode_name}, size {(mask.width, mask.height)}")
 
-            # Convert to grayscale first to ensure consistent processing
-            if mask_pil.mode == "RGBA":
-                # For RGBA images, use the alpha channel
-                mask_to_invert = mask_pil.getchannel("A")
-                logger.debug(f"{self.name}: Using alpha channel from RGBA image")
-            elif mask_pil.mode == "RGB":
-                # For RGB images, convert to grayscale
-                mask_to_invert = mask_pil.convert("L")
-                logger.debug(f"{self.name}: Converted RGB to grayscale")
-            elif mask_pil.mode == "L":
-                # Already grayscale
-                mask_to_invert = mask_pil
-                logger.debug(f"{self.name}: Using grayscale image directly")
-            else:
-                # For other modes, convert to grayscale
-                mask_to_invert = mask_pil.convert("L")
-                logger.debug(f"{self.name}: Converted {mask_pil.mode} to grayscale")
+            # Reduce to one channel: alpha for RGBA, otherwise gray. Matching on channels covers
+            # 16-bit and float masks too.
+            match mask.channels:
+                case 4:
+                    mask_to_invert = extract_channel_from_image(mask, "alpha", "mask")
+                    logger.debug(f"{self.name}: Using alpha channel from {mode_name} image")
+                case 1 | 2 | 3:
+                    mask_to_invert = converted(mask, ImageMode.GRAY)
+                    logger.debug(f"{self.name}: Converted {mode_name} to grayscale")
+                case _:
+                    msg = f"Unsupported mask with {mask.channels} channels"
+                    raise ValueError(msg)
 
             # Invert the mask
-            inverted_mask = Image.eval(mask_to_invert, lambda x: 255 - x)
-            logger.debug(f"{self.name}: Inverted mask, result mode {inverted_mask.mode}")
-
-            # Ensure output is in grayscale mode
-            if inverted_mask.mode != "L":
-                inverted_mask = inverted_mask.convert("L")
-                logger.debug(f"{self.name}: Converted output to grayscale")
+            inverted_mask = GriptapeImagePipeline(mask_to_invert).invert().end()
+            logger.debug(f"{self.name}: Inverted mask, result mode {get_image_color_info(inverted_mask).color_space}")
 
             # Save output mask and create URL artifact
             image_bytes = image_to_bytes(inverted_mask, "PNG")

@@ -18,7 +18,7 @@ from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     extract_channel_from_image,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
 )
 from griptape_nodes_library.utils.macro_path_utils import (
     copy_external_file_to_project,
@@ -313,7 +313,7 @@ class LoadImage(SuccessFailureNode):
         """Verify that the image can actually be loaded."""
         try:
             # Attempt to load the image to verify it's valid
-            load_pil_from_url(image_artifact.value)
+            load_image_from_url(image_artifact.value, turn_upright=False)
         except Exception as e:
             msg = f"The image at {image_artifact.value} could not be loaded: {e}"
             raise RuntimeError(msg) from e
@@ -337,10 +337,10 @@ class LoadImage(SuccessFailureNode):
         """Extract a channel from the input image and set as mask output."""
         try:
             # Load image
-            image_pil = load_pil_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value, turn_upright=False)
 
             # Extract the specified channel as mask
-            mask = extract_channel_from_image(image_pil, channel, "image")
+            mask = extract_channel_from_image(image, channel, "image")
 
             # Save output mask and create URL artifact
             image_bytes = image_to_bytes(mask, "PNG")

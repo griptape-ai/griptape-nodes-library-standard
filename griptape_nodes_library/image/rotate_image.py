@@ -7,6 +7,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -16,15 +17,15 @@ from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.traits.widget import Widget
-from PIL import Image, ImageOps
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
-from griptape_nodes_library.utils.image_utils import grayscale_to_eight_bit
+from griptape_nodes_library.utils.image_utils import ImageMode, converted
 
 ANGLE_MIN = -360.0
 ANGLE_MAX = 360.0
 OPAQUE = 255
+RGB_CHANNELS = 3
 CUSTOM_ONLY_PARAMETERS = ["angle", "expand_canvas", "background_color"]
 PREVIEW_PARAMETERS = {"rotation", *CUSTOM_ONLY_PARAMETERS}
 DEFAULT_BACKGROUND = "#00000000"
@@ -37,10 +38,11 @@ class Rotation(StrEnum):
     CUSTOM = "custom angle"
 
 
+# Counter-clockwise degrees for each quarter turn
 QUARTER_TURNS = {
-    Rotation.CLOCKWISE_90: Image.Transpose.ROTATE_270,
-    Rotation.ROTATE_180: Image.Transpose.ROTATE_180,
-    Rotation.COUNTER_CLOCKWISE_90: Image.Transpose.ROTATE_90,
+    Rotation.CLOCKWISE_90: 270,
+    Rotation.ROTATE_180: 180,
+    Rotation.COUNTER_CLOCKWISE_90: 90,
 }
 
 ROTATION_ICONS = {
@@ -169,21 +171,22 @@ class RotateImage(BaseImageProcessor):
         """Get description of what this processor does."""
         return "image rotation"
 
-    def _process_image(self, pil_image: Image.Image, **kwargs) -> Image.Image:
-        """Process the PIL image by rotating it."""
+    def _process_image(self, image: GriptapeImage, **kwargs) -> GriptapeImage:
+        """Process the image by rotating it."""
         rotation = kwargs.get("rotation") or Rotation.CLOCKWISE_90
 
         logger.debug(f"{self.name}: Rotating image with rotation={rotation}")
 
-        # Rotate the image as it is displayed, since the saved output drops the EXIF orientation tag.
-        pil_image = ImageOps.exif_transpose(pil_image)
+        # Rotate the image as it is displayed; this also resets its EXIF orientation tag to upright.
+        image = GriptapeImagePipeline(image).exif_transpose().end()
 
         match rotation:
             case Rotation.CLOCKWISE_90 | Rotation.ROTATE_180 | Rotation.COUNTER_CLOCKWISE_90:
-                return pil_image.transpose(QUARTER_TURNS[Rotation(rotation)])
+                # Quarter turns with an expanded canvas are lossless
+                return GriptapeImagePipeline(image).rotate(QUARTER_TURNS[Rotation(rotation)], expand=True).end()
             case Rotation.CUSTOM:
                 return self._rotate_by_angle(
-                    pil_image,
+                    image,
                     angle=kwargs.get("angle") or 0.0,
                     expand_canvas=kwargs.get("expand_canvas", True),
                     background_color=kwargs.get("background_color") or "#00000000",
@@ -193,20 +196,19 @@ class RotateImage(BaseImageProcessor):
                 raise ValueError(msg)
 
     def _rotate_by_angle(
-        self, pil_image: Image.Image, angle: float, *, expand_canvas: bool, background_color: str
-    ) -> Image.Image:
+        self, image: GriptapeImage, angle: float, *, expand_canvas: bool, background_color: str
+    ) -> GriptapeImage:
         """Rotate clockwise by an arbitrary angle, filling exposed corners with the background color."""
         fill = parse_color_to_rgba(background_color)
 
-        if pil_image.mode == "RGB" and fill[3] == OPAQUE:
+        if image.channels == RGB_CHANNELS and fill[3] == OPAQUE:
             fill_color: tuple[int, ...] = fill[:3]
         else:
-            if pil_image.mode != "RGBA":
-                pil_image = grayscale_to_eight_bit(pil_image).convert("RGBA")
+            image = converted(image, ImageMode.RGBA)
             fill_color = fill
 
-        # PIL rotates counter-clockwise for positive angles.
-        return pil_image.rotate(-angle, resample=Image.Resampling.BICUBIC, expand=expand_canvas, fillcolor=fill_color)
+        # The pipeline rotates counter-clockwise for positive angles.
+        return GriptapeImagePipeline(image).rotate(-angle, expand=expand_canvas, fill=fill_color).end()
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate rotation parameters."""

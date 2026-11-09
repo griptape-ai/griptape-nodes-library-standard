@@ -6,7 +6,6 @@ import logging
 from contextlib import suppress
 from copy import deepcopy
 from functools import partial
-from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -22,10 +21,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
-from PIL import Image
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode, HostedArtifact
@@ -685,8 +684,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
         """Detect image MIME type from base64-encoded bytes."""
         try:
             decoded = base64.b64decode(b64_data, validate=False)
-            image = Image.open(BytesIO(decoded))
-            image_format = (image.format or "").lower()
+            image_format = (GriptapeImage.open(decoded).format or "").lower()
         except Exception:
             return None
 

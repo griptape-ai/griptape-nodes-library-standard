@@ -1,8 +1,9 @@
 import colorsys
 import contextlib
 import math
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
+import numpy as np
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
@@ -10,10 +11,32 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.traits.options import Options
-from PIL import Image, ImageDraw
 
 from griptape_nodes_library.utils.image_utils import image_to_bytes
+
+Color = tuple[int, int, int]
+
+
+class _Canvas:
+    """An RGB pixel buffer drawn with filled rectangles, with both corners included, as Pillow drew them."""
+
+    def __init__(self, width: int, height: int, color: Color = (0, 0, 0)) -> None:
+        self.pixels = np.empty((height, width, 3), dtype=np.uint8)
+        self.pixels[:, :] = color
+
+    def rectangle(self, box: list[int], fill: Color) -> None:
+        """Fill ``[x0, y0, x1, y1]``, both corners included, clipped to the canvas."""
+        height, width = self.pixels.shape[:2]
+        x0, y0, x1, y1 = box
+        left, top = max(x0, 0), max(y0, 0)
+        right, bottom = min(x1 + 1, width), min(y1 + 1, height)
+        if right > left and bottom > top:
+            self.pixels[top:bottom, left:right] = fill
+
+    def image(self) -> GriptapeImage:
+        return GriptapeImage.from_array(self.pixels)
 
 
 class CreateColorBars(BaseNode):
@@ -152,10 +175,9 @@ class CreateColorBars(BaseNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="color_bars.png")
         self._output_file.add_parameter()
 
-    def _generate_smpte_219_100_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_smpte_219_100_bars(self, width: int, height: int) -> _Canvas:
         """Generate SMPTE 219-100 Bars (HDTV Color Bars)."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # SMPTE 219-100 Bars pattern (7 vertical bars)
         # Colors in order: White, Yellow, Cyan, Green, Magenta, Red, Blue
@@ -173,14 +195,13 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, height], fill=color)
+            canvas.rectangle([x1, 0, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_smpte_75_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_smpte_75_bars(self, width: int, height: int) -> _Canvas:
         """Generate SMPTE 75% Bars (standard SDTV color bars)."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # SMPTE 75% Bars pattern (7 vertical bars at 75% intensity)
         colors = [
@@ -197,14 +218,13 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, height], fill=color)
+            canvas.rectangle([x1, 0, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_ebu_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_ebu_bars(self, width: int, height: int) -> _Canvas:
         """Generate EBU Bars (European Broadcasting Union color bars)."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # EBU Bars pattern (8 vertical bars)
         colors = [
@@ -222,14 +242,13 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, height], fill=color)
+            canvas.rectangle([x1, 0, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_smpte_color_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_smpte_color_bars(self, width: int, height: int) -> _Canvas:
         """Generate SMPTE Color Bars (classic pattern with pluge)."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # SMPTE Color Bars with pluge (8 bars) - 75% intensity per SMPTE ECR 1-1978
         colors = [
@@ -247,14 +266,13 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, height], fill=color)
+            canvas.rectangle([x1, 0, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_hd_color_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_hd_color_bars(self, width: int, height: int) -> _Canvas:
         """Generate HD Color Bars (high definition pattern)."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # HD Color Bars pattern (similar to SMPTE 219-100 but with additional elements)
         # Main bars section (top 2/3)
@@ -274,7 +292,7 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, bar_height], fill=color)
+            canvas.rectangle([x1, 0, x2, bar_height], fill=color)
 
         # Bottom section with grayscale ramp
         ramp_width = width // 8
@@ -282,19 +300,17 @@ class CreateColorBars(BaseNode):
             gray_value = int(255 * (i / self.GRAY_RAMP_MAX_INDEX))
             x1 = i * ramp_width
             x2 = (i + 1) * ramp_width if i < self.GRAY_RAMP_MAX_INDEX else width
-            draw.rectangle([x1, bar_height, x2, height], fill=(gray_value, gray_value, gray_value))
+            canvas.rectangle([x1, bar_height, x2, height], fill=(gray_value, gray_value, gray_value))
 
-        return img
+        return canvas
 
-    def _generate_full_field(self, color: tuple[int, int, int], width: int, height: int) -> Image.Image:
+    def _generate_full_field(self, color: tuple[int, int, int], width: int, height: int) -> _Canvas:
         """Generate a full field solid color."""
-        img = Image.new("RGB", (width, height), color)
-        return img
+        return _Canvas(width, height, color)
 
-    def _generate_100_full_field_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_100_full_field_bars(self, width: int, height: int) -> _Canvas:
         """Generate 100% Full Field Bars with bottom section."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # Top section: 7 color bars
         colors = [
@@ -313,15 +329,15 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, bar_height], fill=color)
+            canvas.rectangle([x1, 0, x2, bar_height], fill=color)
 
         # Bottom section: black, white, black, then small color bars
         bottom_y = bar_height
         small_bar_width = width // 11
 
         # Black, white, black
-        draw.rectangle([0, bottom_y, small_bar_width * 3, height], fill=(0, 0, 0))
-        draw.rectangle([small_bar_width, bottom_y, small_bar_width * 2, height], fill=(255, 255, 255))
+        canvas.rectangle([0, bottom_y, small_bar_width * 3, height], fill=(0, 0, 0))
+        canvas.rectangle([small_bar_width, bottom_y, small_bar_width * 2, height], fill=(255, 255, 255))
 
         # Small color bars
         small_colors = [
@@ -337,14 +353,13 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(small_colors):
             x1 = small_bar_width * 3 + i * small_bar_width
             x2 = small_bar_width * 3 + (i + 1) * small_bar_width if i < len(small_colors) - 1 else width
-            draw.rectangle([x1, bottom_y, x2, height], fill=color)
+            canvas.rectangle([x1, bottom_y, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_75_full_field_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_75_full_field_bars(self, width: int, height: int) -> _Canvas:
         """Generate 75% Full Field Bars."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # Top section: 7 color bars at 75%
         colors = [
@@ -363,14 +378,14 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, bar_height], fill=color)
+            canvas.rectangle([x1, 0, x2, bar_height], fill=color)
 
         # Bottom section similar to 100%
         bottom_y = bar_height
         small_bar_width = width // 11
 
-        draw.rectangle([0, bottom_y, small_bar_width * 3, height], fill=(0, 0, 0))
-        draw.rectangle([small_bar_width, bottom_y, small_bar_width * 2, height], fill=(191, 191, 191))
+        canvas.rectangle([0, bottom_y, small_bar_width * 3, height], fill=(0, 0, 0))
+        canvas.rectangle([small_bar_width, bottom_y, small_bar_width * 2, height], fill=(191, 191, 191))
 
         small_colors = [
             (0, 0, 191),  # Blue (75%)
@@ -385,30 +400,28 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(small_colors):
             x1 = small_bar_width * 3 + i * small_bar_width
             x2 = small_bar_width * 3 + (i + 1) * small_bar_width if i < len(small_colors) - 1 else width
-            draw.rectangle([x1, bottom_y, x2, height], fill=color)
+            canvas.rectangle([x1, bottom_y, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_75_bars_over_red(self, width: int, height: int) -> Image.Image:
+    def _generate_75_bars_over_red(self, width: int, height: int) -> _Canvas:
         """Generate 75% Bars Over Red."""
-        img = self._generate_75_full_field_bars(width, height)
-        draw = ImageDraw.Draw(img)
+        canvas = self._generate_75_full_field_bars(width, height)
 
         # Overlay red on bottom third
         bottom_y = int(height * 0.67)
-        draw.rectangle([0, bottom_y, width, height], fill=(191, 0, 0))  # Red (75%)
+        canvas.rectangle([0, bottom_y, width, height], fill=(191, 0, 0))  # Red (75%)
 
         # Add white and black bars on top
         bar_width = width // 3
-        draw.rectangle([0, bottom_y, bar_width, height], fill=(191, 191, 191))  # White
-        draw.rectangle([bar_width * 2, bottom_y, width, height], fill=(0, 0, 0))  # Black
+        canvas.rectangle([0, bottom_y, bar_width, height], fill=(191, 191, 191))  # White
+        canvas.rectangle([bar_width * 2, bottom_y, width, height], fill=(0, 0, 0))  # Black
 
-        return img
+        return canvas
 
-    def _generate_smpte_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_smpte_bars(self, width: int, height: int) -> _Canvas:
         """Generate SMPTE Bars with bottom section."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # Top section: 7 color bars - 75% intensity per SMPTE ECR 1-1978
         colors = [
@@ -427,7 +440,7 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, bar_height], fill=color)
+            canvas.rectangle([x1, 0, x2, bar_height], fill=color)
 
         # Bottom section: black/gray/white bars on left, then small color bars
         bottom_y = bar_height
@@ -435,9 +448,9 @@ class CreateColorBars(BaseNode):
         small_bar_width = (width - left_section_width) // 7
 
         # Left section: black, gray, white
-        draw.rectangle([0, bottom_y, left_section_width // 3, height], fill=(0, 0, 0))
-        draw.rectangle([left_section_width // 3, bottom_y, left_section_width * 2 // 3, height], fill=(128, 128, 128))
-        draw.rectangle(
+        canvas.rectangle([0, bottom_y, left_section_width // 3, height], fill=(0, 0, 0))
+        canvas.rectangle([left_section_width // 3, bottom_y, left_section_width * 2 // 3, height], fill=(128, 128, 128))
+        canvas.rectangle(
             [left_section_width * 2 // 3, bottom_y, left_section_width, height], fill=(191, 191, 191)
         )  # White at 75%
 
@@ -455,14 +468,13 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(small_colors):
             x1 = left_section_width + i * small_bar_width
             x2 = left_section_width + (i + 1) * small_bar_width if i < len(small_colors) - 1 else width
-            draw.rectangle([x1, bottom_y, x2, height], fill=color)
+            canvas.rectangle([x1, bottom_y, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_smpte_219_i_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_smpte_219_i_bars(self, width: int, height: int) -> _Canvas:
         """Generate SMPTE 219+i Bars with checkerboard."""
-        img = self._generate_smpte_bars(width, height)
-        draw = ImageDraw.Draw(img)
+        canvas = self._generate_smpte_bars(width, height)
 
         # Add checkerboard pattern on far left of bottom section
         bottom_y = int(height * 0.67)
@@ -477,20 +489,19 @@ class CreateColorBars(BaseNode):
                 x2 = x1 + checker_size
                 y2 = y1 + checker_size
                 if (row + col) % 2 == 0:
-                    draw.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
+                    canvas.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
                 else:
-                    draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
+                    canvas.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
 
-        return img
+        return canvas
 
-    def _generate_arib_28_100(self, width: int, height: int) -> Image.Image:
+    def _generate_arib_28_100(self, width: int, height: int) -> _Canvas:
         """Generate ARIB 28-100 Bars."""
         return self._generate_smpte_219_i_bars(width, height)  # Similar pattern
 
-    def _generate_arib_28_75(self, width: int, height: int) -> Image.Image:
+    def _generate_arib_28_75(self, width: int, height: int) -> _Canvas:
         """Generate ARIB 28-75 Bars."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # Top section: 7 color bars at 75%
         colors = [
@@ -509,7 +520,7 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(colors):
             x1 = i * bar_width
             x2 = (i + 1) * bar_width if i < len(colors) - 1 else width
-            draw.rectangle([x1, 0, x2, bar_height], fill=color)
+            canvas.rectangle([x1, 0, x2, bar_height], fill=color)
 
         # Bottom section with checkerboard
         bottom_y = bar_height
@@ -517,9 +528,9 @@ class CreateColorBars(BaseNode):
         small_bar_width = (width - left_section_width) // 7
 
         # Left section: black, gray, white
-        draw.rectangle([0, bottom_y, left_section_width // 3, height], fill=(0, 0, 0))
-        draw.rectangle([left_section_width // 3, bottom_y, left_section_width * 2 // 3, height], fill=(128, 128, 128))
-        draw.rectangle([left_section_width * 2 // 3, bottom_y, left_section_width, height], fill=(191, 191, 191))
+        canvas.rectangle([0, bottom_y, left_section_width // 3, height], fill=(0, 0, 0))
+        canvas.rectangle([left_section_width // 3, bottom_y, left_section_width * 2 // 3, height], fill=(128, 128, 128))
+        canvas.rectangle([left_section_width * 2 // 3, bottom_y, left_section_width, height], fill=(191, 191, 191))
 
         # Checkerboard
         checker_size = min(width // 20, (height - bottom_y) // 4)
@@ -530,9 +541,9 @@ class CreateColorBars(BaseNode):
                 x2 = x1 + checker_size
                 y2 = y1 + checker_size
                 if (row + col) % 2 == 0:
-                    draw.rectangle([x1, y1, x2, y2], fill=(191, 191, 191))
+                    canvas.rectangle([x1, y1, x2, y2], fill=(191, 191, 191))
                 else:
-                    draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
+                    canvas.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
 
         # Small color bars
         small_colors = [
@@ -548,41 +559,39 @@ class CreateColorBars(BaseNode):
         for i, color in enumerate(small_colors):
             x1 = left_section_width + i * small_bar_width
             x2 = left_section_width + (i + 1) * small_bar_width if i < len(small_colors) - 1 else width
-            draw.rectangle([x1, bottom_y, x2, height], fill=color)
+            canvas.rectangle([x1, bottom_y, x2, height], fill=color)
 
-        return img
+        return canvas
 
-    def _generate_arib_28_i(self, width: int, height: int) -> Image.Image:
+    def _generate_arib_28_i(self, width: int, height: int) -> _Canvas:
         """Generate ARIB 28+i Bars."""
         return self._generate_arib_28_100(width, height)
 
-    def _generate_zone_plate(self, width: int, height: int) -> Image.Image:
+    def _generate_zone_plate(self, width: int, height: int) -> _Canvas:
         """Generate Zone Plate pattern."""
-        img = Image.new("RGB", (width, height))
-        pixels = cast("Any", img.load())  # Image.load() never returns None for newly created images
+        canvas = _Canvas(width, height)
         center_x, center_y = width // 2, height // 2
         max_radius = min(width, height) // 2
 
-        for y in range(height):
-            for x in range(width):
-                dx = x - center_x
-                dy = y - center_y
-                distance = math.sqrt(dx * dx + dy * dy)
-                angle = math.atan2(dy, dx)
+        dy, dx = np.mgrid[0:height, 0:width]
+        dx = (dx - center_x).astype(np.float64)
+        dy = (dy - center_y).astype(np.float64)
+        distance = np.sqrt(dx * dx + dy * dy)
+        angle = np.arctan2(dy, dx)
 
-                # Create concentric rings and radial lines
-                ring_value = int((distance / max_radius * 10) % 2 * 255) if distance < max_radius else 128
-                radial_value = int((angle / math.pi * 10) % 2 * 255)
+        # Create concentric rings and radial lines (values are never negative, so truncating is flooring)
+        rings = np.floor(np.mod(distance / max(max_radius, 1) * 10, 2) * 255)
+        ring_value = np.where(distance < max_radius, rings, 128)
+        radial_value = np.floor(np.mod(angle / math.pi * 10, 2) * 255)
 
-                gray = int((ring_value + radial_value) / 2)
-                pixels[x, y] = (gray, gray, gray)
+        gray = np.clip(np.floor((ring_value + radial_value) / 2), 0, 255).astype(np.uint8)
+        canvas.pixels[:, :] = gray[:, :, np.newaxis]
 
-        return img
+        return canvas
 
-    def _generate_tartan_bars(self, width: int, height: int) -> Image.Image:
+    def _generate_tartan_bars(self, width: int, height: int) -> _Canvas:
         """Generate Tartan Bars (checkerboard pattern)."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         colors = [
             (255, 0, 0),  # Red
@@ -599,14 +608,13 @@ class CreateColorBars(BaseNode):
         for y in range(0, height, tile_size):
             for x in range(0, width, tile_size):
                 color_idx = ((x // tile_size) + (y // tile_size)) % len(colors)
-                draw.rectangle([x, y, min(x + tile_size, width), min(y + tile_size, height)], fill=colors[color_idx])
+                canvas.rectangle([x, y, min(x + tile_size, width), min(y + tile_size, height)], fill=colors[color_idx])
 
-        return img
+        return canvas
 
-    def _generate_stair_5_step(self, width: int, height: int) -> Image.Image:
+    def _generate_stair_5_step(self, width: int, height: int) -> _Canvas:
         """Generate 5-step horizontal stair pattern."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         steps = 5
         step_width = width // steps
@@ -614,14 +622,13 @@ class CreateColorBars(BaseNode):
             gray_value = int(255 * (i / (steps - 1)))
             x1 = i * step_width
             x2 = (i + 1) * step_width if i < steps - 1 else width
-            draw.rectangle([x1, 0, x2, height], fill=(gray_value, gray_value, gray_value))
+            canvas.rectangle([x1, 0, x2, height], fill=(gray_value, gray_value, gray_value))
 
-        return img
+        return canvas
 
-    def _generate_stair_5_step_vert(self, width: int, height: int) -> Image.Image:
+    def _generate_stair_5_step_vert(self, width: int, height: int) -> _Canvas:
         """Generate 5-step vertical stair pattern."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         steps = 5
         step_height = height // steps
@@ -629,14 +636,13 @@ class CreateColorBars(BaseNode):
             gray_value = int(255 * (i / (steps - 1)))
             y1 = i * step_height
             y2 = (i + 1) * step_height if i < steps - 1 else height
-            draw.rectangle([0, y1, width, y2], fill=(gray_value, gray_value, gray_value))
+            canvas.rectangle([0, y1, width, y2], fill=(gray_value, gray_value, gray_value))
 
-        return img
+        return canvas
 
-    def _generate_stair_10_step(self, width: int, height: int) -> Image.Image:
+    def _generate_stair_10_step(self, width: int, height: int) -> _Canvas:
         """Generate 10-step horizontal stair pattern."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         steps = 10
         step_width = width // steps
@@ -644,14 +650,13 @@ class CreateColorBars(BaseNode):
             gray_value = int(255 * (i / (steps - 1)))
             x1 = i * step_width
             x2 = (i + 1) * step_width if i < steps - 1 else width
-            draw.rectangle([x1, 0, x2, height], fill=(gray_value, gray_value, gray_value))
+            canvas.rectangle([x1, 0, x2, height], fill=(gray_value, gray_value, gray_value))
 
-        return img
+        return canvas
 
-    def _generate_stair_10_step_vert(self, width: int, height: int) -> Image.Image:
+    def _generate_stair_10_step_vert(self, width: int, height: int) -> _Canvas:
         """Generate 10-step vertical stair pattern."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         steps = 10
         step_height = height // steps
@@ -659,51 +664,42 @@ class CreateColorBars(BaseNode):
             gray_value = int(255 * (i / (steps - 1)))
             y1 = i * step_height
             y2 = (i + 1) * step_height if i < steps - 1 else height
-            draw.rectangle([0, y1, width, y2], fill=(gray_value, gray_value, gray_value))
+            canvas.rectangle([0, y1, width, y2], fill=(gray_value, gray_value, gray_value))
 
-        return img
+        return canvas
 
-    def _generate_y_ramp_up(self, width: int, height: int) -> Image.Image:
+    def _generate_y_ramp_up(self, width: int, height: int) -> _Canvas:
         """Generate Y Ramp Up (horizontal gradient black to white)."""
-        img = Image.new("RGB", (width, height))
-        pixels = cast("Any", img.load())  # Image.load() never returns None for newly created images
+        canvas = _Canvas(width, height)
 
-        for x in range(width):
-            gray_value = int(255 * (x / (width - 1)))
-            for y in range(height):
-                pixels[x, y] = (gray_value, gray_value, gray_value)
+        gray_values = [int(255 * (x / (width - 1))) for x in range(width)]
+        canvas.pixels[:, :] = np.array(gray_values, dtype=np.uint8)[:, np.newaxis]
 
-        return img
+        return canvas
 
-    def _generate_y_ramp_down(self, width: int, height: int) -> Image.Image:
+    def _generate_y_ramp_down(self, width: int, height: int) -> _Canvas:
         """Generate Y Ramp Down (horizontal gradient white to black)."""
-        img = Image.new("RGB", (width, height))
-        pixels = cast("Any", img.load())  # Image.load() never returns None for newly created images
+        canvas = _Canvas(width, height)
 
-        for x in range(width):
-            gray_value = int(255 * (1 - x / (width - 1)))
-            for y in range(height):
-                pixels[x, y] = (gray_value, gray_value, gray_value)
+        gray_values = [int(255 * (1 - x / (width - 1))) for x in range(width)]
+        canvas.pixels[:, :] = np.array(gray_values, dtype=np.uint8)[:, np.newaxis]
 
-        return img
+        return canvas
 
-    def _generate_vertical_ramp(self, width: int, height: int) -> Image.Image:
+    def _generate_vertical_ramp(self, width: int, height: int) -> _Canvas:
         """Generate Vertical Ramp (vertical gradient black to white)."""
-        img = Image.new("RGB", (width, height))
-        pixels = cast("Any", img.load())  # Image.load() never returns None for newly created images
+        canvas = _Canvas(width, height)
 
-        for y in range(height):
-            gray_value = int(255 * (y / (height - 1)))
-            for x in range(width):
-                pixels[x, y] = (gray_value, gray_value, gray_value)
+        gray_values = [int(255 * (y / (height - 1))) for y in range(height)]
+        canvas.pixels[:, :] = np.array(gray_values, dtype=np.uint8)[:, np.newaxis, np.newaxis]
 
-        return img
+        return canvas
 
-    def _generate_legal_chroma_ramp(self, width: int, height: int) -> Image.Image:
+    def _generate_legal_chroma_ramp(self, width: int, height: int) -> _Canvas:
         """Generate Legal Chroma Ramp."""
-        img = Image.new("RGB", (width, height))
-        pixels = cast("Any", img.load())  # Image.load() never returns None for newly created images
+        canvas = _Canvas(width, height)
 
+        column_colors = []
         for x in range(width):
             t = x / (width - 1)
             # Legal chroma range colors
@@ -717,36 +713,34 @@ class CreateColorBars(BaseNode):
                     255,
                     int(255 * (t - self.CHROMA_THRESHOLD_HIGH) * 3),
                 )
+            column_colors.append((r, g, b))
 
-            for y in range(height):
-                pixels[x, y] = (r, g, b)
+        canvas.pixels[:, :] = np.clip(column_colors, 0, 255).astype(np.uint8)
 
-        return img
+        return canvas
 
-    def _generate_full_chroma_ramp(self, width: int, height: int) -> Image.Image:
+    def _generate_full_chroma_ramp(self, width: int, height: int) -> _Canvas:
         """Generate Full Chroma Ramp."""
-        img = Image.new("RGB", (width, height))
-        pixels = cast("Any", img.load())  # Image.load() never returns None for newly created images
+        canvas = _Canvas(width, height)
 
+        column_colors = []
         for x in range(width):
             hue = (x / width) * 360
             # Convert HSV to RGB
             r, g, b = colorsys.hsv_to_rgb(hue / 360, 1.0, 1.0)
-            r, g, b = int(r * 255), int(g * 255), int(b * 255)
+            column_colors.append((int(r * 255), int(g * 255), int(b * 255)))
 
-            for y in range(height):
-                pixels[x, y] = (r, g, b)
+        canvas.pixels[:, :] = np.clip(column_colors, 0, 255).astype(np.uint8)
 
-        return img
+        return canvas
 
-    def _generate_chroma_ramp(self, width: int, height: int) -> Image.Image:
+    def _generate_chroma_ramp(self, width: int, height: int) -> _Canvas:
         """Generate Chroma Ramp (color spectrum)."""
         return self._generate_full_chroma_ramp(width, height)
 
-    def _generate_multi_burst(self, width: int, height: int) -> Image.Image:
+    def _generate_multi_burst(self, width: int, height: int) -> _Canvas:
         """Generate Multi Burst pattern."""
-        img = Image.new("RGB", (width, height), (128, 128, 128))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height, (128, 128, 128))
 
         # Vertical stripes with increasing frequency
         stripe_widths = [width // 4, width // 8, width // 16, width // 32]
@@ -755,10 +749,10 @@ class CreateColorBars(BaseNode):
         for stripe_width in stripe_widths:
             section_width = width // len(stripe_widths)
             for x in range(current_x, current_x + section_width, stripe_width * 2):
-                draw.rectangle([x, 0, min(x + stripe_width, current_x + section_width), height], fill=(0, 0, 0))
+                canvas.rectangle([x, 0, min(x + stripe_width, current_x + section_width), height], fill=(0, 0, 0))
             current_x += section_width
 
-        return img
+        return canvas
 
     def _generate_pluge(
         self,
@@ -767,7 +761,7 @@ class CreateColorBars(BaseNode):
         ire_setup: str = "NTSC 7.5 IRE",
         bar_count: int = 3,
         orientation: str = "vertical",
-    ) -> Image.Image:
+    ) -> _Canvas:
         """Generate PLUGE (Picture Line-up Generation Equipment) pattern for black level calibration.
 
         Based on 240p test suite specification. Used to adjust brightness/black level.
@@ -780,8 +774,7 @@ class CreateColorBars(BaseNode):
             bar_count: Number of bars to display (typically 3)
             orientation: Bar orientation ("vertical" or "horizontal")
         """
-        img = Image.new("RGB", (width, height), (0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height, (0, 0, 0))
 
         # Determine IRE values based on setup type
         if ire_setup == "PAL 0 IRE":
@@ -841,7 +834,7 @@ class CreateColorBars(BaseNode):
                 y2 = y1 + bar_height
                 x1 = center_x - bar_width // 2
                 x2 = center_x + bar_width // 2
-                draw.rectangle([x1, y1, x2, y2], fill=gray)
+                canvas.rectangle([x1, y1, x2, y2], fill=gray)
         else:
             # Vertical bars (default)
             bar_width = width // (bar_count + 3)  # Add spacing
@@ -854,14 +847,13 @@ class CreateColorBars(BaseNode):
             for i, gray in enumerate(bars):
                 x1 = start_x + i * bar_width
                 x2 = x1 + bar_width
-                draw.rectangle([x1, bar_y, x2, bar_y + bar_height], fill=gray)
+                canvas.rectangle([x1, bar_y, x2, bar_y + bar_height], fill=gray)
 
-        return img
+        return canvas
 
-    def _generate_bowtie(self, width: int, height: int) -> Image.Image:
+    def _generate_bowtie(self, width: int, height: int) -> _Canvas:
         """Generate Bowtie pattern."""
-        img = Image.new("RGB", (width, height), (128, 128, 128))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height, (128, 128, 128))
 
         center_x = width // 2
         stripe_width = width // 20
@@ -871,33 +863,31 @@ class CreateColorBars(BaseNode):
             distance_from_center = abs(x - center_x)
             stripe_freq = max(1, int(stripe_width * (1 + distance_from_center / center_x)))
             if (x // stripe_freq) % 2 == 0:
-                draw.rectangle([x, 0, x + 1, height], fill=(0, 0, 0))
+                canvas.rectangle([x, 0, x + 1, height], fill=(0, 0, 0))
 
-        return img
+        return canvas
 
-    def _generate_pathological_eg(self, width: int, height: int) -> Image.Image:
+    def _generate_pathological_eg(self, width: int, height: int) -> _Canvas:
         """Generate Pathological EG pattern."""
-        return Image.new("RGB", (width, height), (128, 0, 128))  # Purple
+        return _Canvas(width, height, (128, 0, 128))  # Purple
 
-    def _generate_pathological_pll(self, width: int, height: int) -> Image.Image:
+    def _generate_pathological_pll(self, width: int, height: int) -> _Canvas:
         """Generate Pathological PLL pattern."""
-        return Image.new("RGB", (width, height), (64, 64, 64))  # Dark gray
+        return _Canvas(width, height, (64, 64, 64))  # Dark gray
 
-    def _generate_pathological_eg_pll(self, width: int, height: int) -> Image.Image:
+    def _generate_pathological_eg_pll(self, width: int, height: int) -> _Canvas:
         """Generate Pathological EG/PLL pattern."""
-        img = Image.new("RGB", (width, height))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height)
 
         # Top half purple, bottom half dark gray
-        draw.rectangle([0, 0, width, height // 2], fill=(128, 0, 128))
-        draw.rectangle([0, height // 2, width, height], fill=(64, 64, 64))
+        canvas.rectangle([0, 0, width, height // 2], fill=(128, 0, 128))
+        canvas.rectangle([0, height // 2, width, height], fill=(64, 64, 64))
 
-        return img
+        return canvas
 
-    def _generate_av_delay_pattern_1(self, width: int, height: int) -> Image.Image:
+    def _generate_av_delay_pattern_1(self, width: int, height: int) -> _Canvas:
         """Generate AV Delay Pattern 1."""
-        img = self._generate_smpte_bars(width, height)
-        draw = ImageDraw.Draw(img)
+        canvas = self._generate_smpte_bars(width, height)
 
         # Add checkerboard on left
         bottom_y = int(height * 0.67)
@@ -909,51 +899,49 @@ class CreateColorBars(BaseNode):
                 x2 = x1 + checker_size
                 y2 = y1 + checker_size
                 if (row + col) % 2 == 0:
-                    draw.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
+                    canvas.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
                 else:
-                    draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
+                    canvas.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
 
         # Add red square in middle of bottom
         red_size = width // 10
         red_x = (width - red_size) // 2
         red_y = bottom_y + (height - bottom_y - red_size) // 2
-        draw.rectangle([red_x, red_y, red_x + red_size, red_y + red_size], fill=(255, 0, 0))
+        canvas.rectangle([red_x, red_y, red_x + red_size, red_y + red_size], fill=(255, 0, 0))
 
-        return img
+        return canvas
 
-    def _generate_av_delay_pattern_2(self, width: int, height: int) -> Image.Image:
+    def _generate_av_delay_pattern_2(self, width: int, height: int) -> _Canvas:
         """Generate AV Delay Pattern 2."""
-        img = Image.new("RGB", (width, height), (128, 128, 128))
-        draw = ImageDraw.Draw(img)
+        canvas = _Canvas(width, height, (128, 128, 128))
 
         # Horizontal white bar in middle
         bar_height = height // 20
         bar_y = (height - bar_height) // 2
-        draw.rectangle([0, bar_y, width, bar_y + bar_height], fill=(255, 255, 255))
+        canvas.rectangle([0, bar_y, width, bar_y + bar_height], fill=(255, 255, 255))
 
         # Black square on right end
         square_size = min(width // 10, height // 10)
         square_x = width - square_size - width // 20
         square_y = bar_y - (square_size - bar_height) // 2
-        draw.rectangle([square_x, square_y, square_x + square_size, square_y + square_size], fill=(0, 0, 0))
+        canvas.rectangle([square_x, square_y, square_x + square_size, square_y + square_size], fill=(0, 0, 0))
 
-        return img
+        return canvas
 
-    def _generate_bouncing_box(self, width: int, height: int) -> Image.Image:
+    def _generate_bouncing_box(self, width: int, height: int) -> _Canvas:
         """Generate Bouncing Box pattern."""
-        img = self._generate_smpte_bars(width, height)
-        draw = ImageDraw.Draw(img)
+        canvas = self._generate_smpte_bars(width, height)
 
         # Red square in bottom middle
         bottom_y = int(height * 0.67)
         box_size = min(width // 8, (height - bottom_y) // 2)
         box_x = (width - box_size) // 2
         box_y = bottom_y + (height - bottom_y - box_size) // 2
-        draw.rectangle([box_x, box_y, box_x + box_size, box_y + box_size], fill=(255, 0, 0))
+        canvas.rectangle([box_x, box_y, box_x + box_size, box_y + box_size], fill=(255, 0, 0))
 
-        return img
+        return canvas
 
-    def _generate_color_bars(self, bar_type: str, width: int, height: int) -> Image.Image:
+    def _generate_color_bars(self, bar_type: str, width: int, height: int) -> GriptapeImage:
         """Generate color bars based on the selected type."""
         # Validate dimensions
         width = max(1, int(width))
@@ -967,7 +955,7 @@ class CreateColorBars(BaseNode):
                 bar_count = self.PLUGE_DEFAULT_BAR_COUNT
             bar_count = max(self.PLUGE_MIN_BAR_COUNT, min(int(bar_count), self.PLUGE_MAX_BAR_COUNT))
             orientation = self.get_parameter_value("pluge_orientation") or "vertical"
-            return self._generate_pluge(width, height, ire_setup, bar_count, orientation)
+            return self._generate_pluge(width, height, ire_setup, bar_count, orientation).image()
 
         # Map bar types to generator methods
         generators = {
@@ -1012,11 +1000,9 @@ class CreateColorBars(BaseNode):
             "Bouncing Box": self._generate_bouncing_box,
         }
 
-        generator = generators.get(bar_type)
-        if generator:
-            return generator(width, height)
         # Default to SMPTE 219-100 Bars
-        return self._generate_smpte_219_100_bars(width, height)
+        generator = generators.get(bar_type) or self._generate_smpte_219_100_bars
+        return generator(width, height).image()
 
     def _generate_and_set_image(self) -> None:
         """Generate the color bars image and set it as output."""
@@ -1040,10 +1026,10 @@ class CreateColorBars(BaseNode):
             raise ValueError(msg)
 
         # Success path: Generate the color bars image
-        image_pil = self._generate_color_bars(bar_type, width, height)
+        image = self._generate_color_bars(bar_type, width, height)
 
         # Save the image and create URL artifact
-        image_bytes = image_to_bytes(image_pil, "PNG")
+        image_bytes = image_to_bytes(image, "PNG")
         dest = self._output_file.build_file()
         saved = dest.write_bytes(image_bytes)
         output_artifact = ImageUrlArtifact(saved.location)

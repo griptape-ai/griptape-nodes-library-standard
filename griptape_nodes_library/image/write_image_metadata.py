@@ -7,10 +7,10 @@ from griptape_nodes.drivers.image_metadata.image_metadata_driver_registry import
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
-from PIL import Image
 
-from griptape_nodes_library.utils.image_utils import load_pil_image_from_artifact
+from griptape_nodes_library.utils.image_utils import load_image_from_artifact
 
 # Image format to file extension mapping
 IMAGE_FORMAT_TO_EXTENSION = {
@@ -92,18 +92,18 @@ class WriteImageMetadataNode(SuccessFailureNode):
             # Validate metadata keys
             self._validate_metadata_keys(metadata_dict)
 
-            # Load PIL image
-            pil_image = load_pil_image_from_artifact(image, self.name)
+            # Load image
+            loaded_image = load_image_from_artifact(image, self.name, turn_upright=False)
 
             # Write metadata
-            image_bytes = self._write_metadata_to_image(pil_image, metadata_dict)
+            image_bytes = self._write_metadata_to_image(loaded_image, metadata_dict)
 
             # Save to storage
-            output_artifact = self._save_image_to_storage(image_bytes, pil_image)
+            output_artifact = self._save_image_to_storage(image_bytes, loaded_image)
 
             # Success
             self.parameter_output_values["output_image"] = output_artifact
-            success_msg = f"Successfully wrote {len(metadata_dict)} metadata entries to {pil_image.format} image"
+            success_msg = f"Successfully wrote {len(metadata_dict)} metadata entries to {loaded_image.format} image"
             self._set_status_results(was_successful=True, result_details=success_msg)
             logger.info(f"{self.name}: {success_msg}")
         except (TypeError, ValueError) as e:
@@ -160,11 +160,11 @@ class WriteImageMetadataNode(SuccessFailureNode):
             )
             raise ValueError(error_msg)
 
-    def _write_metadata_to_image(self, pil_image: Image.Image, metadata_dict: dict) -> bytes:
+    def _write_metadata_to_image(self, image: GriptapeImage, metadata_dict: dict) -> bytes:
         """Write metadata to image using appropriate driver.
 
         Args:
-            pil_image: PIL Image to write metadata to
+            image: Image to write metadata to
             metadata_dict: Metadata to write
 
         Returns:
@@ -175,30 +175,30 @@ class WriteImageMetadataNode(SuccessFailureNode):
             Exception: If metadata injection fails
         """
         # Check format is available
-        if not pil_image.format:
+        if not image.format:
             error_msg = "The image format could not be detected."
             raise ValueError(error_msg)
 
         # Get driver for this format
-        driver = ImageMetadataDriverRegistry.get_driver_for_format(pil_image.format)
+        driver = ImageMetadataDriverRegistry.get_driver_for_format(image.format)
         if driver is None:
-            error_msg = f"Unsupported format '{pil_image.format}'. Supported formats: PNG, JPEG, TIFF, MPO."
+            error_msg = f"Unsupported format '{image.format}'. Supported formats: PNG, JPEG, TIFF, MPO."
             raise ValueError(error_msg)
 
         # Write metadata using driver
         try:
-            return driver.inject_metadata(pil_image, metadata_dict)
+            return driver.inject_metadata(image, metadata_dict)
         except Exception as e:
             error_msg = f"{self.name}: Failed to write metadata: {e}"
             logger.warning(error_msg)
             raise
 
-    def _save_image_to_storage(self, image_bytes: bytes, pil_image: Image.Image) -> ImageUrlArtifact:
+    def _save_image_to_storage(self, image_bytes: bytes, image: GriptapeImage) -> ImageUrlArtifact:
         """Save image bytes to storage.
 
         Args:
             image_bytes: Image data to save (already contains the metadata we just wrote)
-            pil_image: PIL Image (for format detection)
+            image: Image (for format detection)
 
         Returns:
             ImageUrlArtifact with saved location

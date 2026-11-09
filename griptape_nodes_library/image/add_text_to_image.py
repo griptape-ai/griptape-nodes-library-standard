@@ -1,4 +1,3 @@
-from io import BytesIO
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
@@ -8,9 +7,9 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat, text_size
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
-from PIL import Image, ImageDraw, ImageFont
 
 from griptape_nodes_library.utils.color_utils import parse_color_to_rgba
 
@@ -189,35 +188,27 @@ class AddTextToImage(SuccessFailureNode):
         text_rgba: tuple[int, int, int, int],
         text: str,
         font_size: int,
-    ) -> Image.Image:
-        """Create image with text and return PIL Image."""
+    ) -> GriptapeImage:
+        """Create image with text and return it."""
         # Create image with background color
-        image = Image.new("RGB", (width, height), bg_rgba[:3])
-        draw = ImageDraw.Draw(image)
-
-        # Load font with specified size
-        try:
-            font = ImageFont.load_default(size=font_size)
-        except Exception as font_error:
-            msg = f"Failed to load font: {font_error}"
-            raise RuntimeError(msg) from font_error
+        image = GriptapeImage.new(width, height, bg_rgba[:3])
 
         # Draw text if not empty
         if text.strip():
-            # Get text positioning
+            # Trailing newlines would be measured as empty lines and push the text off center
+            text = text.rstrip("\n")
+            # Center the text box (the built-in font's box starts at the draw origin)
             try:
-                bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = bbox[2] - bbox[0]
-                text_height = bbox[3] - bbox[1]
-                x = (width - text_width) // 2
-                y = (height - text_height) // 2
+                box = text_size(text, font_size)
+                x = (width - box.width) // 2
+                y = (height - box.height) // 2
             except Exception as text_error:
                 msg = f"Failed to calculate text positioning: {text_error}"
                 raise RuntimeError(msg) from text_error
 
             # Draw text
             try:
-                draw.text((x, y), text, fill=text_rgba[:3], font=font)
+                image = GriptapeImagePipeline(image).draw_text(text, x, y, size=font_size, color=text_rgba[:3]).end()
             except Exception as draw_error:
                 msg = f"Failed to draw text: {draw_error}"
                 raise RuntimeError(msg) from draw_error
@@ -260,12 +251,10 @@ class AddTextToImage(SuccessFailureNode):
         self.parameter_output_values["font_size"] = 0
         self.parameter_output_values["image"] = None
 
-    def _upload_image_to_static_storage(self, image: Image.Image) -> ImageUrlArtifact:
-        """Save PIL Image to project file storage and return ImageUrlArtifact."""
-        # Convert PIL Image to PNG bytes in memory
-        img_bytes = BytesIO()
-        image.save(img_bytes, format="PNG")
-        img_data = img_bytes.getvalue()
+    def _upload_image_to_static_storage(self, image: GriptapeImage) -> ImageUrlArtifact:
+        """Save the image to project file storage and return ImageUrlArtifact."""
+        # Encode the image as PNG bytes in memory
+        img_data = image.encode(ImageFormat.PNG)
 
         dest = self._output_file.build_file()
         saved = dest.write_bytes(img_data)

@@ -1,8 +1,8 @@
-import io
 from enum import StrEnum
 from functools import partial
 from typing import Any
 
+import numpy as np
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
@@ -10,16 +10,20 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, PixelType, ResizeFilter
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     composite_over,
+    converted,
     dict_to_image_url_artifact,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
+    open_image_bytes,
+    pixels_of,
     scale_alpha,
     unpremultiply_rgba,
 )
@@ -53,6 +57,26 @@ BACKGROUND_COLORS = {
     Background.WHITE: (255, 255, 255, 255),
     Background.BLACK: (0, 0, 0, 255),
 }
+
+_RGBA_CHANNELS = 4
+
+
+def _tiled(size: tuple[int, int], tiles: list[tuple[GriptapeImage, tuple[int, int]]]) -> GriptapeImage:
+    """Place each tile's RGBA pixels at its position on a transparent canvas, replacing what's beneath.
+
+    Pixels are copied as they are, alpha included, so a transparent tile region keeps its RGB.
+    Parts of a tile outside the canvas are cut off.
+    """
+    width, height = size
+    canvas = np.zeros((height, width, _RGBA_CHANNELS), dtype=np.uint8)
+    for tile, (x, y) in tiles:
+        pixels = pixels_of(tile, ImageMode.RGBA)
+        left, top = max(x, 0), max(y, 0)
+        right, bottom = min(x + tile.width, width), min(y + tile.height, height)
+        if right <= left or bottom <= top:
+            continue
+        canvas[top:bottom, left:right] = pixels[top - y : bottom - y, left - x : right - x]
+    return GriptapeImage.from_array(canvas)
 
 
 class MergeImages(ControlNode):
@@ -155,21 +179,22 @@ class MergeImages(ControlNode):
             return images[:4]  # Enforce max 4
         return []
 
-    def _convert_to_pil_image(self, img: Any) -> Image.Image:
-        """Convert various image types to PIL Image."""
+    def _convert_to_image(self, img: Any) -> GriptapeImage:
+        """Convert various image types to a GriptapeImage."""
         if isinstance(img, dict):
             img = dict_to_image_url_artifact(img)
         if isinstance(img, ImageArtifact):
             # ImageArtifact has base64 data
-            img = Image.open(io.BytesIO(img.to_bytes()))
+            img = open_image_bytes(img.to_bytes())
         elif isinstance(img, ImageUrlArtifact):
-            # Use load_pil_from_url so macro paths (e.g. "{inputs}/x.png") resolve via File.
-            img = load_pil_from_url(img.value)
+            # Use load_image_from_url so macro paths (e.g. "{inputs}/x.png") resolve via File.
+            img = load_image_from_url(img.value)
         return img
 
-    def _prepare_image(self, img: Image.Image, alpha_convention: AlphaConvention) -> Image.Image:
-        """Bring an input image into RGBA straight alpha, the space every layout works in."""
-        rgba = img if img.mode == "RGBA" else img.convert("RGBA")
+    def _prepare_image(self, img: GriptapeImage, alpha_convention: AlphaConvention) -> GriptapeImage:
+        """Bring an input image into 8-bit RGBA straight alpha, the space every layout works in."""
+        is_rgba = img.channels == _RGBA_CHANNELS and img.pixel_type == PixelType.UINT8
+        rgba = img if is_rgba else converted(img, ImageMode.RGBA)
         match alpha_convention:
             case AlphaConvention.STRAIGHT:
                 return rgba
@@ -179,7 +204,7 @@ class MergeImages(ControlNode):
                 msg = f"Unknown alpha convention: {alpha_convention!r}"
                 raise ValueError(msg)
 
-    def _resize_image(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    def _resize_image(self, img: GriptapeImage, target_width: int, target_height: int) -> GriptapeImage:
         """Resize image while preserving aspect ratio."""
         img_ratio = img.width / img.height
         target_ratio = target_width / target_height
@@ -191,37 +216,37 @@ class MergeImages(ControlNode):
             new_height = target_height
             new_width = int(target_height * img_ratio)
 
-        # Pillow premultiplies RGBA internally while resampling, so soft edges don't pick
+        # The resize premultiplies RGBA internally while resampling, so soft edges don't pick
         # up colour from transparent pixels.
-        return img.resize((max(new_width, 1), max(new_height, 1)), Image.Resampling.LANCZOS)
+        return GriptapeImagePipeline(img).resize(max(new_width, 1), max(new_height, 1), ResizeFilter.LANCZOS).end()
 
-    def _process_horizontal_layout(self, images: list[Image.Image]) -> Image.Image:
+    def _process_horizontal_layout(self, images: list[GriptapeImage]) -> GriptapeImage:
         # Resize all images to the same height (max height), preserving aspect ratio
         max_height = max(img.height for img in images)
         resized_images = [
             self._resize_image(img, int(img.width * max_height / img.height), max_height) for img in images
         ]
         total_width = sum(img.width for img in resized_images)
-        merged = Image.new("RGBA", (total_width, max_height), (0, 0, 0, 0))
+        tiles = []
         x_offset = 0
         for img in resized_images:
-            merged.paste(img, (x_offset, 0))
+            tiles.append((img, (x_offset, 0)))
             x_offset += img.width
-        return merged
+        return _tiled((total_width, max_height), tiles)
 
-    def _process_vertical_layout(self, images: list[Image.Image]) -> Image.Image:
+    def _process_vertical_layout(self, images: list[GriptapeImage]) -> GriptapeImage:
         # Resize all images to the same width (max width), preserving aspect ratio
         max_width = max(img.width for img in images)
         resized_images = [self._resize_image(img, max_width, int(img.height * max_width / img.width)) for img in images]
         total_height = sum(img.height for img in resized_images)
-        merged = Image.new("RGBA", (max_width, total_height), (0, 0, 0, 0))
+        tiles = []
         y_offset = 0
         for img in resized_images:
-            merged.paste(img, (0, y_offset))
+            tiles.append((img, (0, y_offset)))
             y_offset += img.height
-        return merged
+        return _tiled((max_width, total_height), tiles)
 
-    def _process_grid_layout(self, images: list[Image.Image]) -> Image.Image:
+    def _process_grid_layout(self, images: list[GriptapeImage]) -> GriptapeImage:
         n_images = len(images)
         columns = n_images if n_images <= self.MAX_COLUMNS else 2
         rows = (n_images + columns - 1) // columns
@@ -229,26 +254,25 @@ class MergeImages(ControlNode):
         cell_width = int(sum(img.width for img in images) / n_images)
         cell_height = int(sum(img.height for img in images) / n_images)
 
-        merged = Image.new("RGBA", (cell_width * columns, cell_height * rows), (0, 0, 0, 0))
-
+        tiles = []
         for idx, img in enumerate(images):
             row = idx // columns
             col = idx % columns
             resized_img = self._resize_image(img, cell_width, cell_height)
             x_offset = col * cell_width + (cell_width - resized_img.width) // 2
             y_offset = row * cell_height + (cell_height - resized_img.height) // 2
-            merged.paste(resized_img, (x_offset, y_offset))
+            tiles.append((resized_img, (x_offset, y_offset)))
 
-        return merged
+        return _tiled((cell_width * columns, cell_height * rows), tiles)
 
-    def _process_composite_layout(self, images: list[Image.Image]) -> Image.Image:
+    def _process_composite_layout(self, images: list[GriptapeImage]) -> GriptapeImage:
         if not images:
             msg = "No images provided for composite layout"
             raise ValueError(msg)
         # Reverse the order so the last image is at the bottom (like a stack)
         reversed_images = list(reversed(images))
-        base = reversed_images[0].copy()
-        base_width, base_height = base.size
+        base = reversed_images[0]
+        base_width, base_height = base.width, base.height
         for img in reversed_images[1:]:
             resized_overlay = self._resize_image(img, base_width, base_height)
             # Center the overlay on the base
@@ -257,19 +281,19 @@ class MergeImages(ControlNode):
             base = composite_over(base, resized_overlay, (x_offset, y_offset))
         return base
 
-    def _apply_background(self, merged: Image.Image, background: Background) -> Image.Image:
+    def _apply_background(self, merged: GriptapeImage, background: Background) -> GriptapeImage:
         """Flatten the merged result onto a solid background, or leave its alpha intact."""
         match background:
             case Background.TRANSPARENT:
                 return merged
             case Background.WHITE | Background.BLACK:
-                canvas = Image.new("RGBA", merged.size, BACKGROUND_COLORS[background])
-                return Image.alpha_composite(canvas, merged).convert("RGB")
+                red, green, blue, _ = BACKGROUND_COLORS[background]
+                return GriptapeImagePipeline(merged).flatten((red, green, blue)).end()
             case _:
                 msg = f"Unknown background: {background!r}"
                 raise ValueError(msg)
 
-    def _merge(self, images: list[Image.Image], layout: Layout) -> Image.Image:
+    def _merge(self, images: list[GriptapeImage], layout: Layout) -> GriptapeImage:
         match layout:
             case Layout.HORIZONTAL:
                 return self._process_horizontal_layout(images)
@@ -283,7 +307,7 @@ class MergeImages(ControlNode):
                 msg = f"Unknown layout: {layout!r}"
                 raise ValueError(msg)
 
-    def _apply_opacity(self, images: list[Image.Image], opacity: float, layout: Layout) -> list[Image.Image]:
+    def _apply_opacity(self, images: list[GriptapeImage], opacity: float, layout: Layout) -> list[GriptapeImage]:
         """Fade the images opacity applies to for this layout.
 
         A stack needs something to show through to, so the bottom of a composite keeps
@@ -300,7 +324,7 @@ class MergeImages(ControlNode):
         self.parameter_output_values["output"] = None
         alpha_convention = AlphaConvention(self.get_parameter_value("input_alpha"))
         images = [
-            self._prepare_image(self._convert_to_pil_image(img), alpha_convention)
+            self._prepare_image(self._convert_to_image(img), alpha_convention)
             for img in self.get_images()
             if img is not None
         ]

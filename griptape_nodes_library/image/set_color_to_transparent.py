@@ -13,16 +13,18 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.image import GriptapeImage
 from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
-from PIL import Image
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
     apply_mask_transformations,
     dict_to_image_url_artifact,
     image_to_bytes,
-    load_pil_from_url,
+    load_image_from_url,
     parse_hex_color,
+    pixels_of,
 )
 
 
@@ -137,7 +139,7 @@ class SetColorToTransparent(DataNode):
         """Process the image and replace the target color with transparency."""
         try:
             # Load image
-            image_pil = load_pil_from_url(image_artifact.value)
+            image = load_image_from_url(image_artifact.value)
 
             # Get parameters
             color_hex = self.get_parameter_value("color") or "#00ff00"
@@ -150,12 +152,8 @@ class SetColorToTransparent(DataNode):
             # Parse the hex color to RGB
             target_rgb = parse_hex_color(color_hex)
 
-            # Convert image to RGBA
-            if image_pil.mode != "RGBA":
-                image_pil = image_pil.convert("RGBA")
-
-            # Convert to numpy array for efficient processing
-            img_array = np.array(image_pil, dtype=np.float32)
+            # Convert image to RGBA, as a float array for efficient processing
+            img_array = pixels_of(image, ImageMode.RGBA).astype(np.float32)
 
             # Extract RGB channels (ignore alpha for color matching)
             rgb_array = img_array[:, :, :3]
@@ -170,12 +168,12 @@ class SetColorToTransparent(DataNode):
             # Create a mask where matching pixels are black (0) and non-matching are white (255)
             # This represents the alpha channel: 0 = transparent, 255 = opaque
             mask_array = np.where(within_tolerance, 0, 255).astype(np.uint8)
-            mask_pil = Image.fromarray(mask_array, mode="L")
+            mask = GriptapeImage.from_array(mask_array)
 
             # Apply grow/shrink and blur transformations to the mask
             if grow_shrink != 0 or blur_edges != 0:
-                mask_pil = apply_mask_transformations(
-                    mask_pil,
+                mask = apply_mask_transformations(
+                    mask,
                     grow_shrink=grow_shrink,
                     invert=False,
                     blur_radius=blur_edges,
@@ -183,7 +181,7 @@ class SetColorToTransparent(DataNode):
                 )
 
             # Convert mask back to numpy array
-            transformed_mask = np.array(mask_pil, dtype=np.float32)
+            transformed_mask = mask.to_array()[:, :, 0].astype(np.float32)
 
             # Combine with original alpha: take minimum of original alpha and transformed mask
             # This preserves any existing transparency while adding new transparent areas
@@ -193,8 +191,8 @@ class SetColorToTransparent(DataNode):
             # Update alpha channel
             img_array[:, :, 3] = new_alpha
 
-            # Convert back to PIL Image
-            result_image = Image.fromarray(img_array.astype(np.uint8), mode="RGBA")
+            # Replace the image's pixels, keeping its metadata
+            result_image = GriptapeImage.from_array(img_array.astype(np.uint8), metadata=image.metadata)
 
             # Save output image as PNG
             image_bytes = image_to_bytes(result_image, "PNG")

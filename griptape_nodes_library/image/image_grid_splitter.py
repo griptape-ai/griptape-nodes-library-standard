@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from io import BytesIO
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -16,17 +15,29 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat, PixelType, ResizeFilter
 from griptape_nodes.retained_mode.events.parameter_events import RemoveParameterFromNodeRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils import async_utils
-from PIL import Image, ImageDraw, ImageFilter
 
 from griptape_nodes_library.utils.image_utils import (
+    ImageMode,
+    converted,
     dict_to_image_url_artifact,
-    load_pil_from_url,
+    load_image_from_url,
+    open_image_bytes,
+    pixels_of,
 )
+
+
+def _encode_jpeg(image: GriptapeImage) -> bytes:
+    """Encode as JPEG with the source's EXIF and color profile.
+
+    JPEG has no place for text, so it is left out here rather than warned about for every cell.
+    """
+    return image.encode(ImageFormat.JPEG, metadata=replace(image.metadata, text={}))
 
 
 @dataclass
@@ -253,20 +264,18 @@ class ImageGridSplitter(DataNode):
         self.parameter_output_values["images"] = []
         self.parameter_output_values["preview"] = None
 
-        pil_image = await async_utils.to_thread(self._load_input_as_pil)
-        if pil_image is None:
+        image = await async_utils.to_thread(self._load_input_as_image)
+        if image is None:
             return
 
-        rows, cols = self._get_effective_grid(pil_image)
+        rows, cols = self._get_effective_grid(image)
         self._publish_detected(rows, cols)
 
-        preview, cell_images = await async_utils.to_thread(self._compute_preview_and_cells, pil_image, rows, cols)
+        preview, cell_images = await async_utils.to_thread(self._compute_preview_and_cells, image, rows, cols)
 
         # Save and publish preview on the main thread.
-        preview_buffer = BytesIO()
-        preview.save(preview_buffer, format="JPEG")
         dest = self._preview_file.build_file()
-        saved = await dest.awrite_bytes(preview_buffer.getvalue())
+        saved = await dest.awrite_bytes(_encode_jpeg(preview))
         preview_artifact = ImageUrlArtifact(saved.location)
         self.parameter_output_values["preview"] = preview_artifact
 
@@ -278,11 +287,9 @@ class ImageGridSplitter(DataNode):
             for c_idx in range(cols):
                 cell = cell_images[r_idx][c_idx]
                 cell_name = f"r{r_idx + 1}c{c_idx + 1}"
-                cell_buffer = BytesIO()
-                cell.save(cell_buffer, format="JPEG")
                 self.set_parameter_value("cell_file", f"{cell_name}.jpg")
                 cell_dest = self._cell_file.build_file()
-                cell_saved = await cell_dest.awrite_bytes(cell_buffer.getvalue())
+                cell_saved = await cell_dest.awrite_bytes(_encode_jpeg(cell))
                 cell_artifact = ImageUrlArtifact(cell_saved.location)
                 outputs.append(cell_artifact)
                 self.parameter_output_values[cell_name] = cell_artifact
@@ -290,18 +297,18 @@ class ImageGridSplitter(DataNode):
         self.parameter_output_values["images"] = outputs
 
     def _compute_preview_and_cells(
-        self, pil_image: Image.Image, rows: int, cols: int
-    ) -> tuple[Image.Image, list[list[Image.Image]]]:
+        self, image: GriptapeImage, rows: int, cols: int
+    ) -> tuple[GriptapeImage, list[list[GriptapeImage]]]:
         # Always update preview on run (even if it was already up to date).
-        preview = self._draw_preview(pil_image, rows, cols)
-        cell_images = self._split_grid(pil_image, rows, cols)
+        preview = self._draw_preview(image, rows, cols)
+        cell_images = self._split_grid(image, rows, cols)
         return preview, cell_images
 
     # -------------------------
     # Input + preview helpers
     # -------------------------
 
-    def _load_input_as_pil(self) -> Image.Image | None:
+    def _load_input_as_image(self) -> GriptapeImage | None:
         value = self.get_parameter_value("input_image")
         if value is None:
             return None
@@ -310,37 +317,35 @@ class ImageGridSplitter(DataNode):
             value = dict_to_image_url_artifact(value)
 
         if isinstance(value, ImageUrlArtifact):
-            img = load_pil_from_url(value.value)
+            img = load_image_from_url(value.value)
             return self._ensure_rgb(img)
 
         if isinstance(value, ImageArtifact):
-            img = Image.open(BytesIO(value.to_bytes()))
+            img = open_image_bytes(value.to_bytes())
             return self._ensure_rgb(img)
 
         if isinstance(value, str):
-            img = load_pil_from_url(value)
+            img = load_image_from_url(value)
             return self._ensure_rgb(img)
 
         msg = f"Unsupported input_image type: {type(value).__name__}"
         raise ValueError(msg)
 
     def _refresh_preview(self) -> None:
-        pil_image = self._load_input_as_pil()
-        if pil_image is None:
+        image = self._load_input_as_image()
+        if image is None:
             self.parameter_output_values["preview"] = None
             self.parameter_output_values["detected_rows"] = None
             self.parameter_output_values["detected_cols"] = None
             self.parameter_output_values["detected_count"] = None
             return
 
-        rows, cols = self._get_effective_grid(pil_image)
+        rows, cols = self._get_effective_grid(image)
         self._publish_detected(rows, cols)
 
-        preview = self._draw_preview(pil_image, rows, cols)
-        preview_buffer = BytesIO()
-        preview.save(preview_buffer, format="JPEG")
+        preview = self._draw_preview(image, rows, cols)
         dest = self._preview_file.build_file()
-        saved = dest.write_bytes(preview_buffer.getvalue())
+        saved = dest.write_bytes(_encode_jpeg(preview))
         preview_artifact = ImageUrlArtifact(saved.location)
 
         self.parameter_output_values["preview"] = preview_artifact
@@ -356,14 +361,14 @@ class ImageGridSplitter(DataNode):
         self.publish_update_to_parameter("detected_cols", cols)
         self.publish_update_to_parameter("detected_count", count)
 
-    def _get_effective_grid(self, pil_image: Image.Image) -> tuple[int, int]:
+    def _get_effective_grid(self, image: GriptapeImage) -> tuple[int, int]:
         mode = self.get_parameter_value("grid_detection_mode") or "auto"
         if mode == "manual":
             rows = self._clamp_grid_int(self.get_parameter_value("rows"), default=2)
             cols = self._clamp_grid_int(self.get_parameter_value("cols"), default=2)
             return rows, cols
 
-        rows, cols = self._detect_grid_auto(pil_image)
+        rows, cols = self._detect_grid_auto(image)
         return rows, cols
 
     def _clamp_grid_int(self, value: Any, *, default: int) -> int:
@@ -382,13 +387,13 @@ class ImageGridSplitter(DataNode):
     # Auto detection (regular grid)
     # -------------------------
 
-    def _detect_grid_auto(self, pil_image: Image.Image) -> tuple[int, int]:
-        gray = pil_image.convert("L")
+    def _detect_grid_auto(self, image: GriptapeImage) -> tuple[int, int]:
+        gray = converted(image, ImageMode.GRAY)
         gray = self._downscale_for_detection(gray, max_dim=768)
 
         # Edges are usually more informative than raw luminance for boundary scoring.
-        edges = gray.filter(ImageFilter.FIND_EDGES)
-        arr = np.asarray(edges, dtype=np.float32)
+        edges = GriptapeImagePipeline(gray).find_edges().end()
+        arr = edges.to_array()[:, :, 0].astype(np.float32)
 
         grad_x = np.abs(arr[:, 1:] - arr[:, :-1])
         grad_y = np.abs(arr[1:, :] - arr[:-1, :])
@@ -398,17 +403,17 @@ class ImageGridSplitter(DataNode):
 
         return rows, cols
 
-    def _downscale_for_detection(self, pil_image: Image.Image, *, max_dim: int) -> Image.Image:
-        w, h = pil_image.size
+    def _downscale_for_detection(self, image: GriptapeImage, *, max_dim: int) -> GriptapeImage:
+        w, h = image.width, image.height
         if w <= 0 or h <= 0:
-            return pil_image
+            return image
         if max(w, h) <= max_dim:
-            return pil_image
+            return image
 
         scale = max_dim / max(w, h)
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
-        return pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        return GriptapeImagePipeline(image).resize(new_w, new_h, ResizeFilter.LANCZOS).end()
 
     def _pick_axis_count(self, grad: np.ndarray, *, axis_length: int, axis: str) -> int:
         """Pick the most likely grid count along one axis.
@@ -492,29 +497,29 @@ class ImageGridSplitter(DataNode):
     # Preview drawing + splitting
     # -------------------------
 
-    def _draw_preview(self, pil_image: Image.Image, rows: int, cols: int) -> Image.Image:
-        img = self._ensure_rgb(pil_image).copy()
-        draw = ImageDraw.Draw(img)
+    def _draw_preview(self, image: GriptapeImage, rows: int, cols: int) -> GriptapeImage:
+        img = self._ensure_rgb(image)
+        pixels = pixels_of(img, ImageMode.RGB).copy()
 
-        w, h = img.size
+        w, h = img.width, img.height
         color = (255, 255, 0)
         width = 2
 
         # Vertical boundaries
         for c in range(1, cols):
             x = round(c * w / cols)
-            self._draw_dotted_line(draw, (x, 0), (x, h - 1), color=color, width=width)
+            self._draw_dotted_line(pixels, (x, 0), (x, h - 1), color=color, width=width)
 
         # Horizontal boundaries
         for r in range(1, rows):
             y = round(r * h / rows)
-            self._draw_dotted_line(draw, (0, y), (w - 1, y), color=color, width=width)
+            self._draw_dotted_line(pixels, (0, y), (w - 1, y), color=color, width=width)
 
-        return img
+        return GriptapeImage.from_array(pixels, metadata=img.metadata)
 
     def _draw_dotted_line(  # noqa: PLR0913
         self,
-        draw: ImageDraw.ImageDraw,
+        pixels: np.ndarray,
         start: tuple[int, int],
         end: tuple[int, int],
         *,
@@ -532,7 +537,7 @@ class ImageGridSplitter(DataNode):
             y_end = max(y0, y1)
             while y < y_end:
                 seg_end = min(y + dash_len, y_end)
-                draw.line([(x0, y), (x1, seg_end)], fill=color, width=width)
+                self._fill_box(pixels, (x0, y, x0 + width, seg_end + 1), color)
                 y = seg_end + gap_len
             return
 
@@ -542,16 +547,31 @@ class ImageGridSplitter(DataNode):
             x_end = max(x0, x1)
             while x < x_end:
                 seg_end = min(x + dash_len, x_end)
-                draw.line([(x, y0), (seg_end, y1)], fill=color, width=width)
+                self._fill_box(pixels, (x, y0, seg_end + 1, y0 + width), color)
                 x = seg_end + gap_len
             return
 
         # Fallback: solid line for non-axis-aligned (shouldn't happen here).
-        draw.line([start, end], fill=color, width=width)
+        with GriptapeImage.from_array(pixels) as canvas:
+            line = GriptapeImagePipeline(canvas).draw_line(x0, y0, x1, y1, color=color, width=width).end()
+        pixels[:, :] = line.to_array()
 
-    def _split_grid(self, pil_image: Image.Image, rows: int, cols: int) -> list[list[Image.Image]]:
-        img = self._ensure_rgb(pil_image)
-        w, h = img.size
+    def _fill_box(self, pixels: np.ndarray, box: tuple[int, int, int, int], color: tuple[int, int, int]) -> None:
+        """Fill ``box`` (left, top, right, bottom; right and bottom excluded) in ``pixels``, clipped to the image.
+
+        A dash is drawn as the pixels a Pillow line covered at this width: the line's own
+        row or column and the ones after it, and both end points.
+        """
+        left, top, right, bottom = box
+        height, width = pixels.shape[:2]
+        left, top = max(left, 0), max(top, 0)
+        right, bottom = min(right, width), min(bottom, height)
+        if right > left and bottom > top:
+            pixels[top:bottom, left:right] = color
+
+    def _split_grid(self, image: GriptapeImage, rows: int, cols: int) -> list[list[GriptapeImage]]:
+        img = self._ensure_rgb(image)
+        w, h = img.width, img.height
 
         x_bounds = [round(i * w / cols) for i in range(cols + 1)]
         y_bounds = [round(i * h / rows) for i in range(rows + 1)]
@@ -561,9 +581,9 @@ class ImageGridSplitter(DataNode):
         x_starts, x_ends, y_starts, y_ends, gap_colors = self._compute_gap_trimmed_bounds(img, x_bounds, y_bounds)
         self._last_gap_strip_colors = gap_colors
 
-        grid: list[list[Image.Image]] = []
+        grid: list[list[GriptapeImage]] = []
         for r in range(rows):
-            row_imgs: list[Image.Image] = []
+            row_imgs: list[GriptapeImage] = []
             y0 = y_starts[r]
             y1 = y_ends[r]
             if y1 <= y0:
@@ -573,7 +593,7 @@ class ImageGridSplitter(DataNode):
                 x1 = x_ends[c]
                 if x1 <= x0:
                     x1 = min(w, x0 + 1)
-                cell = img.crop((x0, y0, x1, y1))
+                cell = self._crop(img, (x0, y0, x1, y1))
                 cell = self._trim_uniform_edge_strips(cell)
                 row_imgs.append(cell)
             grid.append(row_imgs)
@@ -581,7 +601,7 @@ class ImageGridSplitter(DataNode):
 
     def _compute_gap_trimmed_bounds(
         self,
-        img: Image.Image,
+        img: GriptapeImage,
         x_bounds: list[int],
         y_bounds: list[int],
     ) -> tuple[list[int], list[int], list[int], list[int], list[np.ndarray]]:
@@ -590,7 +610,7 @@ class ImageGridSplitter(DataNode):
         This looks for low-variance vertical/horizontal stripes near each internal boundary. When found,
         the stripe is removed from both adjacent cells so output images do not include visible borders.
         """
-        arr = np.asarray(img, dtype=np.float32)
+        arr = img.to_array().astype(np.float32)
         if arr.ndim != self._RGB_CHANNELS or arr.shape[2] < self._RGB_CHANNELS:
             cols = len(x_bounds) - 1
             rows = len(y_bounds) - 1
@@ -807,7 +827,7 @@ class ImageGridSplitter(DataNode):
 
         return best_seg
 
-    def _trim_uniform_edge_strips(self, cell: Image.Image) -> Image.Image:
+    def _trim_uniform_edge_strips(self, cell: GriptapeImage) -> GriptapeImage:
         """Trim uniform edge strips from a cell.
 
         Some grids have divider pixels that are not perfectly detected as a contiguous gap band.
@@ -817,7 +837,7 @@ class ImageGridSplitter(DataNode):
         if cell.width <= 1 or cell.height <= 1:
             return cell
 
-        arr = np.asarray(cell, dtype=np.float32)
+        arr = cell.to_array().astype(np.float32)
         if arr.ndim != self._RGB_CHANNELS or arr.shape[2] < self._RGB_CHANNELS:
             return cell
 
@@ -835,14 +855,14 @@ class ImageGridSplitter(DataNode):
         if bounds.right <= bounds.left or bounds.bottom <= bounds.top:
             return cell
 
-        cropped = cell.crop((bounds.left, bounds.top, bounds.right, bounds.bottom))
+        cropped = self._crop(cell, (bounds.left, bounds.top, bounds.right, bounds.bottom))
 
         # Final safety net: if we detected divider colors for this split, trim a tiny inset on all
         # sides to remove residual divider pixels that are not a clean stripe (e.g., dotted/aliased).
         if getattr(self, "_last_gap_strip_colors", []):
             inset = self._CELL_INSET_PX_ON_GAPS
             if cropped.width > (inset * 2 + 1) and cropped.height > (inset * 2 + 1):
-                return cropped.crop((inset, inset, cropped.width - inset, cropped.height - inset))
+                return self._crop(cropped, (inset, inset, cropped.width - inset, cropped.height - inset))
 
         return cropped
 
@@ -931,10 +951,14 @@ class ImageGridSplitter(DataNode):
             trimmed += 1
         return bounds.right
 
-    def _ensure_rgb(self, pil_image: Image.Image) -> Image.Image:
-        if pil_image.mode == "RGB":
-            return pil_image
-        return pil_image.convert("RGB")
+    def _ensure_rgb(self, image: GriptapeImage) -> GriptapeImage:
+        if image.channels == self._RGB_CHANNELS and image.pixel_type == PixelType.UINT8:
+            return image
+        return converted(image, ImageMode.RGB)
+
+    def _crop(self, image: GriptapeImage, box: tuple[int, int, int, int]) -> GriptapeImage:
+        left, top, right, bottom = box
+        return GriptapeImagePipeline(image).crop(left, top, right, bottom).end()
 
     def _set_group_visible(self, group_name: str, *, visible: bool) -> None:
         group = self.get_group_by_name_or_element_id(group_name)
