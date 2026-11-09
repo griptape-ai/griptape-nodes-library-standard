@@ -46,7 +46,12 @@ DEFAULT_MAX_TOTAL_BYTES = 32 * 1024**3
 DEFAULT_MAX_MEMBER_BYTES = 512 * 1024**2
 
 # LTX `output_colorspace` value -> OCIO colour space name, for OCIOColorParameters.source_colorspace.
-# Names follow the ACES studio config; other OCIO configs may name these differently.
+#
+# These names follow the ACES studio config. Another OCIO config may name the same spaces
+# differently, and then the name sent to OCIOColorParameters will not match a space in that
+# config. This table does not read the config's roles or mappings, so a studio that names them
+# differently has to map them itself. `ocio_colour_space_name` passes an unknown value through
+# unchanged, so a value that is already a name from the studio's own config is used as written.
 OCIO_COLOUR_SPACE_NAMES: dict[str, str] = {
     "acescg": "ACEScg",
     "acescct": "ACEScct",
