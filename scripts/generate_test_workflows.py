@@ -280,6 +280,28 @@ ADVANCED_CONFIGS = [
     },
     {
         "template": "video_input",
+        "node_type": "LTXVideoReframe",
+        "video_in": "video",
+        "output_param": "video_url",
+        "suffix": "ltx_video_reframe_anchor",
+        "set_params": {"resolution": "1080x1920", "placement_mode": "anchor", "anchor": "top"},
+    },
+    {
+        "template": "video_input",
+        "node_type": "LTXVideoReframe",
+        "video_in": "video",
+        "output_param": "video_url",
+        "suffix": "ltx_video_reframe_rectangle",
+        "set_params": {
+            "resolution": "1080x1920",
+            "placement_mode": "rectangle",
+            "x": 0.0,
+            "y": 0.35,
+            "width": 1.0,
+        },
+    },
+    {
+        "template": "video_input",
         "node_type": "ResizeVideo",
         "video_in": "video",
         "output_param": "resized_video",
@@ -734,8 +756,10 @@ def _body_video_input(cfg: dict) -> str:
         _common_utility_nodes(),
         _set_param("ltx_node", "prompt", "A ball bouncing"),
         _connect("ltx_node", "video_url", "gen_node", video_in),
-        _tail_connections(output_param),
     ]
+    if cfg.get("set_params"):
+        parts.append(_set_params("gen_node", cfg["set_params"]))
+    parts.append(_tail_connections(output_param))
     return "\n".join(parts)
 
 

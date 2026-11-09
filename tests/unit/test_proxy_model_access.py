@@ -32,6 +32,8 @@ from griptape_nodes_library.image.seedream_image_generation import SeedreamImage
 from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.video.wan_text_to_video_generation import WanTextToVideoGeneration
 
+pytestmark = pytest.mark.usefixtures("open_workflow")
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 

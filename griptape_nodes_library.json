@@ -39,7 +39,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.90.1",
-    "engine_version": "0.106.0",
+    "engine_version": "0.107.0",
     "tags": [
       "Griptape",
       "AI"
@@ -1004,6 +1004,12 @@
                 "family": "LTX",
                 "provider_model_id": "ltx-2-5-fast",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_reframe": {
+                "display_name": "LTX Video Reframe",
+                "family": "LTX",
+                "provider_model_id": "ltx",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -1751,6 +1757,21 @@
         "category": "lists",
         "description": "Takes two lists and combines them into a single flattened list.",
         "display_name": "Combine Lists",
+        "group": "merge",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
+      }
+    },
+    {
+      "class_name": "FlattenList",
+      "file_path": "griptape_nodes_library/lists/flatten_list.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Takes a list of nested lists and flattens it into a single list.",
+        "display_name": "Flatten List",
         "group": "merge",
         "tags": [
           "list",
@@ -3032,6 +3053,34 @@
             "model_ids": [
               "gtc_ltx_2_pro",
               "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "LTXVideoReframe",
+      "file_path": "griptape_nodes_library/video/ltx_video_reframe.py",
+      "metadata": {
+        "category": "video",
+        "description": "Reframe a video to a new resolution or aspect ratio using LTX AI models via Griptape Cloud model proxy.",
+        "display_name": "LTX Video Reframe",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "reframe",
+          "aspect ratio",
+          "outpaint",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_reframe"
             ]
           }
         ]
@@ -7318,6 +7367,23 @@
           "file",
           "text",
           "pdf"
+        ]
+      }
+    },
+    {
+      "class_name": "ExtractPdfImages",
+      "file_path": "griptape_nodes_library/files/extract_pdf_images.py",
+      "metadata": {
+        "category": "files",
+        "description": "Extract the images embedded in a PDF, such as the pages of a scanned document, at their stored resolution, with an option to rotate them.",
+        "display_name": "Extract PDF Images",
+        "icon": "file-image",
+        "group": "Input/Output",
+        "tags": [
+          "file",
+          "image",
+          "pdf",
+          "scan"
         ]
       }
     },
