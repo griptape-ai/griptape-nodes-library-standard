@@ -1,4 +1,5 @@
 import pathlib
+from dataclasses import replace
 from enum import StrEnum
 from io import BytesIO
 from typing import Any
@@ -10,6 +11,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
 from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.image import GriptapeImage, GriptapeImagePipeline, ImageFormat
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -19,7 +21,6 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
-from PIL import Image
 from pypdf import PdfReader
 
 from griptape_nodes_library.utils.versioned_output_directory import (
@@ -56,12 +57,9 @@ CLOCKWISE_DEGREES = {
     Rotation.COUNTER_CLOCKWISE_90: 270,
 }
 
-# Image.transpose rotates counter-clockwise, so a clockwise turn is the complementary constant.
-TRANSPOSE_FOR_CLOCKWISE_DEGREES = {
-    90: Image.Transpose.ROTATE_270,
-    180: Image.Transpose.ROTATE_180,
-    270: Image.Transpose.ROTATE_90,
-}
+WHITE = (255, 255, 255)
+# Gray and alpha, RGBA.
+ALPHA_CHANNEL_COUNTS = (2, 4)
 
 
 class OutputFormat(StrEnum):
@@ -72,7 +70,13 @@ class OutputFormat(StrEnum):
 
 
 # Image formats whose stored bytes can be written to disk unchanged.
-STORED_FORMATS = {"JPEG": OutputFormat.JPG, "PNG": OutputFormat.PNG}
+STORED_FORMATS = {ImageFormat.JPEG: OutputFormat.JPG, ImageFormat.PNG: OutputFormat.PNG}
+
+ENCODE_FORMATS = {
+    OutputFormat.PNG: ImageFormat.PNG,
+    OutputFormat.JPG: ImageFormat.JPEG,
+    OutputFormat.WEBP: ImageFormat.WEBP,
+}
 
 
 class ExtractedImage:
@@ -296,19 +300,22 @@ class ExtractPdfImages(SuccessFailureNode):
             return ""
         for page in reader.pages:
             for pdf_image in page.images:
-                with Image.open(BytesIO(pdf_image.data)) as image:
-                    thumbnail = _flatten_to_rgb(image)
-                thumbnail.thumbnail((PREVIEW_MAX_SIZE, PREVIEW_MAX_SIZE))
-                # The preview shows the rotation the PDF applies on top of the node's setting.
-                page_turn = page.rotation % FULL_TURN
-                if page_turn:
-                    thumbnail = thumbnail.transpose(TRANSPOSE_FOR_CLOCKWISE_DEGREES[page_turn])
-                buffer = BytesIO()
-                thumbnail.save(buffer, format="JPEG", quality=PREVIEW_QUALITY)
+                with GriptapeImage.open(pdf_image.data) as image:
+                    pipeline = (
+                        GriptapeImagePipeline(image)
+                        .to_uint8()
+                        .flatten(WHITE)
+                        .thumbnail(PREVIEW_MAX_SIZE, PREVIEW_MAX_SIZE)
+                    )
+                    # The preview shows the rotation the PDF applies on top of the node's setting.
+                    page_turn = page.rotation % FULL_TURN
+                    if page_turn:
+                        pipeline = pipeline.rotate(-page_turn, expand=True)
+                    preview = _encode_without_exif(pipeline.end(), ImageFormat.JPEG, PREVIEW_QUALITY)
                 destination = ProjectFileDestination.from_situation(
                     "pdf_preview.jpg", "save_temp_file", node_name=self.name
                 )
-                saved = destination.write_bytes(buffer.getvalue())
+                saved = destination.write_bytes(preview)
                 result = GriptapeNodes.handle_request(
                     CreateStaticFileDownloadUrlFromPathRequest(file_path=File(saved.location).resolve())
                 )
@@ -383,8 +390,8 @@ class ExtractPdfImages(SuccessFailureNode):
         return extracted
 
     def _encode(self, data: bytes, clockwise_degrees: int, output_format: OutputFormat) -> ExtractedImage:
-        with Image.open(BytesIO(data)) as image:
-            stored_format = STORED_FORMATS.get(image.format or "")
+        with GriptapeImage.open(data) as image:
+            stored_format = STORED_FORMATS.get(image.format) if image.format else None
             match output_format:
                 case OutputFormat.ORIGINAL:
                     # Formats other than JPEG and PNG (fax-compressed TIFF, JPEG 2000) are re-encoded as PNG.
@@ -400,37 +407,16 @@ class ExtractPdfImages(SuccessFailureNode):
                 # Untouched images keep their stored bytes, so JPEGs are not re-encoded.
                 return ExtractedImage(data, extension)
 
+            pipeline = GriptapeImagePipeline(image)
             if clockwise_degrees:
-                image = image.transpose(TRANSPOSE_FOR_CLOCKWISE_DEGREES[clockwise_degrees])  # noqa: PLW2901
-            return ExtractedImage(_save_as(image, target), extension)
+                # The pipeline turns counterclockwise.
+                pipeline = pipeline.rotate(-clockwise_degrees, expand=True)
+            if target == OutputFormat.JPG and image.channels in ALPHA_CHANNEL_COUNTS:
+                pipeline = pipeline.to_uint8().flatten(WHITE)
+            quality = {OutputFormat.JPG: JPEG_QUALITY, OutputFormat.WEBP: WEBP_QUALITY}.get(target)
+            return ExtractedImage(_encode_without_exif(pipeline.end(), ENCODE_FORMATS[target], quality), extension)
 
 
-def _flatten_to_rgb(image: Image.Image) -> Image.Image:
-    """Return an RGB copy, flattening any transparency onto white."""
-    if image.mode in ("RGBA", "LA", "PA") or (image.mode == "P" and "transparency" in image.info):
-        rgba = image.convert("RGBA")
-        background = Image.new("RGB", rgba.size, (255, 255, 255))
-        background.paste(rgba, mask=rgba.split()[3])
-        return background
-    return image.convert("RGB")
-
-
-def _save_as(image: Image.Image, target: OutputFormat) -> bytes:
-    buffer = BytesIO()
-    match target:
-        case OutputFormat.JPG:
-            if image.mode not in ("RGB", "L", "CMYK"):
-                image = _flatten_to_rgb(image)  # noqa: PLW2901
-            image.save(buffer, format="JPEG", quality=JPEG_QUALITY, subsampling=0)
-        case OutputFormat.PNG:
-            if image.mode == "CMYK":
-                image = image.convert("RGB")  # noqa: PLW2901
-            image.save(buffer, format="PNG")
-        case OutputFormat.WEBP:
-            if image.mode not in ("RGB", "RGBA"):
-                image = image.convert("RGBA" if "A" in image.mode else "RGB")  # noqa: PLW2901
-            image.save(buffer, format="WEBP", quality=WEBP_QUALITY)
-        case _:
-            msg = f"Cannot save as {target!r}."
-            raise ValueError(msg)
-    return buffer.getvalue()
+def _encode_without_exif(image: GriptapeImage, image_format: ImageFormat, quality: int | None) -> bytes:
+    """Encode without the stored EXIF, whose orientation tag PDF viewers ignore but image viewers apply."""
+    return image.encode(image_format, quality=quality, metadata=replace(image.metadata, exif=None))

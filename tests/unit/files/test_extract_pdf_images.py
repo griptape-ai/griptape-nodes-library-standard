@@ -16,6 +16,8 @@ from griptape_nodes_library.files.extract_pdf_images import ExtractPdfImages, Ou
 
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
+EXIF_ORIENTATION = 0x0112
+ROTATE_90_CLOCKWISE = 6
 
 
 @pytest.fixture
@@ -159,6 +161,22 @@ def test_original_format_keeps_png_scans_as_png(node: ExtractPdfImages) -> None:
 
     assert result.extension == ".png"
     assert result.data == png.getvalue()
+
+
+@pytest.mark.parametrize("output_format", [OutputFormat.PNG, OutputFormat.JPG, OutputFormat.WEBP])
+def test_reencoded_images_drop_the_stored_orientation_tag(node: ExtractPdfImages, output_format: OutputFormat) -> None:
+    # PDF viewers ignore EXIF orientation, so a kept tag would turn the extracted image a second time.
+    scan = _scan((60, 80))
+    exif = scan.getexif()
+    exif[EXIF_ORIENTATION] = ROTATE_90_CLOCKWISE
+    jpeg = BytesIO()
+    scan.save(jpeg, format="JPEG", exif=exif.tobytes())
+
+    result = node._encode(jpeg.getvalue(), 90, output_format)
+
+    decoded = _decode(result.data)
+    assert decoded.size == (80, 60)
+    assert EXIF_ORIENTATION not in decoded.getexif()
 
 
 def test_pdf_without_images_returns_nothing(node: ExtractPdfImages) -> None:
