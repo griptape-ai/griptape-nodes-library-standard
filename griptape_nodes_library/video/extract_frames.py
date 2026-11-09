@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
-import re
 import subprocess
 from enum import StrEnum
 from typing import Any
@@ -22,24 +21,24 @@ from griptape_nodes.exe_types.param_components.progress_bar_component import Pro
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File, FileDestinationProvider
-from griptape_nodes.retained_mode.events.connection_events import (
-    ListConnectionsForNodeRequest,
-    ListConnectionsForNodeResultSuccess,
-)
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.events.os_events import (
     ScanSequencesRequest,
     ScanSequencesResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.retained_mode.retained_mode import RetainedMode
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
-from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
-from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
+from griptape_nodes_library.utils.versioned_output_directory import (
+    build_directory_parameter,
+    clear_directory_value,
+    configure_directory_with_settings_node,
+    normalize_directory_value,
+    resolve_output_dir,
+)
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -53,8 +52,6 @@ DEFAULT_FRAME_PADDING = 4
 DEFAULT_OUTPUT_FORMAT = "png"
 DEFAULT_EVERY_N = 2
 DEFAULT_DIRECTORY = "{outputs}/frames_v{###}"
-
-_VERSION_TOKEN_RE = re.compile(r"\{(#+)\}")
 
 
 class FrameSelectionMode(StrEnum):
@@ -141,33 +138,16 @@ class ExtractFrames(SuccessFailureNode):
         with ParameterGroup(
             name="output_settings", ui_options={"display_name": "Output Settings"}
         ) as output_settings_group:
-            output_dir_param = Parameter(
-                name="directory",
-                type="str",
-                default_value=DEFAULT_DIRECTORY,
-                input_types=["str"],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            build_directory_parameter(
+                default_directory=DEFAULT_DIRECTORY,
                 tooltip=(
                     "Directory where frames are saved. Use {###} for auto-incrementing versions "
                     "(e.g. {outputs}/frames_v{###} → frames_v001, frames_v002, …). "
                     "Click the gear to connect a FileOutputSettings node."
                 ),
-                ui_options={"placeholder_text": DEFAULT_DIRECTORY},
-                # The engine treats any "{name" in a value as a workflow variable and unresolves the
-                # node before every run. This node resolves {outputs} and {###} itself.
-                allow_variable_substitution=False,
-                traits={
-                    Button(
-                        icon="cog",
-                        size="icon",
-                        variant="secondary",
-                        tooltip="Create and connect a FileOutputSettings node",
-                        on_click=self._on_configure_output_dir_clicked,
-                    ),
-                    FileSystemPicker(allow_files=False, allow_directories=True, multiple=False),
-                },
+                on_configure_clicked=self._on_configure_output_dir_clicked,
+                on_connection_removed=self._on_output_dir_connection_removed,
             )
-            output_dir_param.on_incoming_connection_removed.append(self._on_output_dir_connection_removed)
 
             ParameterString(
                 name="file_prefix",
@@ -245,11 +225,7 @@ class ExtractFrames(SuccessFailureNode):
             case "input_video":
                 self._update_video_fps(value)
             case "directory":
-                if value and not str(value).startswith("{"):
-                    result = resolve_to_macro_path(str(value))
-                    if not result.is_external and result.resolved_path != str(value):
-                        self.set_parameter_value("directory", result.resolved_path)
-                        self.publish_update_to_parameter("directory", result.resolved_path)
+                normalize_directory_value(self, value)
             case "frame_selection_mode":
                 match value:
                     case FrameSelectionMode.LIST:
@@ -386,113 +362,13 @@ class ExtractFrames(SuccessFailureNode):
     def _on_configure_output_dir_clicked(
         self, _button: Button, button_details: ButtonDetailsMessagePayload
     ) -> NodeMessageResult:
-        conn_result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
-        if isinstance(conn_result, ListConnectionsForNodeResultSuccess):
-            if any(c.target_parameter_name == "directory" for c in conn_result.incoming_connections):
-                return NodeMessageResult(
-                    success=False,
-                    details="'directory' already has an incoming connection.",
-                    response=button_details,
-                    altered_workflow_state=False,
-                )
-
-        create_result = RetainedMode.create_node_relative_to(
-            reference_node_name=self.name,
-            new_node_type="FileOutputSettings",
-            offset_side="left",
-            offset_x=-750,
-            offset_y=0,
-            lock=False,
-        )
-        if not isinstance(create_result, str):
-            return NodeMessageResult(
-                success=False,
-                details="Failed to create a FileOutputSettings node.",
-                response=button_details,
-                altered_workflow_state=False,
-            )
-
-        configure_node_name = create_result
-        configure_node = GriptapeNodes.ObjectManager().attempt_get_object_by_name(configure_node_name)
-        if configure_node is not None:
-            configure_node.set_parameter_value("situation", "save_node_output")
-            configure_node.publish_update_to_parameter("situation", "save_node_output")
-            current_dir = self.get_parameter_value("directory") or ""
-            if current_dir:
-                configure_node.set_parameter_value("filename", current_dir)
-                configure_node.publish_update_to_parameter("filename", current_dir)
-
-        connection_result = RetainedMode.connect(
-            source=f"{configure_node_name}.file_destination",
-            destination=f"{self.name}.directory",
-        )
-        if not connection_result.succeeded():
-            return NodeMessageResult(
-                success=False,
-                details=f"Failed to connect {configure_node_name}.file_destination to 'directory'.",
-                response=button_details,
-                altered_workflow_state=True,
-            )
-        return NodeMessageResult(
-            success=True,
-            details=f"Created and connected {configure_node_name}",
-            response=button_details,
-            altered_workflow_state=True,
-        )
+        return configure_directory_with_settings_node(self, button_details)
 
     def _on_output_dir_connection_removed(self, *_: object) -> None:
-        self.set_parameter_value("directory", "")
-        self.publish_update_to_parameter("directory", "")
+        clear_directory_value(self)
 
     def _resolve_output_dir(self) -> pathlib.Path:
-        conn_result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
-        if isinstance(conn_result, ListConnectionsForNodeResultSuccess):
-            for conn in conn_result.incoming_connections:
-                if conn.target_parameter_name == "directory":
-                    source = GriptapeNodes.ObjectManager().attempt_get_object_by_name(conn.source_node_name)
-                    if isinstance(source, FileDestinationProvider):
-                        fd = source.file_destination
-                        if fd is not None:
-                            return pathlib.Path(fd.resolve()).parent
-        value = (self.get_parameter_value("directory") or DEFAULT_DIRECTORY).strip().rstrip("/")
-        if not value:
-            value = DEFAULT_DIRECTORY
-        if _VERSION_TOKEN_RE.search(value):
-            return self._resolve_versioned_dir(value)
-        # Treat bare relative paths (no leading / or macro {) as relative to {outputs}
-        if not value.startswith(("/", "{")):
-            value = f"{{outputs}}/{value}"
-        return pathlib.Path(File(value).resolve())
-
-    def _resolve_versioned_dir(self, template: str) -> pathlib.Path:
-        m = _VERSION_TOKEN_RE.search(template)
-        if not m:
-            msg = f"No version token in template: {template!r}"
-            raise ValueError(msg)
-        num_digits = len(m.group(1))
-        prefix_template = template[: m.start()].rstrip("/")
-
-        # Resolve any macros in the prefix by substituting zeros as a stand-in
-        test_value = prefix_template + "0" * num_digits
-        if not test_value.startswith(("/", "{")):
-            test_value = f"{{outputs}}/{test_value}"
-        resolved_test = pathlib.Path(File(test_value).resolve())
-
-        parent = resolved_test.parent
-        name_prefix = resolved_test.name[:-num_digits]  # e.g. "frames_v"
-
-        next_version = 1
-        if parent.exists():
-            for entry in parent.iterdir():
-                if not entry.is_dir() or not entry.name.startswith(name_prefix):
-                    continue
-                version_str = entry.name[len(name_prefix) :]
-                try:
-                    next_version = max(next_version, int(version_str) + 1)
-                except ValueError:
-                    pass
-
-        return parent / f"{name_prefix}{next_version:0{num_digits}d}"
+        return resolve_output_dir(self, DEFAULT_DIRECTORY)
 
     # ── Extraction ──────────────────────────────────────────────────────────────
 

@@ -7254,6 +7254,23 @@
       }
     },
     {
+      "class_name": "ExtractPdfImages",
+      "file_path": "griptape_nodes_library/files/extract_pdf_images.py",
+      "metadata": {
+        "category": "files",
+        "description": "Extract the images embedded in a PDF, such as the pages of a scanned document, at their stored resolution, with an option to rotate them.",
+        "display_name": "Extract PDF Images",
+        "icon": "file-image",
+        "group": "Input/Output",
+        "tags": [
+          "file",
+          "image",
+          "pdf",
+          "scan"
+        ]
+      }
+    },
+    {
       "class_name": "PathAddExtension",
       "file_path": "griptape_nodes_library/files/path_add_extension.py",
       "metadata": {
