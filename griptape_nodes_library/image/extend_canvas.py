@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any, NamedTuple
+from typing import Any, ClassVar, NamedTuple
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
@@ -12,6 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
@@ -111,7 +112,19 @@ ASPECT_RATIO_PRESETS = {
 }
 
 
-class ExtendCanvas(ControlNode):
+class ExtendCanvas(ImagePreviewMixin, ControlNode):
+    PREVIEW_OPERATION = "extend_canvas"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = [
+        "aspect_ratio_preset",
+        "top",
+        "bottom",
+        "left",
+        "right",
+        "position",
+        "background_color",
+        "upscale_factor",
+    ]
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -128,6 +141,8 @@ class ExtendCanvas(ControlNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
+
+        self._add_preview_parameter()
 
         # Aspect ratio preset parameter
         self._aspect_ratio_preset = ParameterString(

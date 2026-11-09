@@ -8,10 +8,6 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.connection_events import (
-    ListConnectionsForNodeRequest,
-    ListConnectionsForNodeResultSuccess,
-)
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -54,13 +50,13 @@ def parse_size_string(size_str: str) -> tuple[int, int] | None:
     return None
 
 
+# Crop settings the editor widget reads and writes directly. It works out the crop box from them the same
+# way _get_crop_dimensions and _calculate_crop_coordinates do.
+CROP_PARAMETERS = ["crop_size", "custom_width", "custom_height", "crop_position", "custom_left", "custom_top"]
+
+
 class CropVideo(BaseVideoProcessor):
     """Crop a video using size/position presets or free-form drag with the interactive editor."""
-
-    def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
-        super().__init__(name, metadata)
-        self._syncing_to_widget = False
-        self._syncing_to_params = False
 
     def _setup_custom_parameters(self) -> None:
         self.add_parameter(
@@ -71,16 +67,17 @@ class CropVideo(BaseVideoProcessor):
                     "video_path": "",
                     "video_width": 0,
                     "video_height": 0,
-                    "left": 0,
-                    "top": 0,
-                    "width": 0,
-                    "height": 0,
                     "total_frames": 0,
-                    "locked": [],
                 },
                 tooltip="Interactive crop editor — drag to set crop area, or use the preset controls below",
                 allowed_modes={ParameterMode.PROPERTY},
-                traits={Widget(name="CropVideoEditor", library="Griptape Nodes Library")},
+                traits={
+                    Widget(
+                        name="CropVideoEditor",
+                        library="Griptape Nodes Library",
+                        synced_parameters=CROP_PARAMETERS,
+                    )
+                },
             )
         )
 
@@ -188,47 +185,6 @@ class CropVideo(BaseVideoProcessor):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
             return None
 
-    # ── Lock detection ─────────────────────────────────────────────────────────
-
-    _LOCKABLE_PARAMS = frozenset(
-        {"crop_size", "crop_position", "custom_width", "custom_height", "custom_left", "custom_top"}
-    )
-
-    def _get_locked_params(self) -> list[str]:
-        """Return widget lock keys for any connected wires on crop-affecting params."""
-        try:
-            result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
-            if not isinstance(result, ListConnectionsForNodeResultSuccess):
-                return []
-            connected = {c.target_parameter_name for c in result.incoming_connections}
-        except Exception:
-            return []
-        locked: set[str] = set()
-        if "crop_size" in connected:
-            locked |= {"width", "height"}
-        if "custom_width" in connected:
-            locked.add("width")
-        if "custom_height" in connected:
-            locked.add("height")
-        if "crop_position" in connected or "custom_left" in connected:
-            locked.add("left")
-        if "crop_position" in connected or "custom_top" in connected:
-            locked.add("top")
-        return list(locked)
-
-    def _refresh_locked_in_widget(self) -> None:
-        existing = self.get_parameter_value("crop_editor") or {}
-        new_locked = self._get_locked_params()
-        if set(existing.get("locked") or []) == set(new_locked):
-            return
-        self._syncing_to_widget = True
-        try:
-            updated = {**existing, "locked": new_locked}
-            self.set_parameter_value("crop_editor", updated)
-            self.publish_update_to_parameter("crop_editor", updated)
-        finally:
-            self._syncing_to_widget = False
-
     # ── Widget sync ────────────────────────────────────────────────────────────
 
     def _resolve_video_url(self, artifact: Any) -> str:
@@ -249,8 +205,8 @@ class CropVideo(BaseVideoProcessor):
             pass
         return raw
 
-    def _push_to_widget(self) -> None:
-        """Compute pixel crop coords from current settings and push to the interactive widget."""
+    def _push_video_to_widget(self) -> None:
+        """Give the editor widget the video and its size. The crop settings reach it from their own parameters."""
         video = self.parameter_values.get("video")
         if not video:
             return
@@ -268,10 +224,6 @@ class CropVideo(BaseVideoProcessor):
             return
         vw, vh = dims
 
-        crop_dims = self._get_crop_dimensions()
-        w, h = (min(crop_dims[0], vw), min(crop_dims[1], vh)) if crop_dims else (vw, vh)
-        left, top = self._calculate_crop_coordinates(vw, vh, w, h)
-
         url = self._resolve_video_url(artifact)
 
         total_frames = 0
@@ -286,52 +238,10 @@ class CropVideo(BaseVideoProcessor):
             "video_path": video_path,
             "video_width": vw,
             "video_height": vh,
-            "left": left,
-            "top": top,
-            "width": w,
-            "height": h,
             "total_frames": total_frames,
-            "locked": self._get_locked_params(),
         }
-        self._syncing_to_widget = True
-        try:
-            self.set_parameter_value("crop_editor", widget_dict)
-            self.publish_update_to_parameter("crop_editor", widget_dict)
-        finally:
-            self._syncing_to_widget = False
-
-    def _sync_from_widget(self, widget_dict: dict) -> None:
-        """User dragged the widget — switch both dropdowns to Custom and store pixel values."""
-        w = widget_dict.get("width") or 0
-        h = widget_dict.get("height") or 0
-        left = widget_dict.get("left") or 0
-        top = widget_dict.get("top") or 0
-
-        # Pre-publish crop_editor so the frontend's stored value is authoritative
-        # before individual param publishes arrive (mirrors CropImage pattern).
+        self.set_parameter_value("crop_editor", widget_dict)
         self.publish_update_to_parameter("crop_editor", widget_dict)
-
-        self._syncing_to_params = True
-        try:
-            # Set pixel values before the dropdowns so after_value_set show/hide
-            # reveals fields that already have the correct values (no stale flash).
-            self.set_parameter_value("custom_width", w)
-            self.set_parameter_value("custom_height", h)
-            self.set_parameter_value("custom_left", left)
-            self.set_parameter_value("custom_top", top)
-            self.set_parameter_value("crop_size", "Custom")
-            self.set_parameter_value("crop_position", "Custom")
-
-            self.show_parameter_by_name("custom_width")
-            self.show_parameter_by_name("custom_height")
-            self.show_parameter_by_name("custom_left")
-            self.show_parameter_by_name("custom_top")
-
-            # Publish values before dropdowns for the same reason.
-            for pname in ("custom_width", "custom_height", "custom_left", "custom_top", "crop_size", "crop_position"):
-                self.publish_update_to_parameter(pname, self.get_parameter_value(pname))
-        finally:
-            self._syncing_to_params = False
 
     # ── after_value_set ────────────────────────────────────────────────────────
 
@@ -343,8 +253,6 @@ class CropVideo(BaseVideoProcessor):
             else:
                 self.hide_parameter_by_name("custom_width")
                 self.hide_parameter_by_name("custom_height")
-            if not self._syncing_to_params:
-                self._push_to_widget()
 
         elif parameter.name == "crop_position":
             if value == "Custom":
@@ -353,19 +261,9 @@ class CropVideo(BaseVideoProcessor):
             else:
                 self.hide_parameter_by_name("custom_left")
                 self.hide_parameter_by_name("custom_top")
-            if not self._syncing_to_params:
-                self._push_to_widget()
-
-        elif parameter.name in ("custom_width", "custom_height", "custom_left", "custom_top"):
-            if not self._syncing_to_params:
-                self._push_to_widget()
 
         elif parameter.name == "video":
-            self._push_to_widget()
-
-        elif parameter.name == "crop_editor" and not self._syncing_to_widget:
-            if isinstance(value, dict):
-                self._sync_from_widget(value)
+            self._push_video_to_widget()
 
         return super().after_value_set(parameter, value)
 
@@ -383,14 +281,7 @@ class CropVideo(BaseVideoProcessor):
                 saved_path = (self.get_parameter_value("crop_editor") or {}).get("video_path") or ""
                 if saved_path:
                     self._reinitialize_from_path(saved_path)
-        elif target_parameter.name in self._LOCKABLE_PARAMS:
-            self._refresh_locked_in_widget()
         return super().after_incoming_connection(source_node, source_parameter, target_parameter)
-
-    def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter) -> None:
-        if target_parameter.name in self._LOCKABLE_PARAMS:
-            self._refresh_locked_in_widget()
-        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 
     def _reinitialize_from_path(self, path: str) -> None:
         existing = self.get_parameter_value("crop_editor") or {}
@@ -417,14 +308,9 @@ class CropVideo(BaseVideoProcessor):
             "video_width": vw,
             "video_height": vh,
             "total_frames": total_frames,
-            "locked": self._get_locked_params(),
         }
-        self._syncing_to_widget = True
-        try:
-            self.set_parameter_value("crop_editor", new_dict)
-            self.publish_update_to_parameter("crop_editor", new_dict)
-        finally:
-            self._syncing_to_widget = False
+        self.set_parameter_value("crop_editor", new_dict)
+        self.publish_update_to_parameter("crop_editor", new_dict)
 
     # ── FFmpeg command ─────────────────────────────────────────────────────────
 
