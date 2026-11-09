@@ -1733,6 +1733,21 @@
       }
     },
     {
+      "class_name": "FlattenList",
+      "file_path": "griptape_nodes_library/lists/flatten_list.py",
+      "metadata": {
+        "category": "lists",
+        "description": "Takes a list of nested lists and flattens it into a single list.",
+        "display_name": "Flatten List",
+        "group": "merge",
+        "tags": [
+          "list",
+          "data",
+          "logic"
+        ]
+      }
+    },
+    {
       "class_name": "CreateList",
       "file_path": "griptape_nodes_library/lists/create_list.py",
       "metadata": {
