@@ -12,6 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
@@ -98,7 +99,8 @@ class ElevenLabsMusicGeneration(GriptapeProxyNode):
                             "opus_48000_64",
                             "opus_48000_96",
                         ]
-                    )
+                    ),
+                    FileFormat(kind=FileFormatKind.AUDIO),
                 },
                 ui_options={"display_name": "Output Format"},
             )

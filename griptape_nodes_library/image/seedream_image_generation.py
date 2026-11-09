@@ -22,6 +22,7 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 from PIL import Image
@@ -313,7 +314,7 @@ class SeedreamImageGeneration(GriptapeProxyNode):
                 default_value="jpeg",
                 tooltip="Output image format (Seedream 5.0 Pro and 5.0 Lite only)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=OUTPUT_FORMAT_OPTIONS)},
+                traits={Options(choices=OUTPUT_FORMAT_OPTIONS), FileFormat(kind=FileFormatKind.IMAGE)},
                 ui_options={"hide": True},
             )
 

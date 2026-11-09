@@ -24,6 +24,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 from PIL import Image
@@ -117,7 +118,7 @@ class CreateVideoFromFrames(SuccessFailureNode):
                 default_value=VIDEO_FORMATS[0],
                 tooltip="Output video format",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=VIDEO_FORMATS)},
+                traits={Options(choices=VIDEO_FORMATS), FileFormat(kind=FileFormatKind.VIDEO)},
             )
         )
 

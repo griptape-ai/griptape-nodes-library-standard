@@ -18,6 +18,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
 from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -152,7 +153,7 @@ class Rodin23DGeneration(GriptapeProxyNode):
                 default_value=DEFAULT_GEOMETRY_FORMAT,
                 tooltip="Output 3D file format",
                 allow_output=False,
-                traits={Options(choices=GEOMETRY_FORMAT_OPTIONS)},
+                traits={Options(choices=GEOMETRY_FORMAT_OPTIONS), FileFormat(kind=FileFormatKind.THREE_D)},
                 ui_options={"display_name": "File Format"},
             )
         )

@@ -11,6 +11,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.clamp import Clamp
 from griptape_nodes.traits.color_picker import ColorPicker
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.utils.image_utils import (
@@ -159,6 +160,7 @@ class DisplayImageGrid(ControlNode):
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
         self.output_format.add_trait(Options(choices=["png", "jpeg", "webp"]))
+        self.output_format.add_trait(FileFormat(kind=FileFormatKind.IMAGE))
         self.add_parameter(self.output_format)
 
         # Output parameter
