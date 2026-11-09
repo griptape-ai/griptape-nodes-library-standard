@@ -92,6 +92,15 @@ def no_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(image_grid_splitter, "load_pil_from_url", load)
 
 
+@pytest.fixture(autouse=True)
+def no_static_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Asking the engine for a static URL to a file that exists segfaults the interpreter at exit.
+
+    The text nodes ask for the URL of Pillow's font while they are built, so answer with the path.
+    """
+    monkeypatch.setattr(ImagePreviewMixin, "_static_url", lambda _self, path: path)
+
+
 @pytest.mark.parametrize("node_class", PREVIEWED)
 def test_preview_syncs_the_nodes_own_settings(node_class: type[ImagePreviewMixin]) -> None:
     node = node_class(name="test_node")
