@@ -18,7 +18,7 @@ from griptape_nodes.retained_mode.events.destination_events import (
 )
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 
-from griptape_nodes_library.video import extract_frames as extract_frames_mod
+from griptape_nodes_library.utils import versioned_output_directory
 from griptape_nodes_library.video.extract_frames import ExtractFrames
 
 if TYPE_CHECKING:
@@ -35,6 +35,13 @@ def _write_frames(directory: Path, numbers: list[int], *, prefix: str = "frames"
 @pytest.fixture
 def node() -> ExtractFrames:
     return ExtractFrames(name="test_extract_frames")
+
+
+@pytest.fixture
+def node_in_workflow(node: ExtractFrames, monkeypatch: pytest.MonkeyPatch) -> ExtractFrames:
+    """The node as if added to a workflow, which is when it can have a settings node connected."""
+    monkeypatch.setattr(node, "_workflow", object())
+    return node
 
 
 class TestScanOutputSequence:
@@ -116,7 +123,7 @@ def _answer_settings_request(monkeypatch: pytest.MonkeyPatch, result: ResultPayl
         sent.append(request)
         return result
 
-    monkeypatch.setattr(extract_frames_mod.GriptapeNodes, "handle_request", handle_request)
+    monkeypatch.setattr(versioned_output_directory.GriptapeNodes, "handle_request", handle_request)
     return sent
 
 
@@ -124,7 +131,7 @@ class TestOutputDirectoryFromSettings:
     """A File Output Settings node wired to 'directory' is read by request, so a worker run honors it too."""
 
     def test_uses_the_folder_of_the_settings_nodes_destination(
-        self, node: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, node_in_workflow: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         spec = FileDestinationSpec(
             file_path=str(tmp_path / "shots" / "frame.png"),
@@ -139,29 +146,42 @@ class TestOutputDirectoryFromSettings:
             monkeypatch, GetConnectedFileDestinationResultSuccess(destination=spec, result_details="ok")
         )
 
-        output_dir = node._resolve_output_dir()
+        output_dir = node_in_workflow._resolve_output_dir()
 
         assert output_dir == tmp_path / "shots"
-        assert sent == [GetConnectedFileDestinationRequest(node_name=node.name, parameter_name="directory")]
+        assert sent == [GetConnectedFileDestinationRequest(node_name=node_in_workflow.name, parameter_name="directory")]
 
     def test_without_settings_uses_the_directory_value(
-        self, node: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, node_in_workflow: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _answer_settings_request(
             monkeypatch, GetConnectedFileDestinationResultSuccess(destination=None, result_details="none")
         )
-        node.set_parameter_value("directory", str(tmp_path / "frames"))
+        node_in_workflow.set_parameter_value("directory", str(tmp_path / "frames"))
 
-        assert node._resolve_output_dir() == tmp_path / "frames"
+        assert node_in_workflow._resolve_output_dir() == tmp_path / "frames"
 
-    def test_a_failed_read_fails_the_node(self, node: ExtractFrames, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_failed_read_fails_the_node(
+        self, node_in_workflow: ExtractFrames, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _answer_settings_request(
             monkeypatch,
             GetConnectedFileDestinationResultFailure(result_details="'File Output Settings' has no destination set"),
         )
 
         with pytest.raises(NodeError, match="has no destination set"):
-            node._resolve_output_dir()
+            node_in_workflow._resolve_output_dir()
+
+    def test_a_node_in_no_workflow_sends_no_request(
+        self, node: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sent = _answer_settings_request(
+            monkeypatch, GetConnectedFileDestinationResultFailure(result_details="names no workflow")
+        )
+        node.set_parameter_value("directory", str(tmp_path / "frames"))
+
+        assert node._resolve_output_dir() == tmp_path / "frames"
+        assert sent == []
 
 
 class TestProcessFailures:
@@ -182,3 +202,34 @@ class TestProcessFailures:
             next(node.process())
 
         assert node._execution_succeeded is False
+
+    def _stub_until_the_folder(self, node: ExtractFrames, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Get process() past the video and frame checks, then fail reading the settings node."""
+        monkeypatch.setattr(node, "_resolve_video_for_ffmpeg", lambda _raw: "clip.mp4")
+        monkeypatch.setattr(node, "_build_frame_list", lambda _url: [1, 2])
+        _answer_settings_request(
+            monkeypatch,
+            GetConnectedFileDestinationResultFailure(result_details="'File Output Settings' has no destination set"),
+        )
+
+    def test_a_settings_failure_raises_when_failed_is_not_wired(
+        self, node_in_workflow: ExtractFrames, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_until_the_folder(node_in_workflow, monkeypatch)
+        node_in_workflow._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+
+        with pytest.raises(NodeError, match="has no destination set"):
+            next(node_in_workflow.process())
+
+        assert node_in_workflow._execution_succeeded is False
+
+    def test_a_settings_failure_routes_to_failed_when_wired(
+        self, node_in_workflow: ExtractFrames, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_until_the_folder(node_in_workflow, monkeypatch)
+        node_in_workflow._has_outgoing_connections = lambda _param: True  # type: ignore[method-assign]
+
+        with pytest.raises(StopIteration):
+            next(node_in_workflow.process())
+
+        assert node_in_workflow._execution_succeeded is False
