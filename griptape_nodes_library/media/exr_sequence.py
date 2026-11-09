@@ -28,6 +28,8 @@ from griptape_nodes.common.sequences import MissingItemPolicy, Sequence
 from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.project_file_sequence_parameter import ProjectFileSequenceParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.events.config_events import GetConfigValueRequest, GetConfigValueResultSuccess
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 if TYPE_CHECKING:
     import os
@@ -44,6 +46,13 @@ DEFAULT_MAX_TOTAL_BYTES = 32 * 1024**3
 # generous; it stops one member that lies about its size from being inflated in memory up to the
 # whole-archive budget before the size check can fire.
 DEFAULT_MAX_MEMBER_BYTES = 512 * 1024**2
+
+# The three limits above are the defaults for user-configurable library settings, declared under this
+# category in griptape_nodes_library.json. Keep the two in step.
+SETTINGS_CATEGORY = "exr_sequence"
+SETTING_MAX_MEMBERS = "max_members"
+SETTING_MAX_TOTAL_BYTES = "max_total_bytes"
+SETTING_MAX_MEMBER_BYTES = "max_member_bytes"
 
 # LTX `output_colorspace` value -> OCIO colour space name, for OCIOColorParameters.source_colorspace.
 #
@@ -208,13 +217,45 @@ def _read_member(
     return data
 
 
+def _read_limit_setting(key: str, default: int) -> int:
+    """Return the positive integer library setting ``exr_sequence.<key>``, or ``default``.
+
+    A missing key, a failed request, or a value that is not a positive integer (a string, a float,
+    a boolean, zero or a negative number) logs a warning where the setting is bad and returns the
+    default, so a wrong setting can never stop the node from running.
+    """
+    category_and_key = f"{SETTINGS_CATEGORY}.{key}"
+    # A request, not GriptapeNodes.ConfigManager(), so this resolves correctly from a worker process.
+    try:
+        result = GriptapeNodes.handle_request(
+            GetConfigValueRequest(category_and_key=category_and_key, broadcast_result=False)
+        )
+    except Exception as e:
+        logger.warning(
+            "Could not read the library setting '%s' (%s); using the default of %d.", category_and_key, e, default
+        )
+        return default
+    if not isinstance(result, GetConfigValueResultSuccess) or result.value is None:
+        return default
+    value = result.value
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        logger.warning(
+            "The library setting '%s' must be a positive whole number, not %r; using the default of %d.",
+            category_and_key,
+            value,
+            default,
+        )
+        return default
+    return value
+
+
 async def write_exr_zip_to_sequence(
     zip_bytes_or_path: bytes | bytearray | memoryview | str | os.PathLike[str],
     dest: FileSequenceDestination,
     *,
-    max_members: int = DEFAULT_MAX_MEMBERS,
-    max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
-    max_member_bytes: int = DEFAULT_MAX_MEMBER_BYTES,
+    max_members: int | None = None,
+    max_total_bytes: int | None = None,
+    max_member_bytes: int | None = None,
 ) -> Sequence | None:
     """Write the `.exr` members of a ZIP into ``dest`` as frames 1..N and return the scanned Sequence.
 
@@ -226,10 +267,19 @@ async def write_exr_zip_to_sequence(
     situation writes each run into a fresh versioned folder. A destination whose policy is FAIL on
     a non-versioned path fails on the second run, and that failure is reported as a NodeError.
 
+    A limit left as None is read from the ``exr_sequence`` library settings (``max_members``,
+    ``max_total_bytes``, ``max_member_bytes``), falling back to the ``DEFAULT_MAX_*`` constants.
+
     Raises:
         NodeError: The input is not a valid ZIP, has no EXR members, or exceeds a limit, or the
         destination volume has too little free space for the unpacked frames.
     """
+    if max_members is None:
+        max_members = _read_limit_setting(SETTING_MAX_MEMBERS, DEFAULT_MAX_MEMBERS)
+    if max_total_bytes is None:
+        max_total_bytes = _read_limit_setting(SETTING_MAX_TOTAL_BYTES, DEFAULT_MAX_TOTAL_BYTES)
+    if max_member_bytes is None:
+        max_member_bytes = _read_limit_setting(SETTING_MAX_MEMBER_BYTES, DEFAULT_MAX_MEMBER_BYTES)
     in_memory = isinstance(zip_bytes_or_path, (bytes, bytearray, memoryview))
     source = io.BytesIO(bytes(zip_bytes_or_path)) if in_memory else zip_bytes_or_path
     try:
