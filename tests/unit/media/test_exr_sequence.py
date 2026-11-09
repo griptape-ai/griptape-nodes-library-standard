@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import tempfile
 import zipfile
 import zlib
 from pathlib import Path
@@ -30,6 +32,9 @@ class _FakeEntry:
         self._dest = dest
         self._number = number
 
+    def resolve(self) -> str:
+        return str(self._dest.directory / f"frame.{self._number:04d}.exr")
+
     async def awrite_bytes(self, data: bytes) -> None:
         self._dest.calls.append(("write", self._number, data))
         self._dest.file_sequence = _FakeFileSequence(self._dest)
@@ -51,6 +56,8 @@ class _FakeFileSequence:
 class _FakeDest:
     def __init__(self, scan_result: list[Any] | None = None) -> None:
         self.calls: list[tuple] = []
+        # Deliberately absent, so the free-space check has to fall back to an existing parent.
+        self.directory = Path(tempfile.gettempdir()) / "exr-sequence-test-not-created" / "v1"
         self.file_sequence: _FakeFileSequence | None = None
         self.scan_result = ["SEQ"] if scan_result is None else scan_result
 
@@ -313,6 +320,9 @@ async def test_corrupt_member_is_reported_as_node_error(monkeypatch: pytest.Monk
 @pytest.mark.asyncio
 async def test_write_failure_is_reported_as_node_error() -> None:
     class _FailingEntry:
+        def resolve(self) -> str:
+            return str(Path(tempfile.gettempdir()) / "frame.0001.exr")
+
         async def awrite_bytes(self, _data: bytes) -> None:
             msg = "file exists"
             raise FileExistsError(msg)
@@ -347,3 +357,38 @@ async def test_missing_path_is_reported_as_node_error(tmp_path: Path) -> None:
             tmp_path / "missing.zip",
             _FakeDest(),  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.asyncio
+async def test_insufficient_free_disk_space_is_rejected_before_writing(monkeypatch: pytest.MonkeyPatch) -> None:
+    dest = _FakeDest()
+    data = _make_zip({"a.exr": b"x" * 600, "b.exr": b"x" * 600})
+    checked: list[Path] = []
+
+    def fake_disk_usage(path: Path) -> shutil._ntuple_diskusage:
+        checked.append(Path(path))
+        return shutil._ntuple_diskusage(total=10_000, used=8_801, free=1199)
+
+    monkeypatch.setattr(exr_sequence.shutil, "disk_usage", fake_disk_usage)
+
+    with pytest.raises(NodeError, match=r"need 1200 bytes.*only 1199 bytes are free"):
+        await exr_sequence.write_exr_zip_to_sequence(data, dest)  # type: ignore[arg-type]
+
+    assert dest.calls == []
+    # The folder does not exist yet, so the nearest existing parent is measured.
+    assert checked
+    assert checked[0].exists()
+    assert not dest.directory.exists()
+
+
+@pytest.mark.asyncio
+async def test_enough_free_disk_space_still_unpacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    dest = _FakeDest()
+    data = _make_zip({"a.exr": b"x" * 600, "b.exr": b"x" * 600})
+    monkeypatch.setattr(
+        exr_sequence.shutil, "disk_usage", lambda _path: shutil._ntuple_diskusage(total=10_000, used=8_800, free=1200)
+    )
+
+    await exr_sequence.write_exr_zip_to_sequence(data, dest)  # type: ignore[arg-type]
+
+    assert [number for number, _data in dest.writes] == [1, 2]

@@ -17,7 +17,9 @@ import asyncio
 import dataclasses
 import io
 import logging
+import pathlib
 import re
+import shutil
 import zipfile
 import zlib
 from typing import TYPE_CHECKING
@@ -156,6 +158,25 @@ def _select_members(
     return members
 
 
+def _check_free_disk_space(dest: FileSequenceDestination, needed_bytes: int) -> None:
+    """Refuse to start unpacking when the destination volume cannot hold the declared size.
+
+    Checked before anything is written, so a full disk does not leave a partial sequence behind once
+    the generation has already been billed. The destination folder may not exist yet, so the nearest
+    existing parent is the one measured.
+    """
+    directory = pathlib.Path(dest.entry(1).resolve()).parent
+    while not directory.exists() and directory != directory.parent:
+        directory = directory.parent
+    free_bytes = shutil.disk_usage(directory).free
+    if needed_bytes > free_bytes:
+        msg = (
+            f"The ZIP's EXR frames need {needed_bytes} bytes when unpacked, "
+            f"but only {free_bytes} bytes are free where the project saves them."
+        )
+        raise NodeError(msg)
+
+
 def _read_member(
     zf: zipfile.ZipFile, info: zipfile.ZipInfo, remaining_bytes: int, max_member_bytes: int = DEFAULT_MAX_MEMBER_BYTES
 ) -> bytes:
@@ -201,7 +222,8 @@ async def write_exr_zip_to_sequence(
     a non-versioned path fails on the second run, and that failure is reported as a NodeError.
 
     Raises:
-        NodeError: The input is not a valid ZIP, has no EXR members, or exceeds a limit.
+        NodeError: The input is not a valid ZIP, has no EXR members, or exceeds a limit, or the
+        destination volume has too little free space for the unpacked frames.
     """
     in_memory = isinstance(zip_bytes_or_path, (bytes, bytearray, memoryview))
     source = io.BytesIO(bytes(zip_bytes_or_path)) if in_memory else zip_bytes_or_path
@@ -218,6 +240,7 @@ async def write_exr_zip_to_sequence(
         members = _select_members(
             zf, max_members=max_members, max_total_bytes=max_total_bytes, max_member_bytes=max_member_bytes
         )
+        await asyncio.to_thread(_check_free_disk_space, dest, sum(m.file_size for m in members))
         remaining = max_total_bytes
         for index, info in enumerate(members, start=1):
             try:
