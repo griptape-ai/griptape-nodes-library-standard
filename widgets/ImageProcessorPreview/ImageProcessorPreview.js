@@ -333,7 +333,8 @@ export default function ImageProcessorPreview(container, props) {
       render();
       return;
     }
-    const nextIsVideo = Boolean(value.video_url);
+    // The node says which kind of media it previews, so an empty video node asks for a video, not an image.
+    const nextIsVideo = value.media === "video" || Boolean(value.video_url);
     const newUrl = (nextIsVideo ? value.video_url : value.image_url) || "";
     const base = (u) => (u ? u.split("?")[0] : "");
     if (nextIsVideo !== isVideo || base(newUrl) !== base(sourceUrl)) {

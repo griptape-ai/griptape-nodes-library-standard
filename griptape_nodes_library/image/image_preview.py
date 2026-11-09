@@ -86,6 +86,7 @@ class ImagePreviewMixin(BaseNode):
                 name=self.PREVIEW_PARAMETER_NAME,
                 default_value={
                     "operation": self.PREVIEW_OPERATION,
+                    "media": self._preview_media(),
                     **self._preview_extras(),
                     **self._preview_session_extras(),
                 },
@@ -100,6 +101,11 @@ class ImagePreviewMixin(BaseNode):
                 },
             )
         )
+
+    def _preview_media(self) -> str:
+        """ "video" when the preview's media is a video, else "image". The widget needs it before anything is
+        connected, to ask for the right kind of media."""
+        return "video" if "video_url" in self.PREVIEW_IMAGES.values() else "image"
 
     def _is_preview_source(self, parameter_name: str) -> bool:
         """Whether the preview is built from this parameter's value. Override for sources it doesn't list."""
@@ -128,7 +134,7 @@ class ImagePreviewMixin(BaseNode):
 
     def _update_preview(self) -> None:
         """Give the preview widget browser URLs for its images. Its settings reach it from their own parameters."""
-        preview: dict[str, Any] = {"operation": self.PREVIEW_OPERATION}
+        preview: dict[str, Any] = {"operation": self.PREVIEW_OPERATION, "media": self._preview_media()}
         for parameter_name, key in self.PREVIEW_IMAGES.items():
             preview[key] = self._resolve_image_url(self.get_parameter_value(parameter_name))
         preview.update(self._preview_extras())

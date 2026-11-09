@@ -17,7 +17,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.events.parameter_events import RemoveParameterFromNodeRequest
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.utils import async_utils
@@ -239,11 +239,18 @@ class ImageGridSplitter(ImagePreviewMixin, DataNode):
         self._cell_file.add_parameter()
 
     def _preview_extras(self) -> dict[str, Any]:
-        """The grid auto detection finds, which the preview draws when the mode is auto."""
-        pil_image = self._load_input_as_pil()
-        if pil_image is None:
+        """The grid auto detection finds, which the preview draws when the mode is auto.
+
+        This runs when a workflow loads, so an image that is gone or whose URL has expired leaves the preview empty.
+        """
+        try:
+            pil_image = self._load_input_as_pil()
+            if pil_image is None:
+                return {}
+            rows, cols = self._detect_grid_auto(pil_image)
+        except Exception as e:
+            logger.debug(f"{self.name}: could not detect the grid for the preview: {e}")
             return {}
-        rows, cols = self._detect_grid_auto(pil_image)
         return {"detected_rows": rows, "detected_cols": cols}
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:

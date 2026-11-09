@@ -195,6 +195,7 @@ def test_setting_path_publishes_a_preview_of_the_first_image(
 
     assert node.get_parameter_value("rotation_preview") == {
         "operation": "rotate",
+        "media": "image",
         "image_url": "http://static/scan.pdf.jpg",
     }
 

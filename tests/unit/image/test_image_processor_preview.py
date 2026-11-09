@@ -155,6 +155,21 @@ def test_a_loaded_source_reaches_the_preview(node_class: type[ImagePreviewMixin]
     assert node.get_parameter_value(node_class.PREVIEW_PARAMETER_NAME)[key] == media.value
 
 
+@pytest.mark.parametrize("node_class", WITH_SOURCE)
+def test_the_preview_says_which_kind_of_media_it_shows(node_class: type[ImagePreviewMixin]) -> None:
+    node = node_class(name="test_node")
+    [(parameter_name, key)] = node_class.PREVIEW_IMAGES.items()
+    expected = "video" if key == "video_url" else "image"
+
+    # Before anything is connected, so the widget asks for the right kind of media. A video node has no video_url
+    # in its default value, so the widget can't tell from that.
+    assert node.get_parameter_value(node_class.PREVIEW_PARAMETER_NAME)["media"] == expected
+
+    # Setting the source to nothing rebuilds the preview, which still says it.
+    node.set_parameter_value(parameter_name, None)
+    assert node.get_parameter_value(node_class.PREVIEW_PARAMETER_NAME)["media"] == expected
+
+
 def test_combine_masks_items_feed_the_preview() -> None:
     node = CombineMasks(name="test_node")
     masks = node.get_parameter_by_name("masks")
@@ -191,6 +206,27 @@ def test_grid_splitter_sends_the_detected_grid() -> None:
     preview = node.get_parameter_value("grid_preview")
     assert preview["detected_rows"] >= 1
     assert preview["detected_cols"] >= 1
+
+
+@pytest.mark.parametrize("initial_setup", [False, True])
+def test_grid_splitter_with_an_unreadable_image_has_an_empty_preview(
+    monkeypatch: pytest.MonkeyPatch, *, initial_setup: bool
+) -> None:
+    def unreadable(_url: str) -> Image.Image:
+        msg = "the file is gone"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(image_grid_splitter, "load_pil_from_url", unreadable)
+    node = ImageGridSplitter(name="test_node")
+
+    # Loading a workflow whose image was moved or whose URL expired must not fail the value set.
+    node.set_parameter_value(
+        "input_image", ImageUrlArtifact(value="https://example.com/gone.png"), initial_setup=initial_setup
+    )
+
+    preview = node.get_parameter_value("grid_preview")
+    assert preview["operation"] == ImageGridSplitter.PREVIEW_OPERATION
+    assert "detected_rows" not in preview
 
 
 def test_combine_masks_sends_every_mask(monkeypatch: pytest.MonkeyPatch) -> None:

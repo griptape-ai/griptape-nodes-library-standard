@@ -106,10 +106,43 @@ class AdjustMaskSize(DataNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="adjusted_mask.mp4")
         self._output_file.add_parameter()
 
+    def set_parameter_value(
+        self,
+        param_name: str,
+        value: Any,
+        *,
+        initial_setup: bool = False,
+        emit_change: bool = True,
+        skip_before_value_set: bool = False,
+    ) -> None:
+        """Move an adjustment saved in the preview's value onto its parameter.
+
+        Workflows saved before adjustment became a parameter kept it in the preview's value. Loading a workflow sets
+        values with initial_setup, which skips after_value_set, so the move happens here, before the value is stored.
+        The adjustment is clamped, since the slider rejects anything out of range.
+        """
+        if param_name == "preview" and isinstance(value, dict) and "adjustment" in value:
+            saved = int(value["adjustment"] or 0)
+            super().set_parameter_value(
+                "adjustment",
+                max(self.MIN_ADJUSTMENT, min(self.MAX_ADJUSTMENT, saved)),
+                initial_setup=initial_setup,
+                emit_change=emit_change,
+                skip_before_value_set=skip_before_value_set,
+            )
+            value = {key: entry for key, entry in value.items() if key != "adjustment"}
+        super().set_parameter_value(
+            param_name,
+            value,
+            initial_setup=initial_setup,
+            emit_change=emit_change,
+            skip_before_value_set=skip_before_value_set,
+        )
+
     def after_value_set(self, parameter: Parameter, value: Any) -> Any:
         """Called after a parameter value is set.
 
-        Updates the preview widget when video inputs or adjustment changes.
+        Updates the preview widget when video inputs change.
 
         Args:
             parameter: The parameter that changed
@@ -118,13 +151,6 @@ class AdjustMaskSize(DataNode):
         # Update preview when relevant parameters change
         if parameter.name in ["original_video", "mask_video"]:
             self._update_preview()
-
-        # Workflows saved before adjustment became a parameter kept it in the preview's value. Clamp it,
-        # since the slider rejects anything out of range and this runs while the workflow loads.
-        if parameter.name == "preview" and isinstance(value, dict) and "adjustment" in value:
-            saved = int(value["adjustment"] or 0)
-            self.set_parameter_value("adjustment", max(self.MIN_ADJUSTMENT, min(self.MAX_ADJUSTMENT, saved)))
-            self.set_parameter_value("preview", {key: entry for key, entry in value.items() if key != "adjustment"})
 
         return super().after_value_set(parameter, value)
 

@@ -47,3 +47,22 @@ def test_a_saved_adjustment_out_of_range_is_clamped(node: AdjustMaskSize) -> Non
     node.set_parameter_value("preview", {"adjustment": 99})
 
     assert node.get_parameter_value("adjustment") == AdjustMaskSize.MAX_ADJUSTMENT
+
+
+def test_an_adjustment_saved_in_the_preview_moves_to_the_parameter_when_the_workflow_loads(
+    node: AdjustMaskSize,
+) -> None:
+    saved_preview = {"original_video_url": "", "mask_video_url": "", "adjustment": -7, "current_frame": 12}
+
+    # Loading sets values with initial_setup, which skips after_value_set.
+    node.set_parameter_value("preview", saved_preview, initial_setup=True)
+
+    assert node.get_parameter_value("adjustment") == -7
+    assert "adjustment" not in node.get_parameter_value("preview")
+    assert node.get_parameter_value("preview")["current_frame"] == 12
+
+
+def test_a_saved_adjustment_out_of_range_is_clamped_when_the_workflow_loads(node: AdjustMaskSize) -> None:
+    node.set_parameter_value("preview", {"adjustment": -99}, initial_setup=True)
+
+    assert node.get_parameter_value("adjustment") == AdjustMaskSize.MIN_ADJUSTMENT
