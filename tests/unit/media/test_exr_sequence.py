@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import shutil
 import tempfile
 import zipfile
@@ -14,6 +15,7 @@ import pytest
 from griptape_nodes.common.sequences import MissingItemPolicy
 from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.retained_mode.events.config_events import GetConfigValueResultFailure
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.media import exr_sequence
@@ -392,3 +394,75 @@ async def test_enough_free_disk_space_still_unpacks(monkeypatch: pytest.MonkeyPa
     await exr_sequence.write_exr_zip_to_sequence(data, dest)  # type: ignore[arg-type]
 
     assert [number for number, _data in dest.writes] == [1, 2]
+
+
+def _stub_settings(monkeypatch: pytest.MonkeyPatch, values: dict[str, Any] | Exception) -> list[str]:
+    """Replace the config request; ``values`` maps full keys to values, absent keys fail."""
+    requested: list[str] = []
+
+    def fake_handle_request(request: Any) -> Any:
+        requested.append(request.category_and_key)
+        if isinstance(values, Exception):
+            raise values
+        if request.category_and_key in values:
+            return exr_sequence.GetConfigValueResultSuccess(value=values[request.category_and_key], result_details="ok")
+        return GetConfigValueResultFailure(result_details="missing")
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", staticmethod(fake_handle_request))
+    return requested
+
+
+def test_limit_settings_use_defaults_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested = _stub_settings(monkeypatch, {})
+    assert exr_sequence._read_limit_setting("max_members", 4000) == 4000
+    assert requested == ["exr_sequence.max_members"]
+
+
+def test_limit_settings_honour_a_valid_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_settings(monkeypatch, {"exr_sequence.max_members": 12})
+    assert exr_sequence._read_limit_setting("max_members", 4000) == 12
+
+
+@pytest.mark.parametrize("bad", ["lots", "10", 1.5, 0, -5, True, None, [1]])
+def test_limit_settings_fall_back_on_a_bad_value(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, bad: Any
+) -> None:
+    _stub_settings(monkeypatch, {"exr_sequence.max_members": bad})
+    with caplog.at_level("WARNING", logger="griptape_nodes"):
+        assert exr_sequence._read_limit_setting("max_members", 4000) == 4000
+    if bad is not None:
+        assert "exr_sequence.max_members" in caplog.text
+
+
+def test_limit_settings_fall_back_when_the_request_raises(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _stub_settings(monkeypatch, RuntimeError("no engine"))
+    with caplog.at_level("WARNING", logger="griptape_nodes"):
+        assert exr_sequence._read_limit_setting("max_members", 4000) == 4000
+    assert "no engine" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_unpack_reads_the_settings_when_no_argument_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_settings(monkeypatch, {"exr_sequence.max_members": 2})
+    data = _make_zip({f"f_{i}.exr": b"x" for i in range(3)})
+    with pytest.raises(NodeError, match="over the limit of 2 frames"):
+        await exr_sequence.write_exr_zip_to_sequence(data, _FakeDest())  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_argument_beats_the_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_settings(monkeypatch, {"exr_sequence.max_members": 1})
+    data = _make_zip({f"f_{i}.exr": b"x" for i in range(3)})
+    await exr_sequence.write_exr_zip_to_sequence(data, _FakeDest(), max_members=5)  # type: ignore[arg-type]
+
+
+def test_manifest_declares_the_default_limits() -> None:
+    manifest = json.loads((Path(__file__).parents[3] / "griptape_nodes_library.json").read_text())
+    setting = next(s for s in manifest["settings"] if s["category"] == exr_sequence.SETTINGS_CATEGORY)
+    assert setting["contents"] == {
+        exr_sequence.SETTING_MAX_MEMBERS: exr_sequence.DEFAULT_MAX_MEMBERS,
+        exr_sequence.SETTING_MAX_TOTAL_BYTES: exr_sequence.DEFAULT_MAX_TOTAL_BYTES,
+        exr_sequence.SETTING_MAX_MEMBER_BYTES: exr_sequence.DEFAULT_MAX_MEMBER_BYTES,
+    }
