@@ -11,6 +11,7 @@ import shutil
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.llm.agent_state import AgentState
@@ -512,10 +513,8 @@ async def test_template_loads_and_llm_nodes_run(path, compat_engine: CompatEnv, 
     shutil.copy(path, copy)
     expected = TEMPLATE_LOAD_WARNINGS.get(path.stem)
     assert [p for p in await load(copy) if not (expected and expected in p)] == []
-    manager = GriptapeNodes.NodeManager()
-    llm_nodes = [
-        n for n in manager._name_to_parent_flow_name if type(manager.get_node_by_name(n)).__name__ in LLM_NODE_TYPES
-    ]
+    loaded_nodes = GriptapeNodes.ObjectManager().get_filtered_subset(type=BaseNode)
+    llm_nodes = [name for name, loaded in loaded_nodes.items() if type(loaded).__name__ in LLM_NODE_TYPES]
     for name in llm_nodes:
         await run_node(name)
         if type(node(name)).__name__ == "Agent":

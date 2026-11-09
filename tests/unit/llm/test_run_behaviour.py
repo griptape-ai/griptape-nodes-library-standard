@@ -12,6 +12,8 @@ from cohere import (
     V2ChatResponse,
 )
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolCallPart, UserPromptPart
+from pydantic_ai.models import Model
+from pydantic_ai.models.cohere import CohereModel
 from pydantic_ai.models.function import AgentInfo, DeltaToolCalls, FunctionModel
 
 from griptape_nodes_library.llm import models
@@ -172,6 +174,8 @@ def test_cohere_runs_without_streaming(monkeypatch: pytest.MonkeyPatch) -> None:
         return next(replies)
 
     monkeypatch.setattr("cohere.AsyncClientV2.chat", chat, raising=False)
+    # pydantic-ai 2.58+ streams Cohere; keep this test on the unstreamed path it covers.
+    monkeypatch.setattr(CohereModel, "request_stream", Model.request_stream)
     agent = build_agent(
         ModelConfig(provider=ModelProvider.COHERE, model="command-a"),
         toolsets=build_toolsets([{"tool_type": "Calculator"}]),

@@ -40,6 +40,7 @@ from griptape_nodes.retained_mode.events.os_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.retained_mode import RetainedMode
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 from static_ffmpeg import run  # type: ignore[import-untyped]
@@ -194,7 +195,7 @@ class ExtractFrames(SuccessFailureNode):
                 default_value=DEFAULT_OUTPUT_FORMAT,
                 tooltip="Image format for extracted frames.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=FORMAT_OPTIONS)},
+                traits={Options(choices=FORMAT_OPTIONS), FileFormat(kind=FileFormatKind.IMAGE)},
             )
 
         self.add_node_element(output_settings_group)

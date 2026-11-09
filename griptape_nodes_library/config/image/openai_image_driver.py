@@ -1,6 +1,7 @@
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
@@ -95,7 +96,7 @@ class OpenAiImage(BaseImageDriver):
                 type="str",
                 default_value="png",
                 tooltip="Select the output format for image generation.",
-                traits={Options(choices=["png", "jpeg"])},
+                traits={Options(choices=["png", "jpeg"]), FileFormat(kind=FileFormatKind.IMAGE)},
             )
         )
         self.add_parameter(

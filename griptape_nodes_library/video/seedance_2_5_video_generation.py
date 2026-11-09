@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 from typing import Any, ClassVar
 
 from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
@@ -16,6 +17,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input, normalize_artifact_list
 
@@ -317,6 +319,9 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         self.add_parameter(
             ParameterList(
                 name=REFERENCE_IMAGES_PARAMETER,
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_IMAGE]],
                 default_value=[],
                 tooltip=(
@@ -356,6 +361,9 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         self.add_parameter(
             ParameterList(
                 name=REFERENCE_AUDIO_PARAMETER,
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=AudioUrlArtifact, accepted_types=(AudioArtifact,))
+                ],
                 input_types=["AudioArtifact", "AudioUrlArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_AUDIO]],
                 default_value=[],
                 tooltip=(
@@ -422,7 +430,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                     "post-production and is recommended for video editing and extension."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=list(OUTPUT_FORMAT_CHOICES))},
+                traits={Options(choices=list(OUTPUT_FORMAT_CHOICES)), FileFormat(kind=FileFormatKind.VIDEO)},
             )
 
             ParameterBool(
@@ -517,16 +525,6 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             artifact = normalize_artifact_input(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
             if artifact != value:
                 self.set_parameter_value(parameter.name, artifact)
-
-        if parameter.name == REFERENCE_IMAGES_PARAMETER and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, ImageUrlArtifact, accepted_types=(ImageArtifact,))
-            if updated_list != value:
-                self.set_parameter_value(REFERENCE_IMAGES_PARAMETER, updated_list)
-
-        if parameter.name == REFERENCE_AUDIO_PARAMETER and isinstance(value, list):
-            updated_list = normalize_artifact_list(value, AudioUrlArtifact, accepted_types=(AudioArtifact,))
-            if updated_list != value:
-                self.set_parameter_value(REFERENCE_AUDIO_PARAMETER, updated_list)
 
         self._react_to_parameter_change(parameter.name, value, sync_only=False)
         return super().after_value_set(parameter, value)

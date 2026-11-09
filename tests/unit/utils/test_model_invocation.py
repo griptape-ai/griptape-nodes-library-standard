@@ -21,6 +21,8 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 import griptape_nodes_library.utils.model_invocation as model_invocation_module
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
+pytestmark = pytest.mark.usefixtures("open_workflow")
+
 
 class _StubNode(BaseNode):
     """Concrete `BaseNode` so the helper's `type(node).__name__` / `node.name` are real."""

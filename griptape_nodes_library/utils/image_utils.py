@@ -65,6 +65,8 @@ SUPPORTED_PIL_FORMATS = {
     "PIXAR",
 }
 
+SIXTEEN_BIT_TO_EIGHT_BIT = 1 / 256
+
 
 def get_supported_pil_formats() -> set[str]:
     """Get a set of supported PIL image formats.
@@ -116,6 +118,15 @@ def parse_hex_color(color: str) -> tuple[int, int, int]:
     """Parse hex color string to RGB tuple."""
     color = color.removeprefix("#")
     return (int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16))
+
+
+def grayscale_to_eight_bit(image: Image.Image) -> Image.Image:
+    """Scale 16-bit and float grayscale to 8-bit `L`, since `convert()` clips those modes instead of scaling them."""
+    if image.mode == "I" or image.mode.startswith("I;16"):
+        return image.convert("I").point(lambda value: value * SIXTEEN_BIT_TO_EIGHT_BIT).convert("L")
+    if image.mode == "F":
+        return image.point(lambda value: value * 255).convert("L")
+    return image
 
 
 def scale_alpha(image: Image.Image, opacity: float) -> Image.Image:

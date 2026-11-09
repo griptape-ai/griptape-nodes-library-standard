@@ -11,6 +11,7 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import logger
+from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from PIL import Image
 
@@ -77,6 +78,7 @@ class BaseImageProcessor(SuccessFailureNode, ABC):
             tooltip="Output image format. Choose 'auto' to preserve input format, or select a specific format.",
         )
         format_param.add_trait(Options(choices=list(self.IMAGE_FORMAT_OPTIONS.keys())))
+        format_param.add_trait(FileFormat(kind=FileFormatKind.IMAGE))
         self.add_parameter(format_param)
 
         # Add quality parameter for lossy formats
