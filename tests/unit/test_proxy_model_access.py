@@ -50,8 +50,9 @@ type AuthorizationHook = Callable[[AuthorizationCheckpoint], CheckpointDenial | 
 # denied default) never fires and can't confuse these assertions.
 # OmnihumanSubjectRecognition, OmnihumanSubjectDetection,
 # WanReferenceToVideoGeneration, FluxImageGeneration, TranscribeAudio, GrokImageGeneration,
-# GrokImageEdit, GrokVideoGeneration, GrokVideoEdit, and LTXVideoToVideoHDR each declare
-# exactly one model, so their only choice is necessarily also their default.
+# GrokImageEdit, GrokVideoGeneration and GrokVideoEdit each declare exactly one model, so
+# their only choice is necessarily also their default. LTXVideoToVideoHDR declares two, and the
+# denied legacy model is not its default (ltx-hdr-2 is).
 # TopazImageEnhance's "operation" dropdown does not install model access (its models
 # are chosen implicitly by the operation, not offered as a license-gated choice), so
 # it has no case here.
@@ -103,7 +104,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("LTXAudioToVideoGeneration", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
     ("LTXVideoExtend", "gtc_ltx_2_pro", "ltx-2-pro", "model"),
     ("LTXVideoRetake", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),  # only declared model
-    ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),  # only declared model
+    ("LTXVideoToVideoHDR", "gtc_ltx_2_3_pro", "ltx-2-3-pro", "model"),
 ]
 
 
