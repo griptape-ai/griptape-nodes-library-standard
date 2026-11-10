@@ -1,0 +1,1 @@
+- Added interactive previews for some image and video nodes.

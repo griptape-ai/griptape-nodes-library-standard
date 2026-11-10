@@ -1,6 +1,6 @@
 ---
 name: griptape-nodes-widget-dev
-description: Building and debugging custom parameter widgets for Griptape Nodes Library. Use when creating, fixing, or debugging JS widgets that display in node parameters — including widget lifecycle issues, value update flow, video/media display, URL resolution for the static file server, and the Python ↔ JS data bridge.
+description: Building and debugging custom parameter widgets for Griptape Nodes Library. Use when creating, fixing, or debugging JS widgets that display in node parameters — including widget lifecycle issues, value update flow, syncing a widget with node parameters (synced_parameters), video/media display, URL resolution for the static file server, and the Python ↔ JS data bridge.
 ---
 
 # Griptape Nodes Custom Widget Development
@@ -91,107 +91,90 @@ if (container._instance?.wrapper?.isConnected) {
 
 ---
 
-## Pushing data from Python into the widget
+## Pushing display data from Python into the widget
 
-React to input changes with `after_value_set`, then write into the widget's dict parameter. The frontend picks up the new value and calls `update`.
+The widget's own parameter holds data that isn't a node parameter, such as an image URL the node resolves for display. React to input changes with `after_value_set`, write the new value, and publish it; the editor calls `update`.
 
 ```python
 def after_value_set(self, parameter, value):
-    if parameter.name == "my_input":
-        self.set_parameter_value("my_data", {"url": self._resolve_url(value), "adjustment": 0})
+    if parameter.name == "input_image":
+        preview = {"image_url": self._resolve_url(value)}
+        self.set_parameter_value("my_data", preview)
+        self.publish_update_to_parameter("my_data", preview)
     return super().after_value_set(parameter, value)
 ```
 
-Do **not** call `set_parameter_value` on the widget param from `__init__` — unnecessary and causes double-render on placement.
+Do **not** call `set_parameter_value` on the widget param from `__init__`. It's unnecessary and causes a double render on placement; put the starting value in `default_value` instead.
+
+**Loading a workflow skips this hook.** Values load with `initial_setup=True`, which stores them without calling `before_value_set` or `after_value_set`. A widget that relies on `after_value_set` to receive its display data gets nothing on load, unless the saved widget value already holds it. If the widget must be rebuilt from other values on load, override `set_parameter_value` and recompute when `initial_setup` is true (see `ImagePreviewMixin.set_parameter_value`).
+
+Never copy a node parameter into the widget's value; sync it instead (next section).
 
 ---
 
-## Preventing sync loops between Python and the widget
+## Syncing the widget with node parameters (`synced_parameters`)
 
-When the widget emits a change and Python writes individual parameters back, `after_value_set` fires for each one. Without guards these trigger another widget push, which triggers another emit, and so on.
+When a widget edits values that are also node parameters (a crop box and its `left`/`top`/`width`/`height` sliders, a rotation preview and its `angle`), list them in `synced_parameters`. The widget then reads and writes those parameters directly. Each value has one copy, the parameter, so the node needs **no sync code at all**: no copying into the widget dict, no re-entrancy flags, no "pre-publish" ordering, no connection hooks for locking. Older widgets did all of that (and some still do); don't copy that pattern.
 
-Use two flags — one for each direction — to break the loop:
-
-```python
-self._syncing_to_widget = False  # Python → widget in progress
-self._syncing_to_params = False  # widget → params in progress
-
-def after_value_set(self, parameter, value):
-    if parameter.name == "my_widget_param" and not self._syncing_to_widget:
-        # widget changed → sync to individual params
-        self._syncing_to_params = True
-        try:
-            self.set_parameter_value("x", value.get("x", 0))
-            self.publish_update_to_parameter("x", value.get("x", 0))
-        finally:
-            self._syncing_to_params = False
-
-    elif not self._syncing_to_params and parameter.name == "x":
-        # individual param changed → push to widget
-        self._syncing_to_widget = True
-        try:
-            self._push_widget({...})
-        finally:
-            self._syncing_to_widget = False
-```
-
----
-
-## Pre-publish the widget dict before individual param publishes
-
-**Problem (snap-then-jump):** When the widget emits and Python calls `publish_update_to_parameter("x", 300)` for each individual param, FlowEditor re-renders *all* widgets using the currently-stored widget dict value. If the stored dict still has the old value (`x: 100`), the widget snaps back to `x: 100` on every individual param publish.
-
-**Fix:** publish the full widget dict first, before any individual param publishes. This ensures the stored value is authoritative before the re-render fires.
+Requires engine 0.107.0+ and the matching editor. The contract is documented in the engine's `docs/development/custom_nodes/custom_widgets.md` ("Live Parameter Sync").
 
 ```python
-def _sync_params_from_widget(self, widget_dict: dict) -> None:
-    # ✅ pre-publish the widget dict FIRST
-    self.publish_update_to_parameter("my_widget_param", widget_dict)
-
-    self._syncing_to_params = True
-    try:
-        for key, val in widget_dict.items():
-            self.set_parameter_value(key, val)
-            self.publish_update_to_parameter(key, val)
-    finally:
-        self._syncing_to_params = False
-```
-
----
-
-## Detecting wire connections to lock widget controls
-
-When an upstream node wires into a parameter, the widget should show that parameter as read-only (don't let the user drag a handle that would override a connected value).
-
-```python
-from griptape_nodes.retained_mode.events.connection_events import (
-    ListConnectionsForNodeRequest,
-    ListConnectionsForNodeResultSuccess,
+self.add_parameter(
+    ParameterDict(
+        name="crop_editor",
+        default_value={"image_url": ""},          # only what isn't a parameter
+        allowed_modes={ParameterMode.PROPERTY},
+        traits={
+            Widget(
+                name="CropImageEditor",
+                library="Griptape Nodes Library",
+                synced_parameters=["left", "top", "width", "height"],
+            )
+        },
+    )
 )
-
-def _get_locked_params(self) -> list[str]:
-    watched = {"x", "y", "width", "height"}
-    try:
-        result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
-        if isinstance(result, ListConnectionsForNodeResultSuccess):
-            return [c.target_parameter_name for c in result.incoming_connections
-                    if c.target_parameter_name in watched]
-    except Exception:
-        pass
-    return []
-
-def after_incoming_connection(self, source_node, source_parameter, target_parameter):
-    if target_parameter.name in self._watched_params:
-        self._push_widget({**self._current_widget_dict(), "locked": self._get_locked_params()})
-    return super().after_incoming_connection(source_node, source_parameter, target_parameter)
-
-def after_incoming_connection_removed(self, source_node, source_parameter, target_parameter):
-    if target_parameter.name in self._watched_params:
-        self._push_widget({**self._current_widget_dict(), "locked": self._get_locked_params()})
-    return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
 ```
 
-In the widget JS, read `value.locked` and use it to disable the relevant interactive elements.
+What the widget gets:
+
+- `value`: its own value with each synced parameter's current value merged in under its name (a live value from a drag wins). Only a dict value takes the merge.
+- `onChange(value)`: pass the **whole** value. Keys that name a synced parameter are set on that parameter, as if its own control moved; everything else replaces the widget's own value, so a key you leave out is removed from it. Unchanged values and locked parameters are skipped.
+- `onLiveChange({ name: value })`: in-progress values during a drag. The parameters' controls on the node move with it; nothing is sent to the engine until `onChange`.
+- `locked`: `string[]` of synced parameters with an incoming connection. Disable direct manipulation of them. It comes from the editor, so the node needs no connection hooks, and it's never saved.
+
+```js
+export default function CropEditor(container, props) {
+  let value = props.value || {};
+  let { onChange, onLiveChange } = props;
+  let locked = props.locked || [];
+  let dragging = false;
+
+  function handleUpdate(newProps) {
+    value = newProps.value || {};
+    onChange = newProps.onChange;
+    onLiveChange = newProps.onLiveChange;
+    locked = newProps.locked || [];
+    if (!dragging) render();   // during a drag the incoming value is our own live value
+  }
+
+  function onPointerMove(rect) {
+    onLiveChange?.({ left: rect.left, top: rect.top });
+  }
+
+  function onPointerUp(rect) {
+    dragging = false;
+    onChange({ ...value, left: rect.left, top: rect.top });   // whole value
+  }
+  // ...
+  return { cleanup, update: handleUpdate };
+}
+```
+
+If a synced parameter's name differs from what the widget calls it internally, the widget maps names; the editor routes by parameter name. Examples: `image/crop_image.py` with `widgets/CropImageEditor/`, `video/crop_video.py` with `widgets/CropVideoEditor/` (presets plus custom fields), `video/adjust_mask_size.py` with `widgets/MaskAdjustmentPreview.js`.
+
+**Migrating an old widget:** add `synced_parameters`, drop the parameter copies from the widget dict's default and from every push, delete the `_syncing_*` flags, the dict-to-parameter and parameter-to-dict sync methods, `_get_locked_params` and the connection hooks that only refreshed `locked`, and have the JS read `props.locked`. A saved workflow may still hold the old copies in the widget dict; that's harmless because the parameters win.
+
+For a live preview of a node's result (an image or video operation drawn in the browser), use `ImagePreviewMixin` instead of a custom widget; see the `add-node-preview` skill.
 
 ---
 
@@ -209,6 +192,8 @@ self.add_parameter(
     )
 )
 ```
+
+`hide_property` hides the editor's whole parameter component, and for image and video inputs that component holds the file browser. The user can then only provide the media by connecting it. That's deliberate on the preview nodes (the preview shows the media), but decide it on purpose. An item in a `ParameterList` inherits the list's `ui_options`, so setting `hide_property` in the list's `ui_options` hides every item's thumbnail too (`image/combine_masks.py`).
 
 ---
 
@@ -390,3 +375,7 @@ The canvas/image area can keep a hardcoded dark background (`#111`) since it's a
 - Pass a copy to `onChange`, never internal state: `onChange({ ...value, field: newVal })`
 - Cleanup must remove DOM elements and delete `container._instance`
 - Scrollable containers that drive a `ResizeObserver` layout callback need `scrollbar-gutter: stable` to prevent jitter (scrollbar appearance otherwise shifts `clientWidth`, re-triggering the observer)
+- Don't copy node parameters into the widget's value; list them in `synced_parameters`
+- With `synced_parameters`, `onChange` must carry the whole value; keys left out are removed from the widget's own value
+- Loading a workflow (`initial_setup=True`) skips `after_value_set`, so display data pushed only from that hook is missing on load unless it was saved
+- Browsers cap how many media players a page holds; a widget with `<video>` must pause it, remove `src` and call `load()` in cleanup

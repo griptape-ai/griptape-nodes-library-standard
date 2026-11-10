@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterMode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -10,6 +10,9 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 class AddFilmGrain(BaseVideoProcessor):
     """Add realistic film grain to video using sophisticated noise generation and luminance masking."""
+
+    PREVIEW_OPERATION = "film_grain"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["grain_intensity", "luminance_threshold", "grain_scale"]
 
     # Grain intensity constants
     MIN_GRAIN_INTENSITY = 0.05

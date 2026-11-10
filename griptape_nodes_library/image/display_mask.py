@@ -1,13 +1,14 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import BaseNode, DataNode
+from griptape_nodes.exe_types.core_types import ParameterMode
+from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.image_utils import (
     dict_to_image_url_artifact,
     extract_channel_from_image,
@@ -16,7 +17,10 @@ from griptape_nodes_library.utils.image_utils import (
 )
 
 
-class DisplayMask(DataNode):
+class DisplayMask(ImagePreviewMixin, DataNode):
+    PREVIEW_OPERATION = "display_channel"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["channel"]
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -32,6 +36,8 @@ class DisplayMask(DataNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
         )
+
+        self._add_preview_parameter()
 
         channel_param = ParameterString(
             name="channel",
@@ -53,6 +59,10 @@ class DisplayMask(DataNode):
 
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="display_mask.png")
         self._output_file.add_parameter()
+
+    def _preview_extras(self) -> dict[str, Any]:
+        """The image's mode, which decides how the node reads it and which the browser can't tell."""
+        return {"image_mode": self._image_mode("input_image")}
 
     def _set_output_parameter_name(self, name: str) -> None:
         """Set the name of the output parameter. Must be called before adding the output parameter."""
@@ -76,40 +86,6 @@ class DisplayMask(DataNode):
 
         # Create mask from image
         self._extract_channel(input_image, channel)
-
-    def after_incoming_connection(
-        self,
-        source_node: BaseNode,
-        source_parameter: Parameter,
-        target_parameter: Parameter,
-    ) -> None:
-        """Handle input connections and update outputs accordingly."""
-        if target_parameter.name == "input_image":
-            input_image = self.get_parameter_value("input_image")
-            channel = self.get_parameter_value("channel")
-            if input_image is not None:
-                self._handle_input_image_change(input_image, channel)
-
-        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
-
-    def _handle_input_image_change(self, value: Any, channel: str) -> None:
-        # Normalize input image to ImageUrlArtifact
-        if isinstance(value, dict):
-            image_artifact = dict_to_image_url_artifact(value)
-        else:
-            image_artifact = value
-
-        # Create mask from image
-        self._extract_channel(image_artifact, channel)
-
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name in ["input_image", "channel"] and value is not None:
-            input_image = self.get_parameter_value("input_image")
-            channel = self.get_parameter_value("channel")
-            if input_image is not None:
-                self._handle_input_image_change(input_image, channel)
-
-        return super().after_value_set(parameter, value)
 
     def _extract_channel(self, image_artifact: ImageUrlArtifact, channel: str) -> None:
         """Extract a channel from the input image and set as output."""

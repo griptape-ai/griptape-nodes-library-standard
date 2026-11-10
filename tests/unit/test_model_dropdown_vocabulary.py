@@ -14,6 +14,8 @@ node's `deprecated_values` table.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -27,6 +29,12 @@ from test_legacy_model_value_migration import (
 
 if TYPE_CHECKING:
     from griptape_nodes.exe_types.node_types import BaseNode
+
+MANIFEST_PATH = Path(__file__).resolve().parents[2] / "griptape_nodes_library.json"
+
+# Node types that can't be constructed in the unit-test environment, so the
+# all-nodes sweep below skips them. Neither installs a model-access dropdown.
+_UNCONSTRUCTIBLE_NODE_TYPES = frozenset({"OpenAiPrompt", "SubflowWorkflowNode"})
 
 
 def _declared_provider_model_ids(node: BaseNode) -> set[str]:
@@ -80,3 +88,36 @@ def test_no_choice_is_a_catalog_key(node_type: str) -> None:
     declared_catalog_keys = {resolved.model_id for resolved in get_declared_models(node)}
     leaked = sorted(_offered_choice_names(parameter) & declared_catalog_keys)
     assert not leaked, f"{node_type}: dropdown still offers catalog key(s) {leaked} instead of provider model ids"
+
+
+def _all_manifest_node_types() -> list[str]:
+    manifest = json.loads(MANIFEST_PATH.read_text())
+    return sorted(
+        node["class_name"] for node in manifest["nodes"] if node["class_name"] not in _UNCONSTRUCTIBLE_NODE_TYPES
+    )
+
+
+def test_every_model_dropdown_offers_only_declared_models() -> None:
+    """Sweep every node in the manifest, not just `NODE_TYPES_WITH_MODEL_ACCESS`.
+
+    That list is curated for nodes with a `deprecated_values` table, so a new node
+    with no legacy values is not on it, and the per-node checks above never see it.
+    Such a node can ship a dropdown whose choice matches no declared catalog model,
+    and every run of it fails closed. This catches that whatever the node's history.
+    """
+    problems: list[str] = []
+    for node_type in _all_manifest_node_types():
+        node = _create_node(node_type)
+        component = getattr(node, "_model_access", None)
+        if component is None:
+            continue
+        declared = _declared_provider_model_ids(node)
+        parameter = cast("Any", component)._parameter
+        undeclared = sorted(_offered_choice_names(parameter) - declared)
+        if undeclared:
+            problems.append(f"{node_type}: {undeclared}")
+
+    assert not problems, (
+        "These dropdowns offer choices that match no catalog model the node declares, so they "
+        f"fail closed at run time: {problems}"
+    )

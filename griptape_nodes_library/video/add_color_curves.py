@@ -9,6 +9,9 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 class AddColorCurves(BaseVideoProcessor):
     """Add color curves (color grading) effect to video using FFmpeg's curves filter."""
 
+    PREVIEW_OPERATION = "curves"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["curve_preset"]
+
     # Available curve presets (from FFmpeg curves filter)
     CURVE_PRESETS: ClassVar[list[str]] = [
         "none",
