@@ -774,6 +774,12 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             resolution_error = kling_4.resolution_error(model_id, self.get_parameter_value("resolution"))
             if resolution_error:
                 exceptions.append(ValueError(resolution_error))
+            capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+            duration = self.get_parameter_value("duration")
+            if duration not in capabilities.durations:
+                exceptions.append(
+                    ValueError(f"{model_id} supports durations of 3-{capabilities.max_duration}s (got {duration}s).")
+                )
             return exceptions or None
 
         if requires_prompt and len(prompt) > MAX_PROMPT_LENGTH:

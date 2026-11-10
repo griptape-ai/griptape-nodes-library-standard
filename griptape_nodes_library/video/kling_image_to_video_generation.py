@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
 from contextlib import suppress
 from decimal import Decimal, InvalidOperation
-from functools import partial
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
@@ -277,7 +277,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             ParameterList(
                 name="middle_frames",
                 item_converters=[
-                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                    functools.partial(
+                        normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,)
+                    )
                 ],
                 input_types=[
                     "ImageArtifact",

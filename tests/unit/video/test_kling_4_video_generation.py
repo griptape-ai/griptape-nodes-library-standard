@@ -280,3 +280,22 @@ def test_resolution_helpers() -> None:
     assert kling_4.resolution_error("kling-4.0-flash", "1080p") == (
         "kling-4.0-flash does not support resolution '1080p'. Use 720p."
     )
+
+
+def test_text_rejects_a_duration_the_model_does_not_offer() -> None:
+    node = KlingTextToVideoGeneration(name="KlingText")
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+    node.set_parameter_value("prompt", "a cat")
+    node.parameter_values["duration"] = 25  # e.g. a saved workflow or an upstream connection
+
+    assert node.get_parameter_value("duration") == 25
+    assert _validation_messages(node) == ["kling-4.0-flash supports durations of 3-20s (got 25s)."]
+
+
+def test_omni_flash_rejects_voice_ids_instead_of_dropping_them() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("voice_ids", "829837252279803904")
+
+    assert _validation_messages(node) == ["kling-4.0-flash does not take voice IDs; use Kling 4.0 for voices."]

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from griptape_nodes_library.media import prepare_media_data_uri
+from griptape_nodes_library import media
 
 KLING_4_0 = "kling-4.0"
 KLING_4_0_FLASH = "kling-4.0-flash"
@@ -29,7 +29,6 @@ MAX_ENGLISH_PROMPT_CHARS = 26_000
 MAX_OTHER_PROMPT_CHARS = 11_000
 
 MAX_IMAGES = 10
-MAX_REFERENCE_VIDEOS = 5
 MAX_ELEMENTS = 7
 MAX_VOICES = 3
 MAX_REFERENCES = 15
@@ -131,7 +130,7 @@ async def prepare_image(image_input: Any, *, label: str, node_name: str) -> str:
     Dropping a frame would shift every reference id after it, so a prompt naming
     `@frame_3` would point at the wrong image while the generation still runs.
     """
-    data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=node_name)
+    data_uri = await media.prepare_media_data_uri(image_input, kind="image", node_name=node_name)
     if not data_uri:
         msg = f"Couldn't load the image connected to '{label}'. Check that it's a valid image file or URL."
         raise ValueError(msg)

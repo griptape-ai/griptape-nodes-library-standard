@@ -771,7 +771,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_ELEMENTS} elements (got {len(element_ids)}).")
             )
 
-        voice_ids = kling_4.parse_id_list(self.get_parameter_value("voice_ids")) if capabilities.supports_voices else []
+        voice_ids = kling_4.parse_id_list(self.get_parameter_value("voice_ids"))
+        if voice_ids and not capabilities.supports_voices:
+            exceptions.append(ValueError(f"{model_id} does not take voice IDs; use Kling 4.0 for voices."))
+            voice_ids = []
         if len(voice_ids) > kling_4.MAX_VOICES:
             exceptions.append(
                 ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_VOICES} voices (got {len(voice_ids)}).")
