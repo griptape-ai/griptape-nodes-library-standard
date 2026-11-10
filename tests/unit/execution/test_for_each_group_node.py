@@ -18,7 +18,7 @@ def default_node() -> ForEachGroupNode:
 
 class TestSideParametersMetadata:
     def test_left_rail_membership(self, default_node: ForEachGroupNode) -> None:
-        expected_left = {"items", "exec_in", "group_exec_in", "on_each", "current_item", "index"}
+        expected_left = {"items", "exec_in", "on_each", "current_item", "index"}
 
         assert set(default_node.metadata[LEFT_PARAMETERS_KEY]) == expected_left
         assert len(default_node.metadata[LEFT_PARAMETERS_KEY]) == len(expected_left)
@@ -26,7 +26,6 @@ class TestSideParametersMetadata:
     def test_right_rail_membership(self, default_node: ForEachGroupNode) -> None:
         expected_right = {
             "exec_out",
-            "group_exec_out",
             "loop_complete",
             "new_item_to_add",
             "skip_iteration",
