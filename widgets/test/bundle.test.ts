@@ -6,13 +6,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ENTRIES, WIDGETS_ROOT } from "../scripts/build.mjs";
 import { buildIntoScratch, importMount, removeDir, scratchDir } from "./support/bundle";
 
-const DIST = join(WIDGETS_ROOT, "dist");
-
 // Module syntax that would make the browser fetch something besides the bundle itself.
 const STATIC_IMPORT = /^\s*import\s*(?:[\w*{}\s,$]+from\s*)?["']/m;
 const RE_EXPORT = /^\s*export\s*(?:\*|\{[^}]*\})\s*from\s*["']/m;
 const DYNAMIC_IMPORT = /\bimport\s*\(/;
 
+// These build into a scratch directory, so they pass with or without a built widgets/dist.
+// `make widgets/check-dist` checks the committed bundles against a fresh build.
 describe("built bundle", () => {
   let outDir: string;
 
@@ -51,16 +51,6 @@ describe("built bundle", () => {
     expect(text).not.toMatch(/sourceMappingURL/);
   });
 
-  it("matches the committed dist output byte for byte", async () => {
-    const built = await readFile(join(outDir, "CropImageEditor.js"));
-    const committed = await readFile(join(DIST, "CropImageEditor.js"));
-    expect(built.equals(committed)).toBe(true);
-  });
-
-  it("leaves only the declared bundles in dist, with no chunks or CSS sidecars", async () => {
-    const files = (await readdir(DIST)).sort();
-    expect(files).toEqual(Object.keys(ENTRIES).map((name) => `${name}.js`).sort());
-  });
 });
 
 describe("rebuilding after a helper change", () => {

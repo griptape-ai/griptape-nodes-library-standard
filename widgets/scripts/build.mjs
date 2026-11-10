@@ -6,6 +6,7 @@
 // The engine runs `npm run build --ignore-scripts` in source mode, so this script is the whole
 // build: no pre/post hooks, no install-time steps.
 
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,8 +85,8 @@ export function verifyBundle(name, text, meta) {
 
 /**
  * Builds every entry into a staging directory, verifies the result, and moves the bundles into
- * `outDir`. Files in `outDir` that the build did not produce are removed. If anything fails,
- * `outDir` is left as it was.
+ * `outDir`. Files in `outDir` that the build did not produce are removed. If the build or its
+ * checks fail, `outDir` is left as it was.
  *
  * @param {{ root?: string, outDir?: string, entries?: Record<string, string> }} [options]
  * @returns {Promise<string[]>} paths of the promoted bundles
@@ -115,6 +116,7 @@ export async function buildWidgets({ root = WIDGETS_ROOT, outDir, entries = ENTR
     }
 
     await mkdir(target, { recursive: true });
+    // Each rename is atomic, the set is not: with several entries a reader can briefly see a mix.
     for (const file of emitted) {
       await rename(join(staging, file), join(target, file));
     }
@@ -146,7 +148,18 @@ async function main() {
   for (const file of outputs) console.log(`built ${relative(WIDGETS_ROOT, file)}`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Run as a script, however it was invoked (relative path, symlink), but not when imported.
+function invokedDirectly() {
+  const script = process.argv[1];
+  if (!script) return false;
+  try {
+    return realpathSync(script) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
   main().catch((err) => {
     console.error(err instanceof Error ? err.message : err);
     process.exitCode = 1;
