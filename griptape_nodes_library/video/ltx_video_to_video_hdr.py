@@ -19,6 +19,7 @@ from static_ffmpeg import run  # type: ignore[import-untyped]
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri, resolve_media_location
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
+from griptape_nodes_library.video.public_video_url_mixin import PublicVideoUrlMixin
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -32,20 +33,20 @@ LEGACY_MODEL_VALUES = {
 }
 
 # Input frame-count limits per LTX HDR upscale docs, keyed by billing tier.
-# https://docs.ltx.video/api-documentation/api-reference/async-video-generation/submit-video-to-video-hdr
+# https://docs.ltx.io/api-documentation/api-reference/async-video-generation/submit-video-to-video-hdr
 # (bucket, max_long_side, max_short_side, max_frames)  # noqa: ERA001
 _LTX_HDR_INPUT_TIERS: tuple[tuple[str, int, int, int], ...] = (
-    ("1080p", 1920, 1080, 181),
-    ("1440p", 2560, 1440, 101),
-    ("2160p", 3840, 2160, 41),
+    ("1080p", 1920, 1080, 273),
+    ("1440p", 2560, 1440, 193),
+    ("2160p", 3840, 2160, 65),
 )
 
 
-class LTXVideoToVideoHDR(GriptapeProxyNode):
+class LTXVideoToVideoHDR(PublicVideoUrlMixin, GriptapeProxyNode):
     """Upgrade an SDR video to HDR using LTX AI via Griptape Cloud model proxy.
 
     Inputs:
-        - video (VideoUrlArtifact): SDR source video (required, sent as base64 data URI)
+        - video (VideoUrlArtifact): SDR source video (required, sent as a public URL, or a base64 data URI as a fallback)
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
@@ -125,6 +126,13 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         )
 
         self.set_initial_node_size(height=400)
+
+    async def _process_generation(self) -> None:
+        self._reset_video_uploads()
+        try:
+            await super()._process_generation()
+        finally:
+            await self._cleanup_video_uploads()
 
     def _get_api_model_id(self) -> str:
         return f"{self._get_selected_model_id()}:video-to-video-hdr"
@@ -242,20 +250,14 @@ class LTXVideoToVideoHDR(GriptapeProxyNode):
         if error := self._validate_video_input(video):
             raise ValueError(error)
 
-        try:
-            video_data_uri = await self._prepare_video_data_uri_async(video)
-        except Exception as e:
-            logger.error("%s failed to process video: %s", self.name, e)
-            msg = f"Could not read the video connected to 'input video': {e}"
-            raise ValueError(msg) from e
-
-        if not video_data_uri:
-            msg = "Could not read the video connected to 'input video'."
-            raise ValueError(msg)
+        # Tier 1: upload to Griptape Cloud and send LTX a public URL it fetches server-side.
+        # Tier 2: base64 data URI with a pre-flight size guard.
+        # The mixin raises its own user-facing messages (unreadable or too large).
+        video_uri = await self._resolve_video_uri(video)
 
         # The proxy derives duration AND the billing resolution tier server-side
         # from the decoded video, so the request payload only carries video_uri.
-        return {"video_uri": video_data_uri}
+        return {"video_uri": video_uri}
 
     async def _parse_result(self, _result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted EXR-frames ZIP. LTX HDR returns the archive as the response body itself."""
