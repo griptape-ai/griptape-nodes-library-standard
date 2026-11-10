@@ -21,7 +21,7 @@ from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri, prepare_media_data_uri, resolve_media_location
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
-from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure
+from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure, is_quarter_turned
 from griptape_nodes_library.video.public_video_url_mixin import PublicVideoUrlMixin
 
 logger = logging.getLogger("griptape_nodes")
@@ -53,27 +53,6 @@ LEGACY_MODEL_VALUES = {
 SUPPORTED_RESOLUTIONS = ("1920x1080", "1080x1920")
 DEFAULT_RESOLUTION = "1920x1080"
 PORTRAIT_RESOLUTION = "1080x1920"
-
-# A rotation this far from a quarter turn counts as one, covering the float noise a
-# display matrix can carry.
-_ROTATION_TOLERANCE_DEGREES = 45
-
-
-def _is_quarter_turned(video_stream: dict[str, Any]) -> bool:
-    """Whether a display matrix rotates the stream onto its side.
-
-    Phone footage is commonly stored landscape with a 90 or 270 degree rotation that
-    players apply, so the stored `width`/`height` describe a portrait video the wrong
-    way round. Only quarter turns swap the two; 180 leaves the orientation alone.
-    """
-    for side_data in video_stream.get("side_data_list") or []:
-        rotation = side_data.get("rotation")
-        if not isinstance(rotation, (int, float)):
-            continue
-        offset_from_quarter_turn = abs(rotation) % 180
-        if abs(offset_from_quarter_turn - 90) < _ROTATION_TOLERANCE_DEGREES:
-            return True
-    return False
 
 
 class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
@@ -366,7 +345,7 @@ class LTXVideoRetake(PublicVideoUrlMixin, GriptapeProxyNode):
             width = video_stream.get("width")
             height = video_stream.get("height")
             if isinstance(width, int) and isinstance(height, int):
-                if _is_quarter_turned(video_stream):
+                if is_quarter_turned(video_stream):
                     width, height = height, width
                 info["width"] = width
                 info["height"] = height
