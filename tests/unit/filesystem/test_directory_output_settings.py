@@ -13,6 +13,12 @@ from griptape_nodes_library.filesystem.directory_output_settings import Director
 _DEFAULT_MACRO = "{outputs}/{sub_dirs?:/}{dir_name}_v{###}"
 
 
+def _create(node: DirectoryOutputSettings) -> Path:
+    destination = node.directory_destination
+    assert destination is not None
+    return destination.create().resolve()
+
+
 @pytest.fixture
 def node(griptape_nodes: GriptapeNodes) -> DirectoryOutputSettings:  # noqa: ARG001
     return DirectoryOutputSettings(name="test_directory_output_settings")
@@ -29,7 +35,7 @@ def test_empty_dirname_has_no_destination(node: DirectoryOutputSettings) -> None
 
 
 class TestExplicitLocalPath:
-    """An absolute path, a `~` path, or a `file://` URI names an exact location, not versioned."""
+    """An absolute path, a `~` path, or a `file://` URI names an exact location, versioned only by `{###}`."""
 
     def test_absolute_path_is_used_verbatim_and_overwrites(self, node: DirectoryOutputSettings, tmp_path: Path) -> None:
         node.set_parameter_value("dirname", str(tmp_path / "renders"))
@@ -72,9 +78,28 @@ class TestExplicitLocalPath:
         assert destination is not None
         assert destination._existing_dir_policy == ExistingFilePolicy.OVERWRITE
 
+    def test_absolute_path_with_a_version_slot_creates_the_next_version(
+        self, node: DirectoryOutputSettings, tmp_path: Path
+    ) -> None:
+        node.set_parameter_value("dirname", str(tmp_path / "frames_v{###}"))
+
+        first = _create(node)
+        second = _create(node)
+
+        assert first == tmp_path / "frames_v001"
+        assert second == tmp_path / "frames_v002"
+
+    def test_home_path_with_a_version_slot_creates_the_next_version(
+        self, node: DirectoryOutputSettings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        node.set_parameter_value("dirname", "~/frames_v{###}")
+
+        assert _create(node) == tmp_path / "frames_v001"
+
 
 class TestFullMacroTemplate:
-    """A dirname containing a macro variable is used as the full template."""
+    """A dirname containing a macro variable is used as the full template, versioned only by `{###}`."""
 
     def test_used_verbatim_with_the_configured_policy(self, node: DirectoryOutputSettings) -> None:
         node.set_parameter_value("dirname", "{outputs}/frames_v{###}")
@@ -93,6 +118,18 @@ class TestFullMacroTemplate:
 
         assert destination is not None
         assert destination._existing_dir_policy == ExistingFilePolicy.OVERWRITE
+
+    def test_without_a_version_slot_reuses_the_exact_folder(
+        self, node: DirectoryOutputSettings, tmp_path: Path
+    ) -> None:
+        GriptapeNodes.ConfigManager().workspace_path = tmp_path
+        node.set_parameter_value("dirname", "{outputs}/frames")
+
+        first = _create(node)
+        second = _create(node)
+
+        assert first == second
+        assert first.name == "frames"
 
 
 class TestPlainRelativeName:

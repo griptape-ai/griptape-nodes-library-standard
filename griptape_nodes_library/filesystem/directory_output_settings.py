@@ -4,7 +4,7 @@ import logging
 import pathlib
 from typing import Any
 
-from griptape_nodes.common.macro_parser import MacroSyntaxError, ParsedMacro
+from griptape_nodes.common.macro_parser import SEQUENCE_VARIABLE_NAME, MacroSyntaxError, ParsedMacro
 from griptape_nodes.common.project_templates.situation import BuiltInSituation, SituationFilePolicy
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
@@ -62,6 +62,14 @@ def _has_macro_variable(value: str) -> bool:
     """Return True if `value` contains at least one `{...}` macro variable."""
     try:
         return bool(ParsedMacro(value).get_variables())
+    except MacroSyntaxError:
+        return False
+
+
+def _has_version_slot(value: str) -> bool:
+    """Return True if `value` contains a `{###}` version slot."""
+    try:
+        return any(variable.name == SEQUENCE_VARIABLE_NAME for variable in ParsedMacro(value).get_variables())
     except MacroSyntaxError:
         return False
 
@@ -204,14 +212,14 @@ class DirectoryOutputSettings(BaseNode):
         dirname_value = str(dirname_value)
 
         explicit_path = _explicit_local_path(dirname_value)
-        if explicit_path is not None:
+        if explicit_path is not None or _has_macro_variable(dirname_value):
             # The user named the destination, so use it as given rather than nesting it inside
-            # the situation's folder. Not versioned: the user chose this exact location.
-            return explicit_path, ExistingFilePolicy.OVERWRITE
-
-        if _has_macro_variable(dirname_value):
-            # The user supplied a full macro template of their own.
-            return dirname_value, self._get_dir_policy()
+            # the situation's folder. Only a `{###}` slot versions it, as a typed-in Directory
+            # value does; without one, DirectoryDestination would append `_1`, `_2`, ...
+            location = explicit_path if explicit_path is not None else dirname_value
+            if _has_version_slot(location):
+                return location, self._get_dir_policy()
+            return location, ExistingFilePolicy.OVERWRITE
 
         macro_template = self.get_parameter_value(self.macro.name)
         if not macro_template:
