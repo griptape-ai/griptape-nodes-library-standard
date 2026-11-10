@@ -14,7 +14,7 @@ import pytest
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
-from griptape_nodes.retained_mode.engine import Engine, reset_root_engine
+from griptape_nodes.retained_mode.engine import Engine, current_engine, has_current_engine, reset_root_engine
 from griptape_nodes.retained_mode.events.library_events import RegisterLibraryFromFileRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.utils.metaclasses import SingletonMeta
@@ -149,5 +149,17 @@ def _isolated_env():
                 yield
 
     finally:
+        _stop_static_file_watcher()
         SingletonMeta._instances.clear()
         reset_root_engine()
+
+
+def _stop_static_file_watcher() -> None:
+    """Stop the engine's static file watcher before the engine is dropped.
+
+    Nodes with previews register files with the static server, which starts a daemon thread
+    inside watchfiles' Rust watch loop. Nothing stops it when the engine is dropped, and one
+    still running at interpreter exit can crash pytest with a segfault after every test passed.
+    """
+    if has_current_engine():
+        current_engine().static_files_manager.file_watcher.stop()
