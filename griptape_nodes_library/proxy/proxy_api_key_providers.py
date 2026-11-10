@@ -134,6 +134,7 @@ _NODE_PROVIDER_CONFIGS = {
     "LTXAudioToVideoGeneration": LTX,
     "LTXImageToVideoGeneration": LTX,
     "LTXTextToVideoGeneration": LTX,
+    "LTXVideoAlphaGen": LTX,
     "LTXVideoExtend": LTX,
     "LTXVideoRetake": LTX,
     "LTXVideoToVideoHDR": LTX,
