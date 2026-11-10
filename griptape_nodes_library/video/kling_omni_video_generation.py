@@ -24,6 +24,7 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.video import kling_4
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -51,6 +52,14 @@ LEGACY_MODEL_VALUES: dict[str, str] = {
     "gtc_kling_video_o1_omni": "kling-video-o1",
 }
 MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
+    kling_4.KLING_4_0: {
+        "modes": [],
+        "durations": kling_4.KLING_4_CAPABILITIES[kling_4.KLING_4_0].durations,
+    },
+    kling_4.KLING_4_0_FLASH: {
+        "modes": [],
+        "durations": kling_4.KLING_4_CAPABILITIES[kling_4.KLING_4_0_FLASH].durations,
+    },
     "kling-video-o1": {
         "modes": BASE_MODE_CHOICES,
         "durations": list(range(3, 11)),
@@ -119,7 +128,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         self._model_access = ModelAccessComponent(
             node=self,
             parameter=model_name_param,
-            model_choices=["kling-video-o1", "kling-v3-omni"],
+            model_choices=[kling_4.KLING_4_0, kling_4.KLING_4_0_FLASH, "kling-video-o1", "kling-v3-omni"],
             default_model="kling-v3-omni",
             deprecated_values=LEGACY_MODEL_VALUES,
         )
@@ -217,9 +226,22 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterString(
                 name="element_ids",
                 default_value="",
-                tooltip="Comma-separated element IDs (e.g., '123,456,789')",
+                tooltip=(
+                    "Comma-separated element IDs (e.g., '123,456,789'). With Kling 4.0 models they are "
+                    "referenced in the prompt as @element_1, @element_2 and so on."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"placeholder_text": "e.g., 123,456,789", "hide": True},
+            )
+            ParameterString(
+                name="voice_ids",
+                default_value="",
+                tooltip=(
+                    "Comma-separated voice IDs, up to 3 (Kling 4.0 only). Referenced in the prompt as "
+                    "@voice_1, @voice_2 and so on. Create voices with Kling's voice API or use a preset voice ID."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"placeholder_text": "e.g., 829837252279803904", "hide": True},
             )
         advanced_group.ui_options = {"hide": False}
         self.add_node_element(advanced_group)
@@ -264,9 +286,31 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             ParameterString(
                 name="aspect_ratio",
                 default_value="16:9",
-                tooltip="Aspect ratio (required when not using first frame or video editing)",
+                tooltip=(
+                    "Aspect ratio (required when not using first frame or video editing). Kling 4.0 models also "
+                    "offer 21:9 and adaptive, which follows the prompt, then the base video, keyframes or reference video."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["16:9", "9:16", "1:1"])},
+                traits={Options(choices=[*kling_4.GENERATED_ASPECT_RATIOS, kling_4.ASPECT_RATIO_ADAPTIVE])},
+            )
+            ParameterString(
+                name="resolution",
+                default_value=kling_4.RESOLUTION_1080P,
+                tooltip="Output resolution (Kling 4.0 models). Kling 4.0 Flash is 720p only.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P])},
+                ui_options={"hide": True},
+            )
+            ParameterString(
+                name="audio",
+                default_value="native",
+                tooltip=(
+                    "Kling 4.0 models: 'native' generates audio with the video; 'original' keeps the audio of the "
+                    "reference video (needs a reference video and no voice IDs)."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=kling_4.AUDIO_MODES)},
+                ui_options={"hide": True},
             )
             ParameterInt(
                 name="duration",
@@ -322,6 +366,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         )
         self._update_mode_choices()
         self._update_multi_shot_parameter_visibility()
+        self._update_kling_4_visibility()
         self.set_initial_node_size(height=1375)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
@@ -355,6 +400,51 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         if parameter.name in {"multi_shot", "shot_count"}:
             self._update_multi_shot_parameter_visibility()
 
+        if parameter.name == "model_name":
+            self._update_kling_4_visibility()
+
+    def _selected_model(self) -> str:
+        return self.get_parameter_value("model_name") or "kling-v3-omni"
+
+    def _update_kling_4_visibility(self) -> None:
+        """Kling 4.0 has no mode, multi-shot or keep-sound; it adds resolution, audio and voices."""
+        model_id = self._selected_model()
+        aspect_ratios = list(kling_4.GENERATED_ASPECT_RATIOS)
+        if not kling_4.is_kling_4(model_id):
+            self.hide_parameter_by_name(["resolution", "audio", "voice_ids"])
+            self.show_parameter_by_name(["mode", "multi_shot", "video_keep_sound", "end_frame_image"])
+            aspect_ratios = ["16:9", "9:16", "1:1"]
+            current = self.get_parameter_value("aspect_ratio")
+            self._update_option_choices("aspect_ratio", aspect_ratios, current if current in aspect_ratios else "16:9")
+            self._update_multi_shot_parameter_visibility()
+            return
+
+        capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+        if self.get_parameter_value("multi_shot"):
+            self.set_parameter_value("multi_shot", False)
+        self.hide_parameter_by_name(["mode", "multi_shot", "video_keep_sound", "shot_count"])
+        for shot_index in range(1, MAX_MULTI_PROMPT_COUNT + 1):
+            self.hide_parameter_by_name([f"shot_{shot_index}_prompt", f"shot_{shot_index}_duration"])
+        self.show_parameter_by_name(["prompt", "resolution", "audio", "element_ids"])
+        if capabilities.supports_voices:
+            self.show_parameter_by_name("voice_ids")
+        else:
+            self.hide_parameter_by_name("voice_ids")
+        if capabilities.supports_keyframes:
+            self.show_parameter_by_name("end_frame_image")
+        else:
+            self.hide_parameter_by_name("end_frame_image")
+
+        current_resolution = self.get_parameter_value("resolution")
+        self._update_option_choices(
+            "resolution",
+            capabilities.resolutions,
+            current_resolution if current_resolution in capabilities.resolutions else capabilities.default_resolution,
+        )
+        aspect_ratios.append(kling_4.ASPECT_RATIO_ADAPTIVE)
+        current = self.get_parameter_value("aspect_ratio")
+        self._update_option_choices("aspect_ratio", aspect_ratios, current if current in aspect_ratios else "16:9")
+
     def _get_supported_modes(self) -> list[str]:
         """Return the valid mode choices for the selected model and inputs."""
         model_name = self.get_parameter_value("model_name") or "kling-v3-omni"
@@ -371,6 +461,8 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     def _update_mode_choices(self) -> None:
         """Keep the mode dropdown aligned with the selected model and inputs."""
         supported_modes = self._get_supported_modes()
+        if not supported_modes:
+            return
         current_mode = self.get_parameter_value("mode")
         next_mode = current_mode if current_mode in supported_modes else DEFAULT_MODE
         if next_mode not in supported_modes:
@@ -510,6 +602,8 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             dict: The request payload (model field excluded, handled by base class)
         """
         model_name = self.get_parameter_value("model_name") or "kling-v3-omni"
+        if kling_4.is_kling_4(model_name):
+            return await self._build_kling_4_payload(model_name)
         prompt = (self.get_parameter_value("prompt") or "").strip()
         multi_shot = bool(self.get_parameter_value("multi_shot"))
         shot_count = self.get_parameter_value("shot_count") or 1
@@ -595,13 +689,131 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         return payload
 
+    def _reference_image_inputs(self) -> list[Any]:
+        images = self.get_parameter_value("reference_images") or []
+        if not isinstance(images, list):
+            images = [images]
+        return [image for image in images if image]
+
+    async def _build_kling_4_payload(self, model_id: str) -> dict[str, Any]:
+        """Kling 4.0 `contents[]`: first frame first, last frame last, reference images between.
+
+        Each reference gets an id the prompt can use: @image_1.., @video_1, @element_1.., @voice_1..
+        """
+        capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+        contents: list[dict[str, Any]] = [
+            {"type": "prompt", "text": (self.get_parameter_value("prompt") or "").strip()}
+        ]
+
+        first_frame = await self._prepare_image_data_url_async(self.get_parameter_value("first_frame_image"))
+        if first_frame:
+            contents.append(kling_4.image_item("first_frame", first_frame, "first_frame"))
+
+        for index, reference_image in enumerate(self._reference_image_inputs(), start=1):
+            image = await self._prepare_image_data_url_async(reference_image)
+            if image:
+                contents.append(kling_4.image_item("refer_image", image, f"image_{index}"))
+
+        if capabilities.supports_keyframes:
+            last_frame = await self._prepare_image_data_url_async(self.get_parameter_value("end_frame_image"))
+            if last_frame:
+                contents.append(kling_4.image_item("last_frame", last_frame, "last_frame"))
+
+        if self.get_parameter_value("reference_video"):
+            video_url = await self._public_video_url_parameter.aget_public_url_for_parameter()
+            video_type = (
+                "base_video" if (self.get_parameter_value("video_refer_type") or "base") == "base" else "feature_video"
+            )
+            contents.append({"type": video_type, "url": video_url, "id": "video_1"})
+
+        for index, element_id in enumerate(kling_4.parse_id_list(self.get_parameter_value("element_ids")), start=1):
+            contents.append({"type": "element", "element_id": element_id, "id": f"element_{index}"})
+
+        if capabilities.supports_voices:
+            for index, voice_id in enumerate(kling_4.parse_id_list(self.get_parameter_value("voice_ids")), start=1):
+                contents.append({"type": "voice", "voice_id": voice_id, "id": f"voice_{index}"})
+
+        return {
+            "contents": contents,
+            "settings": kling_4.build_settings(
+                resolution=self.get_parameter_value("resolution") or capabilities.default_resolution,
+                duration=int(self.get_parameter_value("duration") or 5),
+                aspect_ratio=self.get_parameter_value("aspect_ratio") or kling_4.ASPECT_RATIO_ADAPTIVE,
+                audio=self.get_parameter_value("audio") or "native",
+            ),
+        }
+
+    def _validate_kling_4(self, exceptions: list[Exception], model_id: str) -> list[Exception]:  # noqa: C901
+        capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+        prompt = (self.get_parameter_value("prompt") or "").strip()
+        if not prompt:
+            exceptions.append(ValueError("A prompt is required to generate video. Enter one in 'prompt'."))
+        length_error = kling_4.prompt_length_error(prompt)
+        if length_error:
+            exceptions.append(ValueError(length_error))
+
+        has_end_frame = bool(self.get_parameter_value("end_frame_image"))
+        if has_end_frame and not capabilities.supports_keyframes:
+            exceptions.append(ValueError(f"{model_id} does not take an end frame; use Kling 4.0 for keyframes."))
+        image_count = (
+            len(self._reference_image_inputs())
+            + (1 if self.get_parameter_value("first_frame_image") else 0)
+            + (1 if has_end_frame and capabilities.supports_keyframes else 0)
+        )
+        if image_count > kling_4.MAX_IMAGES:
+            exceptions.append(ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_IMAGES} images (got {image_count})."))
+
+        element_ids = kling_4.parse_id_list(self.get_parameter_value("element_ids"))
+        if len(element_ids) > kling_4.MAX_ELEMENTS:
+            exceptions.append(
+                ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_ELEMENTS} elements (got {len(element_ids)}).")
+            )
+
+        voice_ids = kling_4.parse_id_list(self.get_parameter_value("voice_ids")) if capabilities.supports_voices else []
+        if len(voice_ids) > kling_4.MAX_VOICES:
+            exceptions.append(
+                ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_VOICES} voices (got {len(voice_ids)}).")
+            )
+
+        has_video = bool(self.get_parameter_value("reference_video"))
+        total = image_count + len(element_ids) + len(voice_ids) + (1 if has_video else 0)
+        if total > kling_4.MAX_REFERENCES:
+            exceptions.append(
+                ValueError(
+                    f"Kling 4.0 accepts up to {kling_4.MAX_REFERENCES} images, videos, elements and voices "
+                    f"combined (got {total})."
+                )
+            )
+
+        if (self.get_parameter_value("audio") or "native") == "original":
+            if not has_video:
+                exceptions.append(ValueError("Audio 'original' keeps the reference video's audio; connect a video."))
+            if voice_ids:
+                exceptions.append(ValueError("Audio 'original' cannot be combined with voice IDs."))
+
+        resolution = self.get_parameter_value("resolution")
+        if resolution not in capabilities.resolutions:
+            exceptions.append(
+                ValueError(
+                    f"{model_id} does not support resolution '{resolution}'. Use {', '.join(capabilities.resolutions)}."
+                )
+            )
+        duration = self.get_parameter_value("duration")
+        if duration not in capabilities.durations:
+            exceptions.append(
+                ValueError(f"{model_id} supports durations of 3-{capabilities.max_duration}s (got {duration}s).")
+            )
+        return exceptions
+
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
 
         Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
         """
-        videos = result_json.get("data", {}).get("task_result", {}).get("videos", [])
-        video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
+        video_id = kling_4.kling_4_video_id(result_json)
+        if video_id is None and isinstance(result_json.get("data"), dict):
+            videos = result_json["data"].get("task_result", {}).get("videos", [])
+            video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
@@ -621,6 +833,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     def validate_before_node_run(self) -> list[Exception] | None:  # noqa: C901, PLR0912, PLR0915
         """Validate parameters before execution."""
         exceptions = super().validate_before_node_run() or []
+
+        if kling_4.is_kling_4(self._selected_model()):
+            return self._validate_kling_4(exceptions, self._selected_model()) or None
 
         # Get parameter values
         prompt = (self.get_parameter_value("prompt") or "").strip()
