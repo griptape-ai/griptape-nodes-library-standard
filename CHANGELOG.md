@@ -10,6 +10,16 @@ the `library_version` in `griptape_nodes_library.json`.
 
 <!-- Entries go in changelog.d/, one file each. See changelog.d/README.md. -->
 
+## [0.90.3] - 2026-11-09
+
+### Added
+
+- `LTX Video Reframe` reframes a video to a new resolution or aspect ratio (1:1, 4:5, 5:4, 9:16 or
+  16:9), with the model generating the extra area to match the original. Choose where the video sits
+  with `placement_mode`: `center`, `anchor` (an edge or corner) or `rectangle` (exact `x`, `y`,
+  `width` and `height`). Input videos can be up to 60 seconds and 1,800 frames.
+  [#916](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/916)
+
 ## [0.90.2] - 2026-11-09
 
 ### Added
@@ -63,6 +73,7 @@ the `library_version` in `griptape_nodes_library.json`.
   old look.
   [#888](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/888)
 
-[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.2...HEAD
+[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.3...HEAD
+[0.90.3]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.2...v0.90.3
 [0.90.2]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.1...v0.90.2
 [0.90.1]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.0...v0.90.1
