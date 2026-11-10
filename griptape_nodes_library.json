@@ -963,6 +963,12 @@
                 "provider_model_id": "ltx-2-fast",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
+              "gtc_ltx_hdr_2": {
+                "display_name": "LTX HDR (ACES)",
+                "family": "LTX",
+                "provider_model_id": "ltx-hdr-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_ltx_2_3_pro": {
                 "display_name": "LTX 2.3 Pro",
                 "family": "LTX",
@@ -3087,6 +3093,7 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_ltx_hdr_2",
               "gtc_ltx_2_3_pro"
             ]
           }

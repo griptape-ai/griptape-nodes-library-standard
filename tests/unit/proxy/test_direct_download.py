@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import httpx
@@ -273,7 +274,10 @@ def _direct_save_node(monkeypatch: pytest.MonkeyPatch, folder: Path, policy: str
         url: str, path: Path, *, headers: dict[str, str] | None = None, follow_redirects: bool = True
     ) -> None:
         # The download must land beside the destination, never in the system temp dir.
-        assert path.parent == folder
+        assert path.parent.is_relative_to(folder)
+        # Not staged directly in the system temp dir, where mkstemp() would put it (a RAM-backed
+        # tmpfs on many Linux hosts). The destination folder may itself live under it in tests.
+        assert path.parent != Path(tempfile.gettempdir())
         assert path.name.startswith(".")
         assert path.name.endswith(".partial")
         path.write_bytes(b"big")
@@ -461,6 +465,34 @@ async def test_direct_save_fail_policy_fails_when_file_exists(monkeypatch: pytes
 
     assert (tmp_path / "out.mp4").read_bytes() == b"old"
     assert node.parameter_output_values["out"] is None
+
+
+@pytest.mark.asyncio
+async def test_save_generated_media_honours_the_output_file_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    node = _direct_save_node(monkeypatch, tmp_path, "create_new")
+    other_folder = tmp_path / "other"
+    other_folder.mkdir()
+    built: list[str] = []
+
+    class _OtherOutput:
+        def build_file(self, **_: Any) -> _PolicyDest:
+            built.append("other")
+            return _PolicyDest(other_folder, "create_new")
+
+    monkeypatch.setattr(File, "resolve", lambda self: str(other_folder / self.location.removeprefix("{outputs}/")))
+    default_built = AsyncMock()
+    node._output_file.build_file = default_built
+
+    saved = await node._save_generated_media(
+        GENERATION_ID, "out", lambda value, name: (value, name), kind="video", output_file=_OtherOutput()
+    )
+
+    assert saved
+    assert built == ["other"]
+    default_built.assert_not_called()
+    assert (other_folder / "out.mp4").read_bytes() == b"big"
 
 
 # --- redirects --------------------------------------------------------------------------------
@@ -653,3 +685,26 @@ def test_prores_estimate_is_zero_for_empty_input() -> None:
 
 def test_format_gb_is_decimal() -> None:
     assert format_gb(2.5 * BYTES_PER_GB) == "2.5 GB"
+
+
+@pytest.mark.asyncio
+async def test_save_artifact_to_project_sets_no_status_or_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The status-free helper only saves; callers that combine several outputs report the result."""
+    node = DirectNode(name="n")
+    statuses: list[Any] = []
+    monkeypatch.setattr(node, "_set_status_results", lambda **kw: statuses.append(kw))
+    streamed: list[Any] = []
+
+    async def fake_stream(artifact: Any, generation_id: str, *, output_file: Any = None) -> Any:
+        streamed.append((artifact.url, generation_id, output_file))
+        return "SAVED"
+
+    monkeypatch.setattr(node, "_stream_artifact_to_project", fake_stream)
+    artifact = HostedArtifact(index=0, kind="video", url="https://provider.example/out.mp4", direct=True)
+
+    destination = cast("Any", object())
+    saved = await node._save_artifact_to_project(artifact, "gen-1", output_file=destination)
+
+    assert saved == "SAVED"
+    assert streamed == [("https://provider.example/out.mp4", "gen-1", destination)]
+    assert statuses == []
