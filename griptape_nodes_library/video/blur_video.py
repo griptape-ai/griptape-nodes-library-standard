@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -12,6 +12,9 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 class BlurVideo(BaseVideoProcessor):
     """Blur video using fast ffmpeg blur filters (boxblur, gblur, avgblur)."""
+
+    PREVIEW_OPERATION = "video_blur"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["blur_type", "radius", "sigma", "power"]
 
     # Blur radius / sigma constants
     MIN_RADIUS = 1

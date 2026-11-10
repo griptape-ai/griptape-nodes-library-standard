@@ -1,5 +1,6 @@
 """Tests for ExtractPdfImages."""
 
+import re
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -193,24 +194,56 @@ def test_setting_path_publishes_a_preview_of_the_first_image(
     node.after_value_set(node.path, str(pdf_path))
 
     assert node.get_parameter_value("rotation_preview") == {
+        "operation": "rotate",
+        "media": "image",
         "image_url": "http://static/scan.pdf.jpg",
-        "rotation": Rotation.NONE,
     }
 
 
-def test_changing_rotation_updates_the_preview_without_rebuilding_the_image(
+def test_changing_rotation_does_not_rebuild_the_preview_image(
     node: ExtractPdfImages, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(node, "_build_preview_url", lambda _path: "http://static/first.jpg")
+    node.set_parameter_value("path", "/some/scan.pdf")
     node.after_value_set(node.path, "/some/scan.pdf")
+    before = node.get_parameter_value("rotation_preview")
     monkeypatch.setattr(node, "_build_preview_url", lambda _path: pytest.fail("rebuilt the preview image"))
 
+    node.set_parameter_value("rotation", Rotation.CLOCKWISE_90)
     node.after_value_set(node.get_parameter_by_name("rotation"), Rotation.CLOCKWISE_90)  # type: ignore[arg-type]
 
-    assert node.get_parameter_value("rotation_preview") == {
-        "image_url": "http://static/first.jpg",
-        "rotation": Rotation.CLOCKWISE_90,
-    }
+    assert node.get_parameter_value("rotation_preview") == before
+
+
+def test_preview_is_the_shared_rotate_preview_driven_by_the_rotation_setting(node: ExtractPdfImages) -> None:
+    preview = node.get_parameter_by_name("rotation_preview")
+    assert preview is not None
+    assert preview.ui_options["widget"] == "ImageProcessorPreview"
+    assert preview.ui_options["synced_parameters"] == ["rotation"]
+    assert node.get_parameter_by_name("rotation") is not None
+    assert node.get_parameter_value("rotation_preview")["operation"] == "rotate"
+    # The preview shows the PDF's first image, so the path stays editable.
+    assert not node.path.hide_property
+
+
+def test_loading_a_saved_path_builds_the_preview(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf_path = tmp_path / "scan.pdf"
+    pdf_path.write_bytes(_pdf([_scan((120, 160))]))
+    monkeypatch.setattr(node, "_build_preview_url", lambda path: f"http://static/{Path(path).name}.jpg")
+
+    node.set_parameter_value("path", str(pdf_path), initial_setup=True)
+
+    assert node.get_parameter_value("rotation_preview")["image_url"] == "http://static/scan.pdf.jpg"
+
+
+def test_the_preview_knows_every_rotation_the_node_offers() -> None:
+    operations = (Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" / "_operations.js").read_text()
+    table = re.search(r"const QUARTER_TURNS = \{(.*?)\};", operations, re.DOTALL)
+    assert table is not None
+    for rotation in Rotation:
+        assert f'"{rotation.value}"' in table.group(1) or f"{rotation.value}:" in table.group(1), rotation
 
 
 def test_build_preview_url_saves_a_small_copy_of_the_first_image(

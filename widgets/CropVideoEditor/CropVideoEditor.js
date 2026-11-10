@@ -7,6 +7,70 @@ import { HANDLE_R, WIDGET_VERSION, OVERLAY, CROP_BORDER, GUIDE,
 import { createSidebar } from './_sidebar.js';
 import { createFooter }  from './_footer.js';
 
+// The node's RESOLUTION_PRESETS and crop maths (CropVideo._get_crop_dimensions and
+// _calculate_crop_coordinates). The crop settings arrive as synced_parameters, so the widget works out
+// the box itself.
+const RESOLUTION_PRESETS = {
+  "480p (854x480)": [854, 480],
+  "720p (1280x720)": [1280, 720],
+  "1080p (1920x1080)": [1920, 1080],
+  "1440p (2560x1440)": [2560, 1440],
+  "2160p (3840x2160)": [3840, 2160],
+  "Square (1080x1080)": [1080, 1080],
+  "Portrait (1080x1920)": [1080, 1920],
+  "4:3 (1440x1080)": [1440, 1080],
+};
+
+function cropSize(v) {
+  const size = v.crop_size || "Custom";
+  if (size === "Custom") {
+    const w = v.custom_width || 0, h = v.custom_height || 0;
+    return w > 0 && h > 0 ? [w, h] : null;
+  }
+  const preset = Object.entries(RESOLUTION_PRESETS).find(([name]) => name.toLowerCase() === size.trim().toLowerCase());
+  if (preset) return preset[1];
+  const parts = size.split("x");
+  if (parts.length === 2) {
+    const w = parseInt(parts[0], 10), h = parseInt(parts[1], 10);
+    if (w > 0 && h > 0) return [w, h];
+  }
+  return null;
+}
+
+function cropFromSettings(v, vw, vh) {
+  const dims = cropSize(v);
+  const w = dims ? Math.min(dims[0], vw) : vw;
+  const h = dims ? Math.min(dims[1], vh) : vh;
+  const dx = vw - w, dy = vh - h;
+  const position = v.crop_position || "center";
+  const positions = {
+    "center": [Math.floor(dx / 2), Math.floor(dy / 2)],
+    "top-left": [0, 0],
+    "top-right": [dx, 0],
+    "bottom-left": [0, dy],
+    "bottom-right": [dx, dy],
+    "top-center": [Math.floor(dx / 2), 0],
+    "bottom-center": [Math.floor(dx / 2), dy],
+    "left-center": [0, Math.floor(dy / 2)],
+    "right-center": [dx, Math.floor(dy / 2)],
+  };
+  let [l, t] = position === "Custom" ? [v.custom_left || 0, v.custom_top || 0] : (positions[position] || positions.center);
+  l = Math.max(0, Math.min(l, dx));
+  t = Math.max(0, Math.min(t, dy));
+  return { l, t, w, h };
+}
+
+// The editor locks synced parameters with an incoming connection; the widget locks box edges.
+function lockedEdges(locked) {
+  const has = (name) => (locked || []).includes(name);
+  const edges = [];
+  if (has("crop_size") || has("custom_width")) edges.push("width");
+  if (has("crop_size") || has("custom_height")) edges.push("height");
+  if (has("crop_position") || has("custom_left")) edges.push("left");
+  if (has("crop_position") || has("custom_top")) edges.push("top");
+  return edges;
+}
+
 export default function CropVideoEditor(container, props) {
   const { value, onChange, disabled } = props;
 
@@ -21,17 +85,20 @@ export default function CropVideoEditor(container, props) {
   let vidNatW      = value?.video_width  || 0;
   let vidNatH      = value?.video_height || 0;
   let totalFrames  = value?.total_frames || 0;
-  let lockedParams = value?.locked       || [];
+  let lockedParams = lockedEdges(props.locked);
+  let latestValue  = value || {};
   let isDisabled   = !!disabled;
   let currentFrame = 0;
 
   // Crop rect in natural video pixels
-  let ecL = value?.left   || 0;
-  let ecT = value?.top    || 0;
-  let ecW = value?.width  || vidNatW;
-  let ecH = value?.height || vidNatH;
+  const initialCrop = cropFromSettings(latestValue, vidNatW, vidNatH);
+  let ecL = initialCrop.l;
+  let ecT = initialCrop.t;
+  let ecW = initialCrop.w;
+  let ecH = initialCrop.h;
 
   let onChangeRef = onChange;
+  let onLiveChangeRef = props.onLiveChange;
   let videoLoaded = false;
   let scale = 1;             // canvas-px / natural-px
   let mode = "idle";         // idle | moving | resizing | drawing
@@ -123,6 +190,7 @@ export default function CropVideoEditor(container, props) {
     // Fill in dims from the video element if Python couldn't probe them
     if (!vidNatW) vidNatW = video.videoWidth;
     if (!vidNatH) vidNatH = video.videoHeight;
+    if (mode === "idle") ({ l: ecL, t: ecT, w: ecW, h: ecH } = cropFromSettings(latestValue, vidNatW, vidNatH));
     syncCanvasSize();
     // Default crop to full frame if not yet set
     if (!ecW) ecW = vidNatW;
@@ -316,6 +384,7 @@ export default function CropVideoEditor(container, props) {
       if (!lockedParams.includes("left")) ecL = clamp(Math.round(rectAtDrag.l + dx), 0, vidNatW - ecW);
       if (!lockedParams.includes("top"))  ecT = clamp(Math.round(rectAtDrag.t + dy), 0, vidNatH - ecH);
       render();
+      emitLive();
       return;
     }
 
@@ -337,6 +406,7 @@ export default function CropVideoEditor(container, props) {
 
       ecL = nl; ecT = nt; ecW = nw; ecH = nh;
       render();
+      emitLive();
       return;
     }
 
@@ -347,6 +417,7 @@ export default function CropVideoEditor(container, props) {
       ecW = Math.max(1, Math.round(Math.abs(nx - dragStart.x)));
       ecH = e.shiftKey ? ecW : Math.max(1, Math.round(Math.abs(ny - dragStart.y)));
       render();
+      emitLive();
     }
   });
 
@@ -361,18 +432,21 @@ export default function CropVideoEditor(container, props) {
 
 
   // ── Emit ───────────────────────────────────────────────────────────────────
+  // A drag sets the box freely, so both presets switch to Custom. The editor commits the crop settings to
+  // their parameters and keeps the rest (the video's details) in the widget's own value.
   function emitAll() {
     if (typeof onChangeRef !== "function") return;
-    // Build from live state vars — NOT the stale initial `value` closure,
-    // which would lose video_url whenever the user drags after connecting.
     onChangeRef({
-      video_url: videoUrl,
-      video_width: vidNatW,
-      video_height: vidNatH,
-      total_frames: totalFrames,
-      locked: lockedParams,
-      left: ecL, top: ecT, width: ecW, height: ecH,
+      ...latestValue,
+      custom_left: ecL, custom_top: ecT, custom_width: ecW, custom_height: ecH,
+      crop_size: "Custom", crop_position: "Custom",
     });
+  }
+
+  // Moves the node's crop fields along with a drag without committing them.
+  function emitLive() {
+    if (typeof onLiveChangeRef !== "function") return;
+    onLiveChangeRef({ custom_left: ecL, custom_top: ecT, custom_width: ecW, custom_height: ecH });
   }
 
   // ── Sync UI state ──────────────────────────────────────────────────────────
@@ -385,7 +459,9 @@ export default function CropVideoEditor(container, props) {
   // ── Update handler (called by framework on value changes) ──────────────────
   function handleUpdate(newProps) {
     const v = newProps.value || {};
+    latestValue = v;
     onChangeRef = newProps.onChange;
+    onLiveChangeRef = newProps.onLiveChange;
     isDisabled  = !!newProps.disabled;
 
     const newUrl = v.video_url || "";
@@ -406,14 +482,11 @@ export default function CropVideoEditor(container, props) {
       if (v.total_frames !== undefined) totalFrames = v.total_frames;
     }
 
-    lockedParams = v.locked || [];
+    lockedParams = lockedEdges(newProps.locked);
 
-    // Only accept incoming crop coords when idle — don't clobber an in-progress drag.
-    if (mode === "idle") {
-      if ("left"   in v) ecL = v.left;
-      if ("top"    in v) ecT = v.top;
-      if ("width"  in v) ecW = v.width;
-      if ("height" in v) ecH = v.height;
+    // Only follow the settings when idle — don't clobber an in-progress drag.
+    if (mode === "idle" && vidNatW && vidNatH) {
+      ({ l: ecL, t: ecT, w: ecW, h: ecH } = cropFromSettings(v, vidNatW, vidNatH));
     }
 
     syncUI();

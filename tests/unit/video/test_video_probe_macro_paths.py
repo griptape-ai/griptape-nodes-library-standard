@@ -17,9 +17,11 @@ from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
 from griptape_nodes_library.video import ltx_video_retake as retake_module
 from griptape_nodes_library.video import ltx_video_to_video_hdr as hdr_module
+from griptape_nodes_library.video import ltx_video_upscale as upscale_module
 from griptape_nodes_library.video import topaz_video_upscale as topaz_module
 from griptape_nodes_library.video.ltx_video_retake import LTXVideoRetake
 from griptape_nodes_library.video.ltx_video_to_video_hdr import LTXVideoToVideoHDR
+from griptape_nodes_library.video.ltx_video_upscale import LTXVideoUpscale, VideoProbe
 from griptape_nodes_library.video.topaz_video_upscale import TopazVideoUpscale
 
 MACRO_PATH = "{outputs}/clip.mp4"
@@ -124,6 +126,56 @@ def test_hdr_probe_passes_data_uri_through(captured_paths: list[str], ffprobe_ca
 def test_hdr_probe_is_skipped_when_resolution_fails(ffprobe_calls: list[list[str]]) -> None:
     assert LTXVideoToVideoHDR(name="HDR")._probe_video(MACRO_PATH) is None
     assert ffprobe_calls == []
+
+
+# ---------------------------------------------------------------------------
+# LTX Video Upscale
+# ---------------------------------------------------------------------------
+
+# No nb_frames, so the frame count must come from duration x fps (4.0 s x 30000/1001 = 120).
+_UPSCALE_STREAM = {
+    "width": 1920,
+    "height": 1080,
+    "codec_name": "h264",
+    "avg_frame_rate": "30000/1001",
+    "duration": "4.0",
+}
+
+
+def test_upscale_probe_resolves_macro_path(captured_paths: list[str], ffprobe_calls: list[list[str]]) -> None:
+    assert upscale_module.run is retake_module.run
+
+    LTXVideoUpscale(name="Upscale")._probe_video(MACRO_PATH)
+
+    assert ffprobe_calls[0][-1] == RESOLVED_PATH
+    assert captured_paths == [MACRO_PATH]
+
+
+def test_upscale_probe_passes_data_uri_through(captured_paths: list[str], ffprobe_calls: list[list[str]]) -> None:
+    LTXVideoUpscale(name="Upscale")._probe_video(DATA_URI)
+
+    assert ffprobe_calls[0][-1] == DATA_URI
+    assert captured_paths == []
+
+
+@pytest.mark.usefixtures("failing_resolve")
+def test_upscale_probe_is_skipped_when_resolution_fails(ffprobe_calls: list[list[str]]) -> None:
+    assert LTXVideoUpscale(name="Upscale")._probe_video(MACRO_PATH) is None
+    assert ffprobe_calls == []
+
+
+@pytest.mark.usefixtures("captured_paths", "ffprobe_calls")
+def test_upscale_probe_falls_back_to_duration_times_fps_and_parses_fps(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"streams": [_UPSCALE_STREAM]}), stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    probed = LTXVideoUpscale(name="Upscale")._probe_video(MACRO_PATH)
+
+    assert isinstance(probed, VideoProbe)
+    assert (probed.width, probed.height, probed.frames, probed.codec) == (1920, 1080, 120, "h264")
+    assert probed.fps == pytest.approx(30000 / 1001)
 
 
 # ---------------------------------------------------------------------------

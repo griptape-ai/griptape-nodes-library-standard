@@ -10,9 +10,11 @@ from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.slider import Slider
 from griptape_nodes.traits.widget import Widget
 
 
@@ -59,16 +61,31 @@ class AdjustMaskSize(DataNode):
             default_value={
                 "original_video_url": "",
                 "mask_video_url": "",
-                "adjustment": 0,
                 "current_frame": 0,
                 "total_frames": 100,
             },
             tooltip="Interactive preview of mask adjustment",
             display_name="Preview",
             allowed_modes={ParameterMode.PROPERTY},
-            traits={Widget(name="MaskAdjustmentPreview", library="Griptape Nodes Library")},
+            traits={
+                Widget(
+                    name="MaskAdjustmentPreview",
+                    library="Griptape Nodes Library",
+                    synced_parameters=["adjustment"],
+                )
+            },
         )
         self.add_parameter(preview_param)
+
+        # The preview widget reads and writes this directly, so its slider and this one stay in step
+        self.add_parameter(
+            ParameterInt(
+                name="adjustment",
+                default_value=self.DEFAULT_ADJUSTMENT,
+                tooltip="Pixels to grow the mask by. Negative values shrink it.",
+                traits={Slider(min_val=self.MIN_ADJUSTMENT, max_val=self.MAX_ADJUSTMENT)},
+            )
+        )
 
         # Output video parameter
         self.add_parameter(
@@ -89,10 +106,43 @@ class AdjustMaskSize(DataNode):
         self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="adjusted_mask.mp4")
         self._output_file.add_parameter()
 
+    def set_parameter_value(
+        self,
+        param_name: str,
+        value: Any,
+        *,
+        initial_setup: bool = False,
+        emit_change: bool = True,
+        skip_before_value_set: bool = False,
+    ) -> None:
+        """Move an adjustment saved in the preview's value onto its parameter.
+
+        Workflows saved before adjustment became a parameter kept it in the preview's value. Loading a workflow sets
+        values with initial_setup, which skips after_value_set, so the move happens here, before the value is stored.
+        The adjustment is clamped, since the slider rejects anything out of range.
+        """
+        if param_name == "preview" and isinstance(value, dict) and "adjustment" in value:
+            saved = int(value["adjustment"] or 0)
+            super().set_parameter_value(
+                "adjustment",
+                max(self.MIN_ADJUSTMENT, min(self.MAX_ADJUSTMENT, saved)),
+                initial_setup=initial_setup,
+                emit_change=emit_change,
+                skip_before_value_set=skip_before_value_set,
+            )
+            value = {key: entry for key, entry in value.items() if key != "adjustment"}
+        super().set_parameter_value(
+            param_name,
+            value,
+            initial_setup=initial_setup,
+            emit_change=emit_change,
+            skip_before_value_set=skip_before_value_set,
+        )
+
     def after_value_set(self, parameter: Parameter, value: Any) -> Any:
         """Called after a parameter value is set.
 
-        Updates the preview widget when video inputs or adjustment changes.
+        Updates the preview widget when video inputs change.
 
         Args:
             parameter: The parameter that changed
@@ -162,7 +212,6 @@ class AdjustMaskSize(DataNode):
         preview = self.get_parameter_value("preview") or {}
         current_frame = preview.get("current_frame", 0)
         total_frames = preview.get("total_frames", 0)
-        adjustment = preview.get("adjustment", 0)
 
         # Skip if URLs haven't changed — avoids unnecessary widget rebuild.
         # Strip query params (presigned-URL timestamps change each call) before comparing.
@@ -187,7 +236,6 @@ class AdjustMaskSize(DataNode):
             {
                 "original_video_url": original_video_url,
                 "mask_video_url": mask_video_url,
-                "adjustment": adjustment,
                 "current_frame": current_frame,
                 "total_frames": total_frames,
             },
@@ -202,9 +250,7 @@ class AdjustMaskSize(DataNode):
             msg = "A mask video is required. Connect one to 'Mask Video'."
             exceptions.append(ValueError(msg))
 
-        # Validate adjustment value from preview widget
-        preview = self.get_parameter_value("preview") or {}
-        adjustment = preview.get("adjustment", 0)
+        adjustment = self.get_parameter_value("adjustment") or 0
         if adjustment < self.MIN_ADJUSTMENT or adjustment > self.MAX_ADJUSTMENT:
             msg = f"Adjustment must be between {self.MIN_ADJUSTMENT} and {self.MAX_ADJUSTMENT}, got {adjustment}"
             exceptions.append(ValueError(msg))
@@ -218,8 +264,7 @@ class AdjustMaskSize(DataNode):
         self.parameter_output_values["output_mask"] = None
 
         mask_video = self.get_parameter_value("mask_video")
-        preview = self.get_parameter_value("preview") or {}
-        adjustment = preview.get("adjustment", 0)
+        adjustment = self.get_parameter_value("adjustment") or 0
 
         if not mask_video:
             return

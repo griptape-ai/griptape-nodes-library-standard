@@ -108,6 +108,9 @@ export default function MaskAdjustmentPreview(container, props) {
   let maskReady = false;
   let isSeeking = false;
   let onChangeRef = onChange;
+  let onLiveChangeRef = props.onLiveChange;
+  // adjustment is a node parameter listed in synced_parameters; locked while a wire drives it
+  let adjustmentLocked = (props.locked || []).includes("adjustment");
   let maskOnlyMode = !newOriginalUrl;
   let detectedFps = 30;
 
@@ -241,7 +244,7 @@ export default function MaskAdjustmentPreview(container, props) {
   adjustmentSlider.min = "-25";
   adjustmentSlider.max = "25";
   adjustmentSlider.value = adjustment;
-  adjustmentSlider.disabled = disabled;
+  adjustmentSlider.disabled = disabled || adjustmentLocked;
   adjustmentSlider.style.cssText = SLIDER_STYLE + "flex: 1; min-width: 0;";
 
   const adjustmentInput = document.createElement("input");
@@ -250,7 +253,7 @@ export default function MaskAdjustmentPreview(container, props) {
   adjustmentInput.max = "25";
   adjustmentInput.step = "1";
   adjustmentInput.value = adjustment;
-  adjustmentInput.disabled = disabled;
+  adjustmentInput.disabled = disabled || adjustmentLocked;
   adjustmentInput.style.cssText = `
     width: 52px;
     flex-shrink: 0;
@@ -286,12 +289,14 @@ export default function MaskAdjustmentPreview(container, props) {
     }
   }
 
-  // Live preview on every drag tick — re-renders from cache, no video re-draw
+  // Live preview on every drag tick — re-renders from cache, no video re-draw. The node's
+  // adjustment slider follows through onLiveChange; the value is committed on release.
   adjustmentSlider.addEventListener("input", (e) => {
     const val = parseInt(e.target.value, 10);
     adjustment = val;
     adjustmentInput.value = val;
     scheduleRender();
+    if (typeof onLiveChangeRef === "function") onLiveChangeRef({ adjustment: val });
   });
 
   // Persist only on commit (mouseup / end of drag)
@@ -785,9 +790,13 @@ export default function MaskAdjustmentPreview(container, props) {
   container.appendChild(wrapper);
 
   // --- Update function for re-invocations ---
-  function update(newOrigUrl, newMaskUrl, newAdj, newOnChange) {
+  function update(newOrigUrl, newMaskUrl, newAdj, newOnChange, newOnLiveChange, newLocked, newDisabled) {
     // Keep callback reference fresh
     if (newOnChange) onChangeRef = newOnChange;
+    onLiveChangeRef = newOnLiveChange;
+    adjustmentLocked = (newLocked || []).includes("adjustment");
+    adjustmentSlider.disabled = newDisabled || adjustmentLocked;
+    adjustmentInput.disabled = newDisabled || adjustmentLocked;
 
     // Detect mode change
     const newMaskOnly = !newOrigUrl;
@@ -837,7 +846,15 @@ export default function MaskAdjustmentPreview(container, props) {
   // WidgetLoader framework can forward value changes via handleRef.current.update().
   function handleUpdate(newProps) {
     const v = newProps.value;
-    update(v?.original_video_url || "", v?.mask_video_url || "", v?.adjustment ?? 0, newProps.onChange);
+    update(
+      v?.original_video_url || "",
+      v?.mask_video_url || "",
+      v?.adjustment ?? 0,
+      newProps.onChange,
+      newProps.onLiveChange,
+      newProps.locked,
+      newProps.disabled,
+    );
   }
 
   // Store instance on container for re-invocations (includes wrapper for isConnected check)

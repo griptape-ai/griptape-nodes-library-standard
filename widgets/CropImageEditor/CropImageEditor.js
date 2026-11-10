@@ -17,6 +17,7 @@ export default function CropImageEditor(container, props) {
   // ── State ──────────────────────────────────────────────────────────────────
   let latestValue = props.value || {};
   let onChangeRef = props.onChange;
+  let onLiveChangeRef = props.onLiveChange;
   let isDisabled = props.disabled || false;
 
   let imageUrl     = latestValue.image_url || "";
@@ -28,7 +29,8 @@ export default function CropImageEditor(container, props) {
   let cropH        = latestValue.height ?? 0;
   let cropZoom     = latestValue.zoom   ?? 100;
   let cropRotate   = latestValue.rotate ?? 0;
-  let lockedParams = latestValue.locked || [];
+  // Crop parameters with an incoming connection, worked out by the editor from synced_parameters
+  let lockedParams = props.locked || [];
 
   function ecL() { return Math.max(0, cropL); }
   function ecT() { return Math.max(0, cropT); }
@@ -104,7 +106,7 @@ export default function CropImageEditor(container, props) {
     setRotate:  (v) => { cropRotate = v; },
     isLocked:   (key) => lockedParams.includes(key),
     isDisabled: () => isDisabled,
-    onRender:   () => render(),
+    onRender:   () => { render(); emitLive(); },
     onEmit:     () => emitAll(),
     version:    WIDGET_VERSION,
   });
@@ -169,6 +171,14 @@ export default function CropImageEditor(container, props) {
         zoom: cropZoom, rotate: cropRotate,
       });
     }
+  }
+
+  // Moves the node's crop parameters along with a drag. The editor shows these values without
+  // sending them to the engine; emitAll commits on release.
+  function emitLive() {
+    if (typeof onLiveChangeRef !== "function") return;
+    const [l, t, w, h] = clampRect(cropL, cropT, cropW, cropH);
+    onLiveChangeRef({ left: l, top: t, width: w, height: h, zoom: cropZoom, rotate: cropRotate });
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -418,6 +428,7 @@ export default function CropImageEditor(container, props) {
       }
     }
     render();
+    emitLive();
   });
 
   canvas.addEventListener("pointerup", (e) => {
@@ -452,6 +463,7 @@ export default function CropImageEditor(container, props) {
   // ── handleUpdate ───────────────────────────────────────────────────────────
   function handleUpdate(newProps) {
     onChangeRef = newProps.onChange;
+    onLiveChangeRef = newProps.onLiveChange;
     isDisabled  = newProps.disabled || false;
     latestValue = newProps.value || {};
 
@@ -472,7 +484,7 @@ export default function CropImageEditor(container, props) {
       if (newNatH) imgNatH = newNatH;
     }
 
-    if (v.locked !== undefined) lockedParams = v.locked || [];
+    lockedParams = newProps.locked || [];
 
     if (mode === "idle") {
       if ("left"   in v) cropL = v.left;

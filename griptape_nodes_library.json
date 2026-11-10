@@ -24,6 +24,15 @@
           "OPENBLAS_NUM_THREADS": "1"
         }
       }
+    },
+    {
+      "category": "exr_sequence",
+      "description": "EXR sequence unpack limits. These cap what the nodes that unpack an EXR ZIP (such as LTX Video to Video HDR) will write. max_members is the most EXR frames in one archive, max_total_bytes the most unpacked bytes across all frames, and max_member_bytes the most unpacked bytes in one frame. Raising max_total_bytes raises the disk space and memory the node may use, so raise it only as far as your machine can take. Each value must be a positive whole number; anything else is ignored and the default is used.",
+      "contents": {
+        "max_members": 4000,
+        "max_total_bytes": 34359738368,
+        "max_member_bytes": 536870912
+      }
     }
   ],
   "metadata": {
@@ -954,6 +963,24 @@
                 "provider_model_id": "ltx-2-fast",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
+              "gtc_ltx_alpha_gen": {
+                "display_name": "LTX Alpha Generation",
+                "family": "LTX",
+                "provider_model_id": "ltx",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_upscale": {
+                "display_name": "LTX Video Upscale",
+                "family": "LTX",
+                "provider_model_id": "ltx",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_hdr_2": {
+                "display_name": "LTX HDR (ACES)",
+                "family": "LTX",
+                "provider_model_id": "ltx-hdr-2",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_ltx_2_3_pro": {
                 "display_name": "LTX 2.3 Pro",
                 "family": "LTX",
@@ -1338,9 +1365,9 @@
       "description": "Interactive crop editor — drag to move/resize the crop rectangle, draw a new crop area, with rule-of-thirds guides and live coordinate readout."
     },
     {
-      "name": "RotateImagePreview",
-      "path": "widgets/RotateImagePreview/RotateImagePreview.js",
-      "description": "Display-only preview of the Rotate Image node's rotation, drawn on a canvas that scales with the node."
+      "name": "ImageProcessorPreview",
+      "path": "widgets/ImageProcessorPreview/ImageProcessorPreview.js",
+      "description": "Live preview for the image and video processor nodes, drawn on the image or on a frame of the video picked with a scrubber, on a canvas that scales with the node."
     },
     {
       "name": "CropVideoEditor",
@@ -3112,7 +3139,63 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_ltx_hdr_2",
               "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "LTXVideoAlphaGen",
+      "file_path": "griptape_nodes_library/video/ltx_video_alpha_gen.py",
+      "metadata": {
+        "category": "video",
+        "description": "Generate a greyscale alpha matte for a video using LTX AI via Griptape Cloud model proxy, with an optional ProRes 4444 video that has the matte as its alpha channel.",
+        "display_name": "LTX Video Alpha Generation",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "alpha",
+          "matte",
+          "mask",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_alpha_gen"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "LTXVideoUpscale",
+      "file_path": "griptape_nodes_library/video/ltx_video_upscale.py",
+      "metadata": {
+        "category": "video",
+        "description": "Upscale a video to 1080p, 4K or 8K using LTX AI models via Griptape Cloud model proxy.",
+        "display_name": "LTX Video Upscale",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "upscale",
+          "resolution",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_upscale"
             ]
           }
         ]
