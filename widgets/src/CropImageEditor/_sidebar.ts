@@ -1,8 +1,32 @@
 // Preset sidebar for CropImageEditor — aspect ratio, resolution, and position shortcuts.
 
-import { mkIcon } from './_icons.js';
+import { type IconName, mkIcon } from './_icons';
+import type { CropRect } from './_types';
 
-const RATIO_PRESETS = [
+interface RatioPreset { label: string; rw: number; rh: number }
+interface ResolutionPreset { label: string; w: number; h: number }
+interface PositionPreset { label: string; title: string; pos: PositionName }
+
+type PositionName =
+  | "top-left" | "top-center" | "top-right"
+  | "left-center" | "center" | "right-center"
+  | "bottom-left" | "bottom-center" | "bottom-right";
+
+/** A crop in image pixels, as the sidebar hands it to `onApply`. Reset also resets the transform. */
+export type AppliedCrop = CropRect | (CropRect & { zoom: number; rotate: number });
+
+export interface SidebarOptions {
+  getImgSize: () => { imgNatW: number; imgNatH: number };
+  getCropRect: () => { l: number; t: number; w: number; h: number };
+  onApply: (crop: AppliedCrop) => void;
+}
+
+export interface Sidebar {
+  el: HTMLDivElement;
+  syncDisabled: (lockedParams: readonly string[], disabled: boolean) => void;
+}
+
+const RATIO_PRESETS: readonly RatioPreset[] = [
   { label: "1:1",  rw: 1,  rh: 1  },
   { label: "16:9", rw: 16, rh: 9  },
   { label: "4:3",  rw: 4,  rh: 3  },
@@ -12,7 +36,7 @@ const RATIO_PRESETS = [
   { label: "3:4",  rw: 3,  rh: 4  },
 ];
 
-const RESOLUTION_PRESETS = [
+const RESOLUTION_PRESETS: readonly ResolutionPreset[] = [
   { label: "480p",  w: 854,  h: 480  },
   { label: "720p",  w: 1280, h: 720  },
   { label: "1080p", w: 1920, h: 1080 },
@@ -20,7 +44,7 @@ const RESOLUTION_PRESETS = [
   { label: "4K",    w: 3840, h: 2160 },
 ];
 
-const POSITION_PRESETS = [
+const POSITION_PRESETS: readonly PositionPreset[] = [
   { label: "↖",    title: "Top Left",       pos: "top-left"      },
   { label: "↑",    title: "Top Center",     pos: "top-center"    },
   { label: "↗",    title: "Top Right",      pos: "top-right"     },
@@ -33,7 +57,10 @@ const POSITION_PRESETS = [
 ];
 
 // Scale from the shortest side of the current crop to the new ratio.
-function calcRatioRect(rw, rh, imgW, imgH, curL, curT, curW, curH) {
+function calcRatioRect(
+  rw: number, rh: number, imgW: number, imgH: number,
+  curL: number, curT: number, curW: number, curH: number,
+): CropRect {
   const s = Math.min(curW, curH) / Math.min(rw, rh);
   let w = Math.round(rw * s);
   let h = Math.round(rh * s);
@@ -46,7 +73,10 @@ function calcRatioRect(rw, rh, imgW, imgH, curL, curT, curW, curH) {
 }
 
 // Center the new resolution on the current crop center, clamped to image bounds.
-function calcResolutionRect(newW, newH, imgW, imgH, curL, curT, curW, curH) {
+function calcResolutionRect(
+  newW: number, newH: number, imgW: number, imgH: number,
+  curL: number, curT: number, curW: number, curH: number,
+): CropRect {
   const w = Math.min(newW, imgW);
   const h = Math.min(newH, imgH);
   const cx = curL + curW / 2, cy = curT + curH / 2;
@@ -56,9 +86,12 @@ function calcResolutionRect(newW, newH, imgW, imgH, curL, curT, curW, curH) {
 }
 
 // Compute left/top for a named position, keeping current crop size.
-function calcPositionRect(posName, imgW, imgH, curL, curT, curW, curH) {
+function calcPositionRect(
+  posName: PositionName, imgW: number, imgH: number,
+  curL: number, curT: number, curW: number, curH: number,
+): CropRect {
   const w = curW, h = curH;
-  const positions = {
+  const positions: Record<PositionName, { l: number; t: number }> = {
     "center":        { l: Math.round((imgW - w) / 2), t: Math.round((imgH - h) / 2) },
     "top-left":      { l: 0,           t: 0            },
     "top-center":    { l: Math.round((imgW - w) / 2), t: 0 },
@@ -73,7 +106,7 @@ function calcPositionRect(posName, imgW, imgH, curL, curT, curW, curH) {
   return { left: Math.max(0, l), top: Math.max(0, t), width: w, height: h };
 }
 
-export function createSidebar({ getImgSize, getCropRect, onApply }) {
+export function createSidebar({ getImgSize, getCropRect, onApply }: SidebarOptions): Sidebar {
   const el = document.createElement("div");
   el.className = "nodrag nowheel";
   el.style.cssText = [
@@ -83,9 +116,11 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
     "overflow-y:auto", "box-sizing:border-box",
   ].join(";");
 
-  const allBtns = [];
+  const allBtns: HTMLButtonElement[] = [];
 
-  function makeBtn({ label, icon, title, onClick }) {
+  function makeBtn({ label, icon, title, onClick }: {
+    label?: string; icon?: IconName; title: string; onClick: () => void;
+  }): HTMLButtonElement {
     const btn = document.createElement("button");
     btn.title = title;
     btn.style.cssText = [
@@ -106,13 +141,13 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
     return btn;
   }
 
-  function makeDivider() {
+  function makeDivider(): HTMLDivElement {
     const hr = document.createElement("div");
     hr.style.cssText = "height:1px;background:var(--border);margin:2px 0;flex-shrink:0;";
     return hr;
   }
 
-  function makeLabel(text) {
+  function makeLabel(text: string): HTMLDivElement {
     const lbl = document.createElement("div");
     lbl.textContent = text;
     lbl.style.cssText = "font-size:9px;color:var(--muted-foreground);text-align:center;padding:2px 0;";
@@ -171,7 +206,7 @@ export function createSidebar({ getImgSize, getCropRect, onApply }) {
   }
   el.appendChild(posGrid);
 
-  function syncDisabled(lockedParams, disabled) {
+  function syncDisabled(lockedParams: readonly string[], disabled: boolean): void {
     const coordLocked = ["left", "top", "width", "height"].some(f => lockedParams.includes(f));
     const off = coordLocked || disabled;
     for (const btn of allBtns) {

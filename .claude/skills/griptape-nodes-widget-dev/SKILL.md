@@ -170,7 +170,7 @@ export default function CropEditor(container, props) {
 }
 ```
 
-If a synced parameter's name differs from what the widget calls it internally, the widget maps names; the editor routes by parameter name. Examples: `image/crop_image.py` with `widgets/CropImageEditor/`, `video/crop_video.py` with `widgets/CropVideoEditor/` (presets plus custom fields), `video/adjust_mask_size.py` with `widgets/MaskAdjustmentPreview.js`.
+If a synced parameter's name differs from what the widget calls it internally, the widget maps names; the editor routes by parameter name. Examples: `image/crop_image.py` with `widgets/src/CropImageEditor/`, `video/crop_video.py` with `widgets/CropVideoEditor/` (presets plus custom fields), `video/adjust_mask_size.py` with `widgets/MaskAdjustmentPreview.js`.
 
 **Migrating an old widget:** add `synced_parameters`, drop the parameter copies from the widget dict's default and from every push, delete the `_syncing_*` flags, the dict-to-parameter and parameter-to-dict sync methods, `_get_locked_params` and the connection hooks that only refreshed `locked`, and have the JS read `props.locked`. A saved workflow may still hold the old copies in the widget dict; that's harmless because the parameters win.
 

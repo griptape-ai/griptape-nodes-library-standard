@@ -226,3 +226,10 @@ GriptapeNodes/
 outputs/
 .griptape-nodes-metadata/
 
+
+# Widget authoring package
+#   Dependencies and the build's staging directory are local. The built bundles in
+#   widgets/dist/ are committed, so they are exempt from the dist/ rule above.
+widgets/node_modules/
+widgets/.build-tmp/
+!widgets/dist/

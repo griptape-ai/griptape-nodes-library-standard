@@ -3,11 +3,40 @@ import {
   HANDLE_R,
   OVERLAY, CROP_BORDER, GUIDE, TRANSFORM_PREVIEW, TRANSFORM_OVERLAY,
   HANDLE_FILL, HANDLE_STROKE, HANDLE_STROKE_HOVER, HANDLE_LOCKED,
-} from './_styles.js';
-import { createSidebar } from './_sidebar.js';
-import { createFooter }  from './_footer.js';
+} from './_styles';
+import { createSidebar } from './_sidebar';
+import { createFooter }  from './_footer';
+import type { CommittedCropValue, CropValue, LiveCropValue } from './_types';
+import type { WidgetHandle, WidgetProps } from '../types/widget';
 
-export default function CropImageEditor(container, props) {
+export type { CommittedCropValue, CropRect, CropValue, LiveCropValue } from './_types';
+
+export type CropImageEditorProps = WidgetProps<CropValue, LiveCropValue> & {
+  onChange?: (value: CommittedCropValue) => void;
+};
+
+type CropParam = "left" | "top" | "width" | "height" | "zoom" | "rotate";
+type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+type Mode = "idle" | "resizing" | "moving" | "drawing";
+
+interface Handle { id: HandleId; cx: number; cy: number }
+interface DragStart { ix: number; iy: number; l: number; t: number; w: number; h: number }
+interface DrawStart { ix: number; iy: number }
+
+// A mounted editor, kept on its container so a repeated mount updates it instead of building
+// a second one.
+interface CropEditorInstance {
+  handleUpdate: (props: CropImageEditorProps) => void;
+  cleanup: () => void;
+  wrapper: HTMLDivElement;
+}
+type CropEditorContainer = HTMLElement & { _cropEditor?: CropEditorInstance };
+
+export default function CropImageEditor(
+  host: HTMLElement,
+  props: CropImageEditorProps,
+): WidgetHandle<CropImageEditorProps> {
+  const container = host as CropEditorContainer;
   if (container._cropEditor?.wrapper?.isConnected) {
     container._cropEditor.handleUpdate(props);
     return { cleanup: container._cropEditor.cleanup, update: container._cropEditor.handleUpdate };
@@ -15,7 +44,7 @@ export default function CropImageEditor(container, props) {
   if (container._cropEditor) delete container._cropEditor;
 
   // ── State ──────────────────────────────────────────────────────────────────
-  let latestValue = props.value || {};
+  let latestValue: CropValue = props.value || {};
   let onChangeRef = props.onChange;
   let onLiveChangeRef = props.onLiveChange;
   let isDisabled = props.disabled || false;
@@ -30,7 +59,7 @@ export default function CropImageEditor(container, props) {
   let cropZoom     = latestValue.zoom   ?? 100;
   let cropRotate   = latestValue.rotate ?? 0;
   // Crop parameters with an incoming connection, worked out by the editor from synced_parameters
-  let lockedParams = props.locked || [];
+  let lockedParams: readonly string[] = props.locked || [];
 
   function ecL() { return Math.max(0, cropL); }
   function ecT() { return Math.max(0, cropT); }
@@ -38,23 +67,24 @@ export default function CropImageEditor(container, props) {
   function ecH() { return cropH > 0 ? cropH : (imgNatH || 1); }
 
   // ── Per-handle locking ─────────────────────────────────────────────────────
-  function handleAffects(id) {
-    const fields = [];
+  function handleAffects(id: HandleId): CropParam[] {
+    const fields: CropParam[] = [];
     if (id.includes("n")) { fields.push("top"); fields.push("height"); }
     if (id.includes("s")) { fields.push("height"); }
     if (id.includes("w")) { fields.push("left"); fields.push("width"); }
     if (id.includes("e")) { fields.push("width"); }
     return fields;
   }
-  function isHandleLocked(id) { return handleAffects(id).some(f => lockedParams.includes(f)); }
+  function isHandleLocked(id: HandleId) { return handleAffects(id).some(f => lockedParams.includes(f)); }
   function isMoveLocked()  { return lockedParams.includes("left") || lockedParams.includes("top"); }
   function isDrawLocked()  { return ["left", "top", "width", "height"].some(f => lockedParams.includes(f)); }
 
   let scale = 1;
-  let mode = "idle";
-  let activeHandle = null;
-  let dragStart = null;
-  let hoveredHandle = null;
+  let mode: Mode = "idle";
+  let activeHandle: HandleId | null = null;
+  // A move or resize records the crop it started from; a draw records only its anchor point.
+  let dragStart: DragStart | DrawStart | null = null;
+  let hoveredHandle: HandleId | null = null;
 
   // ── DOM ────────────────────────────────────────────────────────────────────
   const wrapper = document.createElement("div");
@@ -81,7 +111,8 @@ export default function CropImageEditor(container, props) {
 
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "display:block;cursor:crosshair;";
-  const ctx = canvas.getContext("2d");
+  // Every browser the editor supports provides a 2D context for a fresh canvas.
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 
   // ── Sidebar ────────────────────────────────────────────────────────────────
   const sidebarInst = createSidebar({
@@ -101,10 +132,10 @@ export default function CropImageEditor(container, props) {
   // ── Footer (sliders + status) ──────────────────────────────────────────────
   const footerInst = createFooter({
     getZoom:    () => cropZoom,
-    setZoom:    (v) => { cropZoom = v; },
+    setZoom:    (v: number) => { cropZoom = v; },
     getRotate:  () => cropRotate,
-    setRotate:  (v) => { cropRotate = v; },
-    isLocked:   (key) => lockedParams.includes(key),
+    setRotate:  (v: number) => { cropRotate = v; },
+    isLocked:   (key: string) => lockedParams.includes(key),
     isDisabled: () => isDisabled,
     onRender:   () => { render(); emitLive(); },
     onEmit:     () => emitAll(),
@@ -155,9 +186,9 @@ export default function CropImageEditor(container, props) {
   };
   img.onerror = () => { imageLoaded = false; render(); };
 
-  function loadImage(url) {
+  function loadImage(url: string) {
     if (!url) { imageLoaded = false; render(); return; }
-    const base = (u) => u ? u.split("?")[0] : "";
+    const base = (u: string) => u ? u.split("?")[0] : "";
     if (base(url) === base(img.src)) return;
     img.src = url;
   }
@@ -286,7 +317,7 @@ export default function CropImageEditor(container, props) {
   }
 
   // ── Handles ────────────────────────────────────────────────────────────────
-  function getHandles() {
+  function getHandles(): Handle[] {
     const x  = ecL() * scale, y  = ecT() * scale;
     const x2 = (ecL() + ecW()) * scale, y2 = (ecT() + ecH()) * scale;
     const mx = (x + x2) / 2, my = (y + y2) / 2;
@@ -298,7 +329,7 @@ export default function CropImageEditor(container, props) {
     ];
   }
 
-  function hitHandle(px, py) {
+  function hitHandle(px: number, py: number): HandleId | null {
     const hitR = HANDLE_R + 5;
     for (const h of getHandles()) {
       if (isHandleLocked(h.id)) continue;
@@ -307,21 +338,21 @@ export default function CropImageEditor(container, props) {
     return null;
   }
 
-  function hitCrop(px, py) {
+  function hitCrop(px: number, py: number) {
     return px >= ecL() * scale && px <= (ecL() + ecW()) * scale
         && py >= ecT() * scale && py <= (ecT() + ecH()) * scale;
   }
 
-  const CURSORS = { nw:"nw-resize", n:"n-resize", ne:"ne-resize", e:"e-resize", se:"se-resize", s:"s-resize", sw:"sw-resize", w:"w-resize" };
+  const CURSORS: Record<HandleId, string> = { nw:"nw-resize", n:"n-resize", ne:"ne-resize", e:"e-resize", se:"se-resize", s:"s-resize", sw:"sw-resize", w:"w-resize" };
 
-  function canvasPos(e) {
+  function canvasPos(e: MouseEvent): [number, number] {
     const r = canvas.getBoundingClientRect();
     return [(e.clientX - r.left) * (canvas.width / r.width), (e.clientY - r.top) * (canvas.height / r.height)];
   }
 
-  function toImg(cx, cy) { return [cx / scale, cy / scale]; }
+  function toImg(cx: number, cy: number): [number, number] { return [cx / scale, cy / scale]; }
 
-  function clampRect(l, t, w, h) {
+  function clampRect(l: number, t: number, w: number, h: number): [number, number, number, number] {
     w = Math.max(1, Math.round(w));
     h = Math.max(1, Math.round(h));
     l = Math.max(0, Math.min(Math.round(l), imgNatW - w));
@@ -379,25 +410,27 @@ export default function CropImageEditor(container, props) {
     }
 
     if (mode === "moving") {
-      const dx = ix - dragStart.ix, dy = iy - dragStart.iy;
-      cropW = dragStart.w; cropH = dragStart.h;
-      cropL = Math.max(0, Math.min(dragStart.l + dx, imgNatW - cropW));
-      cropT = Math.max(0, Math.min(dragStart.t + dy, imgNatH - cropH));
+      const start = dragStart as DragStart;
+      const dx = ix - start.ix, dy = iy - start.iy;
+      cropW = start.w; cropH = start.h;
+      cropL = Math.max(0, Math.min(start.l + dx, imgNatW - cropW));
+      cropT = Math.max(0, Math.min(start.t + dy, imgNatH - cropH));
     } else if (mode === "resizing") {
-      const { l, t, w, h } = dragStart;
+      const start = dragStart as DragStart;
+      const { l, t, w, h } = start;
       let nl = l, nt = t, nr = l + w, nb = t + h;
       const cix = Math.max(0, Math.min(ix, imgNatW));
       const ciy = Math.max(0, Math.min(iy, imgNatH));
-      const id = activeHandle;
+      const id = activeHandle as HandleId;
       if (id.includes("n")) nt = Math.min(ciy, nb - 1);
       if (id.includes("s")) nb = Math.max(ciy, nt + 1);
       if (id.includes("w")) nl = Math.min(cix, nr - 1);
       if (id.includes("e")) nr = Math.max(cix, nl + 1);
 
       if (e.shiftKey && id.length === 2) {
-        const ratio = dragStart.w / dragStart.h;
+        const ratio = start.w / start.h;
         const curW = nr - nl, curH = nb - nt;
-        if (Math.abs(curW - dragStart.w) >= Math.abs(curH - dragStart.h) * ratio) {
+        if (Math.abs(curW - start.w) >= Math.abs(curH - start.h) * ratio) {
           const ch = Math.round(curW / ratio);
           if (id.includes("n")) nt = Math.max(0, nb - ch);
           else nb = Math.min(imgNatH, nt + ch);
@@ -410,7 +443,7 @@ export default function CropImageEditor(container, props) {
 
       cropL = nl; cropT = nt; cropW = nr - nl; cropH = nb - nt;
     } else if (mode === "drawing") {
-      const six = dragStart.ix, siy = dragStart.iy;
+      const { ix: six, iy: siy } = dragStart as DrawStart;
       const eix = Math.max(0, Math.min(ix, imgNatW));
       const eiy = Math.max(0, Math.min(iy, imgNatH));
       if (e.shiftKey) {
@@ -434,9 +467,8 @@ export default function CropImageEditor(container, props) {
   canvas.addEventListener("pointerup", (e) => {
     if (!imageLoaded || mode === "idle") return;
     e.stopPropagation();
-    const prevMode = mode;
     mode = "idle"; hoveredHandle = null; canvas.style.cursor = "crosshair";
-    if (prevMode !== "idle") commit();
+    commit();
   });
 
   canvas.addEventListener("pointercancel", () => {
@@ -461,7 +493,7 @@ export default function CropImageEditor(container, props) {
   syncUI();
 
   // ── handleUpdate ───────────────────────────────────────────────────────────
-  function handleUpdate(newProps) {
+  function handleUpdate(newProps: CropImageEditorProps) {
     onChangeRef = newProps.onChange;
     onLiveChangeRef = newProps.onLiveChange;
     isDisabled  = newProps.disabled || false;
@@ -472,7 +504,7 @@ export default function CropImageEditor(container, props) {
     const newNatW = v.img_width  || 0;
     const newNatH = v.img_height || 0;
 
-    const base = (u) => u ? u.split("?")[0] : "";
+    const base = (u: string) => u ? u.split("?")[0] : "";
     const urlChanged = base(newUrl) !== base(imageUrl);
 
     if (urlChanged) {
@@ -486,11 +518,12 @@ export default function CropImageEditor(container, props) {
 
     lockedParams = newProps.locked || [];
 
+    // The engine sends a number for every crop field it includes.
     if (mode === "idle") {
-      if ("left"   in v) cropL = v.left;
-      if ("top"    in v) cropT = v.top;
-      if ("width"  in v) cropW = v.width;
-      if ("height" in v) cropH = v.height;
+      if ("left"   in v) cropL = v.left as number;
+      if ("top"    in v) cropT = v.top as number;
+      if ("width"  in v) cropW = v.width as number;
+      if ("height" in v) cropH = v.height as number;
       if ("zoom"   in v) cropZoom   = v.zoom   ?? cropZoom;
       if ("rotate" in v) cropRotate = v.rotate ?? cropRotate;
     }

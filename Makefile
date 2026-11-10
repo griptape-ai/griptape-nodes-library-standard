@@ -126,6 +126,8 @@ check/json: ## Validate JSON files.
 	@find . -name "*.json" -type f \
 		! -path "./.venv/*" \
 		! -path "./node_modules/*" \
+		! -path "./widgets/node_modules/*" \
+		! -path "./widgets/.build-tmp/*" \
 		-exec sh -c 'jq empty "{}" > /dev/null 2>&1 || (echo "Invalid JSON: {}" && exit 1)' \;
 
 .PHONY: check/changelog
@@ -151,6 +153,43 @@ test/unit/coverage: ## Run unit tests with coverage.
 .PHONY: test/workflows
 test/workflows: ## Run workflow tests.
 	@uv run pytest -s tests/workflows
+
+# Widgets are authored in TypeScript under widgets/ and shipped as the bundles in widgets/dist/.
+# These run the same npm commands the engine runs when it builds a library's widgets from source,
+# with lifecycle scripts disabled.
+WIDGETS_DIR := widgets
+WIDGETS_NPM := npm --prefix $(WIDGETS_DIR)
+
+.PHONY: widgets/install
+widgets/install: ## Install widget build dependencies from the lockfile.
+	@cd $(WIDGETS_DIR) && npm ci --include=dev --include=optional --ignore-scripts
+
+.PHONY: widgets/build
+widgets/build: ## Build the widget bundles into widgets/dist.
+	@$(WIDGETS_NPM) run build --ignore-scripts
+
+.PHONY: widgets/typecheck
+widgets/typecheck: ## Type-check the widget sources and tests.
+	@$(WIDGETS_NPM) run typecheck --ignore-scripts
+
+.PHONY: widgets/test
+widgets/test: ## Run the widget tests.
+	@$(WIDGETS_NPM) run test --ignore-scripts
+
+.PHONY: widgets/watch
+widgets/watch: ## Rebuild widgets/dist whenever a widget source changes.
+	@$(WIDGETS_NPM) run watch --ignore-scripts
+
+# Fails when the committed bundles differ from a fresh build: a changed, new, or removed file.
+.PHONY: widgets/check-dist
+widgets/check-dist: widgets/build ## Check the committed widget bundles match their sources.
+	@STALE="$$(git status --porcelain --untracked-files=all --ignored=matching -- $(WIDGETS_DIR)/dist)"; \
+	if [ -n "$$STALE" ]; then \
+		echo "widgets/dist does not match a fresh build:"; \
+		echo "$$STALE"; \
+		echo "Run 'make widgets/build' and commit widgets/dist."; \
+		exit 1; \
+	fi
 
 .DEFAULT_GOAL := help
 .PHONY: help
