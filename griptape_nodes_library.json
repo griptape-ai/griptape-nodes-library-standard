@@ -24,6 +24,15 @@
           "OPENBLAS_NUM_THREADS": "1"
         }
       }
+    },
+    {
+      "category": "exr_sequence",
+      "description": "EXR sequence unpack limits. These cap what the nodes that unpack an EXR ZIP (such as LTX Video to Video HDR) will write. max_members is the most EXR frames in one archive, max_total_bytes the most unpacked bytes across all frames, and max_member_bytes the most unpacked bytes in one frame. Raising max_total_bytes raises the disk space and memory the node may use, so raise it only as far as your machine can take. Each value must be a positive whole number; anything else is ignored and the default is used.",
+      "contents": {
+        "max_members": 4000,
+        "max_total_bytes": 34359738368,
+        "max_member_bytes": 536870912
+      }
     }
   ],
   "metadata": {
