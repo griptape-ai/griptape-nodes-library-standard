@@ -413,8 +413,9 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
     def _update_resolution_choices(self, model_id: str) -> None:
         capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
         current = self.get_parameter_value("resolution")
-        selected = current if current in capabilities.resolutions else capabilities.default_resolution
-        self._update_option_choices("resolution", capabilities.resolutions, selected)
+        self._update_option_choices(
+            "resolution", capabilities.resolutions, kling_4.resolution_choice(model_id, current)
+        )
         self.show_parameter_by_name("resolution")
 
     def _hide_multi_shot_inputs(self) -> None:
@@ -731,12 +732,9 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
 
-        Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
+        Kling 4.0 reports the id in `data[].outputs[]`; v1-v3 in `data.task_result.videos[]`.
         """
-        video_id = kling_4.kling_4_video_id(result_json)
-        if video_id is None and isinstance(result_json.get("data"), dict):
-            videos = result_json["data"].get("task_result", {}).get("videos", [])
-            video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
+        video_id = kling_4.kling_video_id(result_json)
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
@@ -773,12 +771,9 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             length_error = kling_4.prompt_length_error(prompt)
             if length_error:
                 exceptions.append(ValueError(length_error))
-            resolution = self.get_parameter_value("resolution")
-            supported = kling_4.KLING_4_CAPABILITIES[model_id].resolutions
-            if resolution not in supported:
-                exceptions.append(
-                    ValueError(f"{model_id} does not support resolution '{resolution}'. Use {', '.join(supported)}.")
-                )
+            resolution_error = kling_4.resolution_error(model_id, self.get_parameter_value("resolution"))
+            if resolution_error:
+                exceptions.append(ValueError(resolution_error))
             return exceptions or None
 
         if requires_prompt and len(prompt) > MAX_PROMPT_LENGTH:

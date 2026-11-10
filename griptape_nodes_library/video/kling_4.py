@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from griptape_nodes_library.media import prepare_media_data_uri
+
 KLING_4_0 = "kling-4.0"
 KLING_4_0_FLASH = "kling-4.0-flash"
 KLING_4_MODELS = (KLING_4_0, KLING_4_0_FLASH)
@@ -110,12 +112,42 @@ def image_item(item_type: str, url: str, item_id: str | None = None) -> dict[str
     return item
 
 
-def kling_4_video_id(result_json: dict[str, Any]) -> str | None:
-    """The first generated video's Kling id, from a completed 4.0 task."""
-    tasks = result_json.get("data")
-    if not isinstance(tasks, list):
+def resolution_choice(model_id: str, current: Any) -> str:
+    """``current`` when the model offers it, else the model's default resolution."""
+    capabilities = KLING_4_CAPABILITIES[model_id]
+    return current if current in capabilities.resolutions else capabilities.default_resolution
+
+
+def resolution_error(model_id: str, resolution: Any) -> str | None:
+    supported = KLING_4_CAPABILITIES[model_id].resolutions
+    if resolution in supported:
         return None
-    for task in tasks:
+    return f"{model_id} does not support resolution '{resolution}'. Use {', '.join(supported)}."
+
+
+async def prepare_image(image_input: Any, *, label: str, node_name: str) -> str:
+    """Raw base64 for a supplied image input; raises rather than dropping one that won't load.
+
+    Dropping a frame would shift every reference id after it, so a prompt naming
+    `@frame_3` would point at the wrong image while the generation still runs.
+    """
+    data_uri = await prepare_media_data_uri(image_input, kind="image", node_name=node_name)
+    if not data_uri:
+        msg = f"Couldn't load the image connected to '{label}'. Check that it's a valid image file or URL."
+        raise ValueError(msg)
+    return data_uri.split(";base64,", 1)[-1]
+
+
+def kling_video_id(result_json: dict[str, Any]) -> str | None:
+    """The first generated video's Kling id, from a 4.0 task (`data[].outputs[]`) or v1-v3 (`data.task_result`)."""
+    data = result_json.get("data")
+    if isinstance(data, dict):
+        videos = (data.get("task_result") or {}).get("videos") or []
+        first = videos[0] if videos else None
+        return str(first["id"]) if isinstance(first, dict) and first.get("id") else None
+    if not isinstance(data, list):
+        return None
+    for task in data:
         outputs = task.get("outputs") if isinstance(task, dict) else None
         if not isinstance(outputs, list):
             continue

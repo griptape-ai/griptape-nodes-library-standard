@@ -228,7 +228,55 @@ def test_prompt_length_follows_mixed_language_rule() -> None:
     assert kling_4.prompt_length_error("a" * 13_000 + "字" * 5_501) is not None
 
 
-def test_video_id_is_read_from_outputs() -> None:
+def test_video_id_is_read_from_both_response_shapes() -> None:
     result = {"data": [{"id": "t", "outputs": [{"type": "audio"}, {"type": "video", "id": "vid-1", "url": "u"}]}]}
-    assert kling_4.kling_4_video_id(result) == "vid-1"
-    assert kling_4.kling_4_video_id({"data": {"task_result": {}}}) is None
+    assert kling_4.kling_video_id(result) == "vid-1"
+    assert kling_4.kling_video_id({"data": {"task_result": {"videos": [{"id": "legacy-1"}]}}}) == "legacy-1"
+    assert kling_4.kling_video_id({"data": {"task_result": {}}}) is None
+
+
+def test_image_keyframe_that_fails_to_load_raises_instead_of_shifting_ids() -> None:
+    node = KlingImageToVideoGeneration(name="KlingImage")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "go")
+    node.set_parameter_value("image", _image())
+    node.set_parameter_value("middle_frames", ["/no/such/frame.png", _image()])
+    node.set_parameter_value("image_tail", _image())
+
+    with pytest.raises(ValueError, match="Middle Frames"):
+        asyncio.run(node._build_payload())
+
+
+def test_image_keyframe_ids_follow_input_position_without_an_end_frame() -> None:
+    node = KlingImageToVideoGeneration(name="KlingImage")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "go")
+    node.set_parameter_value("image", _image())
+    node.set_parameter_value("middle_frames", [_image(), _image()])
+
+    payload = asyncio.run(node._build_payload())
+
+    assert [(item["type"], item.get("id")) for item in payload["contents"][1:]] == [
+        ("first_frame", "frame_1"),
+        ("middle_frame", "frame_2"),
+        ("middle_frame", "frame_3"),
+    ]
+
+
+def test_omni_reference_image_that_fails_to_load_raises() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("reference_images", ["/no/such/ref.png"])
+
+    with pytest.raises(ValueError, match="reference images"):
+        asyncio.run(node._build_payload())
+
+
+def test_resolution_helpers() -> None:
+    assert kling_4.resolution_choice("kling-4.0-flash", "1080p") == "720p"
+    assert kling_4.resolution_choice("kling-4.0", "720p") == "720p"
+    assert kling_4.resolution_error("kling-4.0", "1080p") is None
+    assert kling_4.resolution_error("kling-4.0-flash", "1080p") == (
+        "kling-4.0-flash does not support resolution '1080p'. Use 720p."
+    )

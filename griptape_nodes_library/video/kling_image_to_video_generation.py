@@ -486,8 +486,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         else:
             self.hide_parameter_by_name(["image_tail", "middle_frames"])
         current = self.get_parameter_value("resolution")
-        selected = current if current in capabilities.resolutions else capabilities.default_resolution
-        self._update_option_choices("resolution", capabilities.resolutions, selected)
+        self._update_option_choices(
+            "resolution", capabilities.resolutions, kling_4.resolution_choice(model_id, current)
+        )
         self.show_parameter_by_name("resolution")
 
     def _apply_generation_settings_visibility(self, model_id: str) -> None:
@@ -726,22 +727,22 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     async def _build_kling_4_payload(self, model_id: str) -> dict[str, Any]:
         """Keyframes in playback order, ids frame_1..frame_n so the prompt can reference them."""
         capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
-        frame_inputs: list[tuple[str, Any]] = [("first_frame", self.get_parameter_value("image"))]
+        frame_inputs: list[tuple[str, str, Any]] = [("first_frame", "Start Frame", self.get_parameter_value("image"))]
         if capabilities.supports_keyframes:
-            frame_inputs += [("middle_frame", frame) for frame in self._middle_frame_inputs()]
-            frame_inputs.append(("last_frame", self.get_parameter_value("image_tail")))
+            frame_inputs += [("middle_frame", "Middle Frames", frame) for frame in self._middle_frame_inputs()]
+            if self.get_parameter_value("image_tail"):
+                frame_inputs.append(("last_frame", "End Frame", self.get_parameter_value("image_tail")))
 
         contents: list[dict[str, Any]] = [
             {"type": "prompt", "text": (self.get_parameter_value("prompt") or "").strip()}
         ]
-        frame_number = 0
-        for frame_type, frame_input in frame_inputs:
-            image = await self._prepare_image_data_url_async(
-                normalize_artifact_input(frame_input, ImageUrlArtifact, accepted_types=(ImageArtifact,))
+        # Ids follow input position; a frame that won't load raises rather than shifting them.
+        for frame_number, (frame_type, label, frame_input) in enumerate(frame_inputs, start=1):
+            image = await kling_4.prepare_image(
+                normalize_artifact_input(frame_input, ImageUrlArtifact, accepted_types=(ImageArtifact,)),
+                label=label,
+                node_name=self.name,
             )
-            if not image:
-                continue
-            frame_number += 1
             contents.append(kling_4.image_item(frame_type, image, f"frame_{frame_number}"))
 
         return {
@@ -943,12 +944,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
 
-        Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
+        Kling 4.0 reports the id in `data[].outputs[]`; v1-v3 in `data.task_result.videos[]`.
         """
-        video_id = kling_4.kling_4_video_id(result_json)
-        if video_id is None and isinstance(result_json.get("data"), dict):
-            videos = result_json["data"].get("task_result", {}).get("videos", [])
-            video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
+        video_id = kling_4.kling_video_id(result_json)
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
@@ -986,13 +984,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_IMAGES} keyframes in total (got {frame_count}).")
             )
 
-        resolution = self.get_parameter_value("resolution")
-        if resolution not in capabilities.resolutions:
-            exceptions.append(
-                ValueError(
-                    f"{model_id} does not support resolution '{resolution}'. Use {', '.join(capabilities.resolutions)}."
-                )
-            )
+        resolution_error = kling_4.resolution_error(model_id, self.get_parameter_value("resolution"))
+        if resolution_error:
+            exceptions.append(ValueError(resolution_error))
         duration = self.get_parameter_value("duration")
         if duration not in capabilities.durations:
             exceptions.append(

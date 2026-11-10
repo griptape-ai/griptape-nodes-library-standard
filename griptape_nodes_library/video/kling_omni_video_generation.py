@@ -435,11 +435,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         else:
             self.hide_parameter_by_name("end_frame_image")
 
-        current_resolution = self.get_parameter_value("resolution")
         self._update_option_choices(
             "resolution",
             capabilities.resolutions,
-            current_resolution if current_resolution in capabilities.resolutions else capabilities.default_resolution,
+            kling_4.resolution_choice(model_id, self.get_parameter_value("resolution")),
         )
         aspect_ratios.append(kling_4.ASPECT_RATIO_ADAPTIVE)
         current = self.get_parameter_value("aspect_ratio")
@@ -705,19 +704,22 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             {"type": "prompt", "text": (self.get_parameter_value("prompt") or "").strip()}
         ]
 
-        first_frame = await self._prepare_image_data_url_async(self.get_parameter_value("first_frame_image"))
-        if first_frame:
+        # A supplied image that won't load raises, so no reference id is silently dropped.
+        if self.get_parameter_value("first_frame_image"):
+            first_frame = await kling_4.prepare_image(
+                self.get_parameter_value("first_frame_image"), label="first frame", node_name=self.name
+            )
             contents.append(kling_4.image_item("first_frame", first_frame, "first_frame"))
 
         for index, reference_image in enumerate(self._reference_image_inputs(), start=1):
-            image = await self._prepare_image_data_url_async(reference_image)
-            if image:
-                contents.append(kling_4.image_item("refer_image", image, f"image_{index}"))
+            image = await kling_4.prepare_image(reference_image, label="reference images", node_name=self.name)
+            contents.append(kling_4.image_item("refer_image", image, f"image_{index}"))
 
-        if capabilities.supports_keyframes:
-            last_frame = await self._prepare_image_data_url_async(self.get_parameter_value("end_frame_image"))
-            if last_frame:
-                contents.append(kling_4.image_item("last_frame", last_frame, "last_frame"))
+        if capabilities.supports_keyframes and self.get_parameter_value("end_frame_image"):
+            last_frame = await kling_4.prepare_image(
+                self.get_parameter_value("end_frame_image"), label="end frame", node_name=self.name
+            )
+            contents.append(kling_4.image_item("last_frame", last_frame, "last_frame"))
 
         if self.get_parameter_value("reference_video"):
             video_url = await self._public_video_url_parameter.aget_public_url_for_parameter()
@@ -791,13 +793,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             if voice_ids:
                 exceptions.append(ValueError("Audio 'original' cannot be combined with voice IDs."))
 
-        resolution = self.get_parameter_value("resolution")
-        if resolution not in capabilities.resolutions:
-            exceptions.append(
-                ValueError(
-                    f"{model_id} does not support resolution '{resolution}'. Use {', '.join(capabilities.resolutions)}."
-                )
-            )
+        resolution_error = kling_4.resolution_error(model_id, self.get_parameter_value("resolution"))
+        if resolution_error:
+            exceptions.append(ValueError(resolution_error))
         duration = self.get_parameter_value("duration")
         if duration not in capabilities.durations:
             exceptions.append(
@@ -808,12 +806,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
 
-        Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
+        Kling 4.0 reports the id in `data[].outputs[]`; v1-v3 in `data.task_result.videos[]`.
         """
-        video_id = kling_4.kling_4_video_id(result_json)
-        if video_id is None and isinstance(result_json.get("data"), dict):
-            videos = result_json["data"].get("task_result", {}).get("videos", [])
-            video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
+        video_id = kling_4.kling_video_id(result_json)
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
