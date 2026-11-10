@@ -10,12 +10,17 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
-from griptape_nodes.files.file import File, FileDestinationProvider
+from griptape_nodes.files.file import File
+from griptape_nodes.files.project_file import file_destination_from_spec
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
+)
+from griptape_nodes.retained_mode.events.destination_events import (
+    GetConnectedFileDestinationRequest,
+    GetConnectedFileDestinationResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.retained_mode import RetainedMode
@@ -137,16 +142,15 @@ def configure_directory_with_settings_node(
 
 
 def resolve_output_dir(node: BaseNode, default_directory: str) -> pathlib.Path:
-    """Return the folder to write into, taking the next free version when the template has ``{###}``."""
-    conn_result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=node.name))
-    if isinstance(conn_result, ListConnectionsForNodeResultSuccess):
-        for conn in conn_result.incoming_connections:
-            if conn.target_parameter_name == DIRECTORY_PARAMETER:
-                source = GriptapeNodes.ObjectManager().attempt_get_object_by_name(conn.source_node_name)
-                if isinstance(source, FileDestinationProvider):
-                    fd = source.file_destination
-                    if fd is not None:
-                        return pathlib.Path(fd.resolve()).parent
+    """Return the folder to write into, taking the next free version when the template has ``{###}``.
+
+    Raises:
+        NodeError: If a File Output Settings node is connected to 'directory' but can't be read,
+            such as when it has no filename set.
+    """
+    settings_folder = _settings_node_folder(node)
+    if settings_folder is not None:
+        return settings_folder
     value = (node.get_parameter_value(DIRECTORY_PARAMETER) or default_directory).strip().rstrip("/")
     if not value:
         value = default_directory
@@ -158,6 +162,26 @@ def resolve_output_dir(node: BaseNode, default_directory: str) -> pathlib.Path:
     if not value.startswith(("/", "{")):
         value = f"{{outputs}}/{value}"
     return pathlib.Path(File(value).resolve())
+
+
+def _settings_node_folder(node: BaseNode) -> pathlib.Path | None:
+    """The folder a File Output Settings node connected to 'directory' names, or None when none is.
+
+    Asked by request rather than looked up by name, so it is answered where the settings node lives
+    and works when the node runs in a worker.
+    """
+    if node.workflow is None:
+        # A node in no workflow has nothing connected to it.
+        return None
+    settings_result = GriptapeNodes.handle_request(
+        GetConnectedFileDestinationRequest(node_name=node.name, parameter_name=DIRECTORY_PARAMETER)
+    )
+    if not isinstance(settings_result, GetConnectedFileDestinationResultSuccess):
+        raise NodeError(str(settings_result.result_details))
+    if settings_result.destination is None:
+        return None
+    destination = file_destination_from_spec(settings_result.destination, node.workflow)
+    return pathlib.Path(destination.resolve()).parent
 
 
 def resolve_versioned_dir(template: str) -> pathlib.Path:
