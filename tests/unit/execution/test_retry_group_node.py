@@ -18,13 +18,13 @@ def default_node() -> RetryGroupNode:
 
 class TestSideParametersMetadata:
     def test_right_rail_membership(self, default_node: RetryGroupNode) -> None:
-        expected_right = {"group_exec_out", "done", "continue_loop", "total_iterations", "was_successful"}
+        expected_right = {"exec_out", "done", "continue_loop", "total_iterations", "was_successful"}
 
         assert set(default_node.metadata[RIGHT_PARAMETERS_KEY]) == expected_right
         assert len(default_node.metadata[RIGHT_PARAMETERS_KEY]) == len(expected_right)
 
     def test_left_rail_membership(self, default_node: RetryGroupNode) -> None:
-        expected_left = {"group_exec_in", "iteration"}
+        expected_left = {"exec_in", "iteration"}
 
         assert set(default_node.metadata[LEFT_PARAMETERS_KEY]) == expected_left
         assert len(default_node.metadata[LEFT_PARAMETERS_KEY]) == len(expected_left)

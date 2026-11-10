@@ -30,7 +30,7 @@ class TestRetry:
         _create_node(engine, "RetryGroupNode", "Retry", max_iterations=3)
         _create_node(engine, "ToInteger", "Attempt", group="Retry")
         _create_node(engine, "CompareNumbers", "Check", group="Retry", evaluate="A >= B", B=1)
-        _connect(engine, "Start", "exec_out", "Retry", "group_exec_in")
+        _connect(engine, "Start", "exec_out", "Retry", "exec_in")
         _connect(engine, "Start", "text", "Attempt", "from")
         _connect(engine, "Attempt", "output", "Check", "A")
         _connect(engine, "Check", "True", "Retry", "done")

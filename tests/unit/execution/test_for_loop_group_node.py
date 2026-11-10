@@ -80,7 +80,7 @@ class TestLeftParametersMetadata:
         assert "step" in left
 
     def test_left_rail_membership(self, default_node: ForLoopGroupNode) -> None:
-        expected_left = {"exec_in", "start", "end", "step", "group_exec_in", "on_each", "index"}
+        expected_left = {"exec_in", "start", "end", "step", "on_each", "index"}
 
         assert set(default_node.metadata[LEFT_PARAMETERS_KEY]) == expected_left
         assert len(default_node.metadata[LEFT_PARAMETERS_KEY]) == len(expected_left)
@@ -88,7 +88,6 @@ class TestLeftParametersMetadata:
     def test_right_rail_membership(self, default_node: ForLoopGroupNode) -> None:
         expected_right = {
             "exec_out",
-            "group_exec_out",
             "loop_complete",
             "new_item_to_add",
             "skip_iteration",
