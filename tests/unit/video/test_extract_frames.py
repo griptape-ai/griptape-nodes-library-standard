@@ -16,6 +16,7 @@ from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
 from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
+from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 from griptape_nodes_library.video.extract_frames import ExtractFrames
 
 if TYPE_CHECKING:
@@ -25,6 +26,12 @@ if TYPE_CHECKING:
 def _write_frames(directory: Path, numbers: list[int], *, prefix: str = "frames", padding: int = 4) -> None:
     for n in numbers:
         (directory / f"{prefix}.{str(n).zfill(padding)}.png").touch()
+
+
+def _resolve_output_dir(node: ExtractFrames) -> Path:
+    """Mirror what `process()` does to turn the 'directory' parameter into a folder."""
+    reject_connected_file_destination(node)
+    return node._directory_param.build_directory().create().resolve()
 
 
 @pytest.fixture
@@ -154,6 +161,59 @@ class TestSequenceOutputWiring:
         assert node.parameter_output_values["sequence"] is None
 
 
+class TestOutputDirectory:
+    """'directory' is a folder name placed by the project's situation, or an absolute path."""
+
+    def test_a_typed_folder_name_creates_a_versioned_folder(self, real_graph: ExtractFrames, tmp_path: Path) -> None:
+        real_graph.set_parameter_value("directory", "shots")
+
+        # Each resolve actually creates the folder, so the next one takes the next version.
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "shots_v001"
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "shots_v002"
+
+    def test_the_default_folder_name_is_versioned(self, real_graph: ExtractFrames, tmp_path: Path) -> None:
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "frames_v001"
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "frames_v002"
+
+    def test_an_absolute_path_is_used_as_given(self, real_graph: ExtractFrames, tmp_path: Path) -> None:
+        real_graph.set_parameter_value("directory", str(tmp_path / "frames"))
+
+        assert _resolve_output_dir(real_graph) == tmp_path / "frames"
+
+    def test_a_node_in_no_workflow_uses_the_directory_value(self, node: ExtractFrames, tmp_path: Path) -> None:
+        """A node built outside any workflow (not yet added to one) has nothing connected to it."""
+        node.set_parameter_value("directory", str(tmp_path / "frames"))
+
+        assert _resolve_output_dir(node) == tmp_path / "frames"
+
+    def test_old_default_directory_value_is_migrated_on_load(self, real_graph: ExtractFrames) -> None:
+        """A saved workflow holding the pre-redesign default is rewritten to the new default."""
+        result = GriptapeNodes.handle_request(
+            SetParameterValueRequest(
+                node_name=real_graph.name,
+                parameter_name="directory",
+                value="{outputs}/frames_v{###}",
+                initial_setup=True,
+            )
+        )
+
+        assert result.succeeded(), result.result_details
+        assert real_graph.get_parameter_value("directory") == "frames"
+
+    def test_an_unrelated_template_value_is_not_migrated(self, real_graph: ExtractFrames) -> None:
+        result = GriptapeNodes.handle_request(
+            SetParameterValueRequest(
+                node_name=real_graph.name,
+                parameter_name="directory",
+                value="{outputs}/custom_v{###}",
+                initial_setup=True,
+            )
+        )
+
+        assert result.succeeded(), result.result_details
+        assert real_graph.get_parameter_value("directory") == "{outputs}/custom_v{###}"
+
+
 class TestOutputDirectoryFromSettings:
     """A settings node wired to 'directory' is read by request, so a worker run honors it too."""
 
@@ -164,8 +224,8 @@ class TestOutputDirectoryFromSettings:
         _connect("dos", "directory_destination", real_graph.name, "directory")
 
         # Each resolve actually creates the folder, so the next one takes the next version.
-        assert real_graph._resolve_output_dir() == tmp_path / "outputs" / "shots_v001"
-        assert real_graph._resolve_output_dir() == tmp_path / "outputs" / "shots_v002"
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "shots_v001"
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "shots_v002"
 
     def test_directory_settings_with_a_hash_template_is_versioned(
         self, real_graph: ExtractFrames, tmp_path: Path
@@ -173,35 +233,22 @@ class TestOutputDirectoryFromSettings:
         _create_node("DirectoryOutputSettings", "dos", dirname="{outputs}/frames_v{###}")
         _connect("dos", "directory_destination", real_graph.name, "directory")
 
-        assert real_graph._resolve_output_dir() == tmp_path / "outputs" / "frames_v001"
-        assert real_graph._resolve_output_dir() == tmp_path / "outputs" / "frames_v002"
-
-    def test_without_any_settings_node_uses_the_directory_value(
-        self, real_graph: ExtractFrames, tmp_path: Path
-    ) -> None:
-        real_graph.set_parameter_value("directory", str(tmp_path / "frames"))
-
-        assert real_graph._resolve_output_dir() == tmp_path / "frames"
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "frames_v001"
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "frames_v002"
 
     def test_a_file_settings_node_with_a_filename_raises(self, real_graph: ExtractFrames) -> None:
         _create_node("FileOutputSettings", "fos", filename="frame.png")
         _connect("fos", "file_destination", real_graph.name, "directory")
 
         with pytest.raises(NodeError, match="names a file, not a folder"):
-            real_graph._resolve_output_dir()
+            _resolve_output_dir(real_graph)
 
     def test_a_file_settings_node_without_a_filename_also_raises(self, real_graph: ExtractFrames) -> None:
         _create_node("FileOutputSettings", "fos")
         _connect("fos", "file_destination", real_graph.name, "directory")
 
         with pytest.raises(NodeError, match="names a file, not a folder"):
-            real_graph._resolve_output_dir()
-
-    def test_a_node_in_no_workflow_uses_the_directory_value(self, node: ExtractFrames, tmp_path: Path) -> None:
-        """A node built outside any workflow (not yet added to one) has nothing connected to it."""
-        node.set_parameter_value("directory", str(tmp_path / "frames"))
-
-        assert node._resolve_output_dir() == tmp_path / "frames"
+            _resolve_output_dir(real_graph)
 
 
 class TestProcessFailures:
@@ -238,7 +285,7 @@ class TestProcessFailures:
         self._stub_until_the_folder(real_graph, monkeypatch)
         real_graph._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
 
-        with pytest.raises(NodeError, match="has no destination set"):
+        with pytest.raises(ValueError, match="has no destination set"):
             next(real_graph.process())
 
         assert real_graph._execution_succeeded is False

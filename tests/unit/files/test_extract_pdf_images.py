@@ -8,12 +8,16 @@ from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest
+from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest
+from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from griptape_nodes_library.files import extract_pdf_images
 from griptape_nodes_library.files.extract_pdf_images import ExtractPdfImages, OutputFormat, Rotation
+from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
@@ -22,6 +26,25 @@ BLUE = (0, 0, 255)
 @pytest.fixture
 def node(griptape_nodes: GriptapeNodes) -> ExtractPdfImages:  # noqa: ARG001
     return ExtractPdfImages(name="test_extract_pdf_images")
+
+
+@pytest.fixture
+def real_graph(open_workflow: None, tmp_path: Path) -> ExtractPdfImages:
+    """A real ExtractPdfImages node in a real flow, with outputs routed under tmp_path.
+
+    `DirectoryDestination.create()` does real engine work (next-version lookup, mkdir, mapping the
+    created path back to project-macro form) through the node's bound `WorkflowRuntime`, which only
+    a node actually built by the engine -- not a stand-in object -- has.
+    """
+    GriptapeNodes.ConfigManager().workspace_path = tmp_path
+    result = GriptapeNodes.handle_request(CreateFlowRequest(parent_flow_name=None, flow_name="TestFlow"))
+    assert result.succeeded(), result.result_details
+    result = GriptapeNodes.handle_request(CreateNodeRequest(node_type="ExtractPdfImages", node_name="epi"))
+    assert result.succeeded(), result.result_details
+    found = GriptapeNodes.ObjectManager().attempt_get_object_by_name("epi")
+    assert found is not None
+    assert type(found).__name__ == "ExtractPdfImages"
+    return found
 
 
 def _scan(size: tuple[int, int]) -> Image.Image:
@@ -100,7 +123,11 @@ def test_perform_extraction_saves_numbered_images_in_the_output_folder(
     pdf_path = tmp_path / "scan.pdf"
     pdf_path.write_bytes(_pdf([_scan((120, 160)), _scan((80, 100))]))
     out_dir = tmp_path / "extracted_v001"
-    monkeypatch.setattr(node, "_resolve_output_dir", lambda: out_dir)
+    monkeypatch.setattr(
+        node._directory_param,
+        "build_directory",
+        lambda **_kwargs: SimpleNamespace(create=lambda: SimpleNamespace(resolve=lambda: out_dir)),
+    )
     monkeypatch.setattr(node, "_build_preview_url", lambda _path: "")
     node.set_parameter_value("path", str(pdf_path))
 
@@ -118,7 +145,11 @@ def test_prefix_padding_and_format_name_the_files(
 ) -> None:
     pdf_path = tmp_path / "scan.pdf"
     pdf_path.write_bytes(_pdf([_scan((40, 40))]))
-    monkeypatch.setattr(node, "_resolve_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        node._directory_param,
+        "build_directory",
+        lambda **_kwargs: SimpleNamespace(create=lambda: SimpleNamespace(resolve=lambda: tmp_path)),
+    )
     monkeypatch.setattr(node, "_build_preview_url", lambda _path: "")
     node.set_parameter_value("path", str(pdf_path))
     node.set_parameter_value("file_prefix", "scan")
@@ -327,3 +358,38 @@ def test_failure_follows_failed_when_wired(node: ExtractPdfImages) -> None:
     node._run_extraction()
     assert node.parameter_output_values["was_successful"] is False
     assert "No embedded images" in node.parameter_output_values["result_details"]
+
+
+def test_a_typed_folder_name_creates_a_versioned_folder(real_graph: ExtractPdfImages, tmp_path: Path) -> None:
+    real_graph.set_parameter_value("directory", "scans")
+
+    # Each resolve actually creates the folder, so the next one takes the next version.
+    first = real_graph._directory_param.build_directory().create().resolve()
+    second = real_graph._directory_param.build_directory().create().resolve()
+
+    assert first == tmp_path / "outputs" / "scans_v001"
+    assert second == tmp_path / "outputs" / "scans_v002"
+
+
+def test_old_default_directory_value_is_migrated_on_load(node: ExtractPdfImages) -> None:
+    """A saved workflow holding the pre-redesign default is rewritten to the new default."""
+    node.set_parameter_value("directory", "{outputs}/extracted_v{###}", initial_setup=True)
+
+    assert node.get_parameter_value("directory") == "extracted"
+
+
+def test_a_file_settings_node_connected_to_directory_raises(real_graph: ExtractPdfImages) -> None:
+    result = GriptapeNodes.handle_request(CreateNodeRequest(node_type="FileOutputSettings", node_name="fos"))
+    assert result.succeeded(), result.result_details
+    result = GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name="fos",
+            source_parameter_name="file_destination",
+            target_node_name=real_graph.name,
+            target_parameter_name="directory",
+        )
+    )
+    assert result.succeeded(), result.result_details
+
+    with pytest.raises(NodeError, match="names a file, not a folder"):
+        reject_connected_file_destination(real_graph)

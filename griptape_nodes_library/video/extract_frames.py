@@ -12,13 +12,13 @@ from typing import Any
 from griptape_nodes.common.sequences import MissingItemPolicy, Sequence
 from griptape_nodes.exe_types.core_types import (
     NodeError,
-    NodeMessageResult,
     Parameter,
     ParameterGroup,
     ParameterMode,
 )
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.progress_bar_component import ProgressBarComponent
+from griptape_nodes.exe_types.param_components.project_directory_parameter import ProjectDirectoryParameter
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -29,18 +29,11 @@ from griptape_nodes.retained_mode.events.os_events import (
     ScanSequencesResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
-from griptape_nodes_library.utils.versioned_output_directory import (
-    build_directory_parameter,
-    clear_directory_value,
-    configure_directory_with_settings_node,
-    normalize_directory_value,
-    resolve_output_dir,
-)
+from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -53,12 +46,19 @@ DEFAULT_OUTPUT_PREFIX = "frames"
 DEFAULT_FRAME_PADDING = 4
 DEFAULT_OUTPUT_FORMAT = "png"
 DEFAULT_EVERY_N = 2
-DEFAULT_DIRECTORY = "{outputs}/frames_v{###}"
+DEFAULT_DIRECTORY_NAME = "frames"
+# Saved workflows from before this folder-name default may still hold the old template value.
+OLD_DEFAULT_DIRECTORY = "{outputs}/frames_v{###}"
 
 
 class FrameSelectionMode(StrEnum):
     LIST = "list"
     EVERY_NTH = "every_Nth"
+
+
+def _migrate_old_default_directory(value: Any) -> Any:
+    """Rewrite the pre-folder-name default directory template to the new default folder name."""
+    return DEFAULT_DIRECTORY_NAME if value == OLD_DEFAULT_DIRECTORY else value
 
 
 class ExtractFrames(SuccessFailureNode):
@@ -140,17 +140,6 @@ class ExtractFrames(SuccessFailureNode):
         with ParameterGroup(
             name="output_settings", ui_options={"display_name": "Output Settings"}
         ) as output_settings_group:
-            build_directory_parameter(
-                default_directory=DEFAULT_DIRECTORY,
-                tooltip=(
-                    "Directory where frames are saved. Use {###} for auto-incrementing versions "
-                    "(e.g. {outputs}/frames_v{###} → frames_v001, frames_v002, …). "
-                    "Click the gear to connect a Directory Output Settings node."
-                ),
-                on_configure_clicked=self._on_configure_output_dir_clicked,
-                on_connection_removed=self._on_output_dir_connection_removed,
-            )
-
             ParameterString(
                 name="file_prefix",
                 default_value=DEFAULT_OUTPUT_PREFIX,
@@ -175,6 +164,20 @@ class ExtractFrames(SuccessFailureNode):
             )
 
         self.add_node_element(output_settings_group)
+
+        # ProjectDirectoryParameter always adds at the node root, so it sits just above Output Settings.
+        self._directory_param = ProjectDirectoryParameter(self, "directory", default_dirname=DEFAULT_DIRECTORY_NAME)
+        self._directory_param.add_parameter()
+        directory_parameter = self.get_parameter_by_name("directory")
+        assert directory_parameter is not None
+        directory_parameter.tooltip = (
+            "Folder the frames are saved in. A plain name (e.g. 'frames') is versioned and placed by "
+            "the project's output directory setting; an absolute path is used as given. "
+            "Click the gear to connect a Directory Output Settings node."
+        )
+        directory_parameter.allow_variable_substitution = False
+        directory_parameter.add_converter(_migrate_old_default_directory)
+        self.move_element_to_position("directory", self.get_element_index("output_settings"))
 
         self.add_parameter(
             Parameter(
@@ -226,8 +229,6 @@ class ExtractFrames(SuccessFailureNode):
         match parameter.name:
             case "input_video":
                 self._update_video_fps(value)
-            case "directory":
-                normalize_directory_value(self, value)
             case "frame_selection_mode":
                 match value:
                     case FrameSelectionMode.LIST:
@@ -359,19 +360,6 @@ class ExtractFrames(SuccessFailureNode):
                 msg = f"Unknown frame_selection_mode: {mode!r}"
                 raise ValueError(msg)
 
-    # ── Output directory ────────────────────────────────────────────────────────
-
-    def _on_configure_output_dir_clicked(
-        self, _button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult:
-        return configure_directory_with_settings_node(self, button_details)
-
-    def _on_output_dir_connection_removed(self, *_: object) -> None:
-        clear_directory_value(self)
-
-    def _resolve_output_dir(self) -> pathlib.Path:
-        return resolve_output_dir(self, DEFAULT_DIRECTORY)
-
     # ── Extraction ──────────────────────────────────────────────────────────────
 
     def _extract_frames(
@@ -465,7 +453,8 @@ class ExtractFrames(SuccessFailureNode):
         # Resolved before extraction so a settings failure goes through _fail like the checks above;
         # an exception raised inside the yielded callable skips the except around the yield.
         try:
-            output_dir = self._resolve_output_dir()
+            reject_connected_file_destination(self)
+            output_dir = self._directory_param.build_directory().create().resolve()
         except (NodeError, ValueError, FileLoadError, DirectoryError) as e:
             self._fail(e)
             return
