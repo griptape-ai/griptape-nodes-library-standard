@@ -7139,6 +7139,22 @@
       }
     },
     {
+      "class_name": "DirectoryOutputSettings",
+      "file_path": "griptape_nodes_library/filesystem/directory_output_settings.py",
+      "metadata": {
+        "category": "filesystem",
+        "description": "Configure folder save paths using situation templates and macro expansion. Outputs a Directory object with an unresolved macro path.",
+        "display_name": "Directory Output Settings",
+        "icon": "FolderCog",
+        "tags": [
+          "folder",
+          "directory",
+          "workflow",
+          "config"
+        ]
+      }
+    },
+    {
       "class_name": "ListFiles",
       "file_path": "griptape_nodes_library/files/list_files.py",
       "metadata": {

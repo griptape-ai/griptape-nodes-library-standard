@@ -160,7 +160,7 @@ class ExtractPdfImages(SuccessFailureNode):
                 tooltip=(
                     "Folder the images are saved in. Use {###} for auto-incrementing versions "
                     "(e.g. {outputs}/extracted_v{###} → extracted_v001, extracted_v002, …). "
-                    "Click the gear to connect a FileOutputSettings node."
+                    "Click the gear to connect a Directory Output Settings node."
                 ),
                 on_configure_clicked=self._on_configure_output_dir_clicked,
                 on_connection_removed=self._on_output_dir_connection_removed,

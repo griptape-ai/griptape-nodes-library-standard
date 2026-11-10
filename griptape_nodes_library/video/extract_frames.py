@@ -22,6 +22,7 @@ from griptape_nodes.exe_types.param_components.progress_bar_component import Pro
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.files.directory import DirectoryError
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     ScanSequencesRequest,
@@ -144,7 +145,7 @@ class ExtractFrames(SuccessFailureNode):
                 tooltip=(
                     "Directory where frames are saved. Use {###} for auto-incrementing versions "
                     "(e.g. {outputs}/frames_v{###} → frames_v001, frames_v002, …). "
-                    "Click the gear to connect a FileOutputSettings node."
+                    "Click the gear to connect a Directory Output Settings node."
                 ),
                 on_configure_clicked=self._on_configure_output_dir_clicked,
                 on_connection_removed=self._on_output_dir_connection_removed,
@@ -465,7 +466,7 @@ class ExtractFrames(SuccessFailureNode):
         # an exception raised inside the yielded callable skips the except around the yield.
         try:
             output_dir = self._resolve_output_dir()
-        except (NodeError, ValueError, FileLoadError) as e:
+        except (NodeError, ValueError, FileLoadError, DirectoryError) as e:
             self._fail(e)
             return
 

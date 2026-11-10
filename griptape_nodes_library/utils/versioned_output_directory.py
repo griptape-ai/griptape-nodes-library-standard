@@ -12,13 +12,15 @@ from typing import Any
 
 from griptape_nodes.exe_types.core_types import NodeError, NodeMessageResult, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
+from griptape_nodes.files.directory import DirectoryDestination
 from griptape_nodes.files.file import File
-from griptape_nodes.files.project_file import file_destination_from_spec
 from griptape_nodes.retained_mode.events.connection_events import (
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
 )
 from griptape_nodes.retained_mode.events.destination_events import (
+    GetConnectedDirectoryDestinationRequest,
+    GetConnectedDirectoryDestinationResultSuccess,
     GetConnectedFileDestinationRequest,
     GetConnectedFileDestinationResultSuccess,
 )
@@ -41,7 +43,7 @@ def build_directory_parameter(
     on_configure_clicked: Callable[[Button, ButtonDetailsMessagePayload], NodeMessageResult],
     on_connection_removed: Callable[..., None],
 ) -> Parameter:
-    """Build the 'directory' parameter, with a gear button that wires up a FileOutputSettings node."""
+    """Build the 'directory' parameter, with a gear button that wires up a DirectoryOutputSettings node."""
     parameter = Parameter(
         name=DIRECTORY_PARAMETER,
         type="str",
@@ -58,7 +60,7 @@ def build_directory_parameter(
                 icon="cog",
                 size="icon",
                 variant="secondary",
-                tooltip="Create and connect a FileOutputSettings node",
+                tooltip="Create and connect a Directory Output Settings node",
                 on_click=on_configure_clicked,
             ),
             FileSystemPicker(allow_files=False, allow_directories=True, multiple=False),
@@ -85,7 +87,7 @@ def clear_directory_value(node: BaseNode) -> None:
 def configure_directory_with_settings_node(
     node: BaseNode, button_details: ButtonDetailsMessagePayload
 ) -> NodeMessageResult:
-    """Create a FileOutputSettings node and connect it to the node's 'directory' parameter."""
+    """Create a DirectoryOutputSettings node and connect it to the node's 'directory' parameter."""
     conn_result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=node.name))
     if isinstance(conn_result, ListConnectionsForNodeResultSuccess):
         if any(c.target_parameter_name == DIRECTORY_PARAMETER for c in conn_result.incoming_connections):
@@ -98,7 +100,7 @@ def configure_directory_with_settings_node(
 
     create_result = RetainedMode.create_node_relative_to(
         reference_node_name=node.name,
-        new_node_type="FileOutputSettings",
+        new_node_type="DirectoryOutputSettings",
         offset_side="left",
         offset_x=-750,
         offset_y=0,
@@ -107,7 +109,7 @@ def configure_directory_with_settings_node(
     if not isinstance(create_result, str):
         return NodeMessageResult(
             success=False,
-            details="Failed to create a FileOutputSettings node.",
+            details="Failed to create a Directory Output Settings node.",
             response=button_details,
             altered_workflow_state=False,
         )
@@ -115,21 +117,19 @@ def configure_directory_with_settings_node(
     configure_node_name = create_result
     configure_node = GriptapeNodes.ObjectManager().attempt_get_object_by_name(configure_node_name)
     if configure_node is not None:
-        configure_node.set_parameter_value("situation", "save_node_output")
-        configure_node.publish_update_to_parameter("situation", "save_node_output")
         current_dir = node.get_parameter_value(DIRECTORY_PARAMETER) or ""
         if current_dir:
-            configure_node.set_parameter_value("filename", current_dir)
-            configure_node.publish_update_to_parameter("filename", current_dir)
+            configure_node.set_parameter_value("dirname", current_dir)
+            configure_node.publish_update_to_parameter("dirname", current_dir)
 
     connection_result = RetainedMode.connect(
-        source=f"{configure_node_name}.file_destination",
+        source=f"{configure_node_name}.directory_destination",
         destination=f"{node.name}.{DIRECTORY_PARAMETER}",
     )
     if not connection_result.succeeded():
         return NodeMessageResult(
             success=False,
-            details=f"Failed to connect {configure_node_name}.file_destination to 'directory'.",
+            details=f"Failed to connect {configure_node_name}.directory_destination to 'directory'.",
             response=button_details,
             altered_workflow_state=True,
         )
@@ -145,8 +145,9 @@ def resolve_output_dir(node: BaseNode, default_directory: str) -> pathlib.Path:
     """Return the folder to write into, taking the next free version when the template has ``{###}``.
 
     Raises:
-        NodeError: If a File Output Settings node is connected to 'directory' but can't be read,
-            such as when it has no filename set.
+        NodeError: If a Directory Output Settings node is connected to 'directory' but can't be
+            read, or if a File Output Settings node is connected to 'directory' instead.
+        DirectoryError: If the Directory Output Settings node's destination can't be created.
     """
     settings_folder = _settings_node_folder(node)
     if settings_folder is not None:
@@ -165,23 +166,40 @@ def resolve_output_dir(node: BaseNode, default_directory: str) -> pathlib.Path:
 
 
 def _settings_node_folder(node: BaseNode) -> pathlib.Path | None:
-    """The folder a File Output Settings node connected to 'directory' names, or None when none is.
+    """The folder a Directory Output Settings node connected to 'directory' names, or None when none is.
 
     Asked by request rather than looked up by name, so it is answered where the settings node lives
     and works when the node runs in a worker.
+
+    Raises:
+        NodeError: If the connected settings node's destination can't be read, or if a File Output
+            Settings node is connected instead of a Directory Output Settings node.
+        DirectoryError: If the destination can't be created.
     """
     if node.workflow is None:
         # A node in no workflow has nothing connected to it.
         return None
-    settings_result = GriptapeNodes.handle_request(
+    directory_result = GriptapeNodes.handle_request(
+        GetConnectedDirectoryDestinationRequest(node_name=node.name, parameter_name=DIRECTORY_PARAMETER)
+    )
+    if not isinstance(directory_result, GetConnectedDirectoryDestinationResultSuccess):
+        raise NodeError(str(directory_result.result_details))
+    if directory_result.destination is not None:
+        directory = DirectoryDestination.from_spec(directory_result.destination, node.workflow).create()
+        return directory.resolve()
+
+    # No Directory Output Settings node connected. A File Output Settings node names a file,
+    # not a folder, so its destination's parent is not what the user meant.
+    file_result = GriptapeNodes.handle_request(
         GetConnectedFileDestinationRequest(node_name=node.name, parameter_name=DIRECTORY_PARAMETER)
     )
-    if not isinstance(settings_result, GetConnectedFileDestinationResultSuccess):
-        raise NodeError(str(settings_result.result_details))
-    if settings_result.destination is None:
-        return None
-    destination = file_destination_from_spec(settings_result.destination, node.workflow)
-    return pathlib.Path(destination.resolve()).parent
+    if not isinstance(file_result, GetConnectedFileDestinationResultSuccess) or file_result.destination is not None:
+        msg = (
+            "'directory' is connected to a File Output Settings node, which names a file, not a folder. "
+            "Disconnect it and use the gear button to connect a Directory Output Settings node."
+        )
+        raise NodeError(msg)
+    return None
 
 
 def resolve_versioned_dir(template: str) -> pathlib.Path:
