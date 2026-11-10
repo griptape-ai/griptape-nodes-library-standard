@@ -1004,6 +1004,12 @@
                 "family": "LTX",
                 "provider_model_id": "ltx-2-5-fast",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_ltx_reframe": {
+                "display_name": "LTX Video Reframe",
+                "family": "LTX",
+                "provider_model_id": "ltx",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               }
             }
           },
@@ -3047,6 +3053,34 @@
             "model_ids": [
               "gtc_ltx_2_pro",
               "gtc_ltx_2_3_pro"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "LTXVideoReframe",
+      "file_path": "griptape_nodes_library/video/ltx_video_reframe.py",
+      "metadata": {
+        "category": "video",
+        "description": "Reframe a video to a new resolution or aspect ratio using LTX AI models via Griptape Cloud model proxy.",
+        "display_name": "LTX Video Reframe",
+        "icon": "Sparkles",
+        "group": "edit",
+        "tags": [
+          "video",
+          "reframe",
+          "aspect ratio",
+          "outpaint",
+          "ai",
+          "api",
+          "ltx"
+        ],
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_ltx_reframe"
             ]
           }
         ]
