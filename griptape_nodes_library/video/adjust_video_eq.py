@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -9,6 +9,9 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 class AdjustVideoEQ(BaseVideoProcessor):
     """Adjust video brightness, contrast, saturation, and gamma."""
+
+    PREVIEW_OPERATION = "video_eq"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["brightness", "contrast", "saturation", "gamma"]
 
     # Brightness constants
     MIN_BRIGHTNESS = -1.0

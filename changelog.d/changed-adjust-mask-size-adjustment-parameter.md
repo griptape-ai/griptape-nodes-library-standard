@@ -1,0 +1,1 @@
+- `Adjust Mask Size`'s adjustment is now a parameter you can set on the node or connect a value to.

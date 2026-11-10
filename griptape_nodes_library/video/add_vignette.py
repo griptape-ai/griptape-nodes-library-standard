@@ -1,5 +1,5 @@
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -12,6 +12,9 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 class AddVignette(BaseVideoProcessor):
     """Add a vignette effect to video."""
+
+    PREVIEW_OPERATION = "vignette"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["angle", "center_x", "center_y", "aspect", "mode"]
 
     # Vignette angle constants (lens angle) - this controls intensity
     MIN_ANGLE = 0.1

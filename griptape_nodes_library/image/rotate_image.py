@@ -1,21 +1,14 @@
 from enum import StrEnum
-from typing import Any
+from typing import Any, ClassVar
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
-from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
-from griptape_nodes.traits.widget import Widget
 from PIL import Image, ImageOps
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
@@ -26,7 +19,6 @@ ANGLE_MIN = -360.0
 ANGLE_MAX = 360.0
 OPAQUE = 255
 CUSTOM_ONLY_PARAMETERS = ["angle", "expand_canvas", "background_color"]
-PREVIEW_PARAMETERS = {"rotation", *CUSTOM_ONLY_PARAMETERS}
 DEFAULT_BACKGROUND = "#00000000"
 
 
@@ -54,23 +46,11 @@ ROTATION_ICONS = {
 class RotateImage(BaseImageProcessor):
     """Rotate an image by a quarter turn or a custom angle."""
 
+    PREVIEW_OPERATION = "rotate"
+    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["rotation", *CUSTOM_ONLY_PARAMETERS]
+
     def _setup_custom_parameters(self) -> None:
         """Setup rotation-specific parameters."""
-        # The preview widget shows the image, so the plain input row would be a second copy of it.
-        input_image = self.get_parameter_by_name("input_image")
-        if input_image is not None:
-            input_image.hide_property = True
-
-        self.add_parameter(
-            ParameterDict(
-                name="rotation_preview",
-                default_value={"image_url": ""},
-                tooltip="Preview of the rotation. The image is only rotated when the node runs.",
-                allowed_modes={ParameterMode.PROPERTY},
-                traits={Widget(name="RotateImagePreview", library="Griptape Nodes Library")},
-            )
-        )
-
         with ParameterGroup(name="rotate_settings", ui_options={"collapsed": False}) as rotate_group:
             rotation_parameter = ParameterString(
                 name="rotation",
@@ -117,53 +97,13 @@ class RotateImage(BaseImageProcessor):
         self.add_node_element(rotate_group)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        """Show the rotation in the preview widget. The image itself is only rotated when the node runs."""
+        """Show the custom angle settings only for a custom rotation."""
         if parameter.name == "rotation":
             if value == Rotation.CUSTOM:
                 self.show_parameter_by_name(CUSTOM_ONLY_PARAMETERS)
             else:
                 self.hide_parameter_by_name(CUSTOM_ONLY_PARAMETERS)
-
-        if parameter.name == "input_image" or parameter.name in PREVIEW_PARAMETERS:
-            self._update_preview(refresh_image=parameter.name == "input_image")
         return super().after_value_set(parameter, value)
-
-    def _update_preview(self, *, refresh_image: bool) -> None:
-        """Push the input image and current rotation settings to the preview widget."""
-        existing = self.get_parameter_value("rotation_preview") or {}
-        if refresh_image:
-            image_url = self._resolve_image_url(self.get_parameter_value("input_image"))
-        else:
-            image_url = existing.get("image_url", "")
-
-        preview = {
-            "image_url": image_url,
-            "rotation": self.get_parameter_value("rotation") or Rotation.CLOCKWISE_90,
-            "angle": self.get_parameter_value("angle") or 0.0,
-            "expand_canvas": self.get_parameter_value("expand_canvas") is not False,
-            "background_color": self.get_parameter_value("background_color") or DEFAULT_BACKGROUND,
-        }
-        if preview == existing:
-            return
-        self.set_parameter_value("rotation_preview", preview)
-        self.publish_update_to_parameter("rotation_preview", preview)
-
-    def _resolve_image_url(self, image: Any) -> str:
-        """Return a browser-accessible URL for an image artifact or its dict form."""
-        raw = image.get("value") if isinstance(image, dict) else getattr(image, "value", image)
-        if not raw or not isinstance(raw, str):
-            return ""
-        if raw.startswith(("http://", "https://", "data:")):
-            return raw
-        try:
-            resolved = File(raw).resolve()
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-        except Exception as e:
-            logger.warning(f"{self.name}: could not build a preview URL for {raw!r}: {e}")
-            return raw
-        if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-            return result.url
-        return raw
 
     def _get_processing_description(self) -> str:
         """Get description of what this processor does."""
