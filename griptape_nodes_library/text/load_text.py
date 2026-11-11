@@ -69,6 +69,9 @@ class LoadText(ControlNode):
     def process(self) -> None:
         # Get the selected file
         text_path = self.get_parameter_value("path")
+        if not text_path:
+            msg = f"{self.name}: no file path was provided. Set `path` or connect a node that outputs one."
+            raise ValueError(msg)
 
         # Wire-connected paths bypass after_value_set, so resolve here too
         macro_result = resolve_to_macro_path(text_path)
