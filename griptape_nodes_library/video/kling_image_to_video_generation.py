@@ -437,9 +437,11 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             self._update_mode_dependent_features()
         elif parameter.name in {"image_tail", "middle_frames"}:
             model_id = self.get_parameter_value("model_name") or ""
+            # Clearing a value the model can't use hides its input again.
             if kling_4.is_kling_4(model_id):
-                # Clearing a value the model can't use hides its input again.
                 self._apply_kling_4_visibility(model_id)
+            elif parameter.name == "middle_frames":
+                self._apply_kling_4_only_input_visibility()
 
     def _update_duration_choices(self) -> None:
         """Update duration dropdown based on the current model."""
@@ -462,7 +464,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             self._apply_kling_4_visibility(model_id)
             return
 
-        self.hide_parameter_by_name(["resolution", "middle_frames"])
+        self.hide_parameter_by_name("resolution")
+        self._apply_kling_4_only_input_visibility()
         self.show_parameter_by_name(["cfg_scale", "negative_prompt"])
 
         # Show mask features for all models
@@ -481,6 +484,15 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         else:
             self._hide_multi_shot_inputs()
             self.show_parameter_by_name("prompt")
+
+    def _apply_kling_4_only_input_visibility(self) -> None:
+        """On v1-v3, Middle Frames stays visible while it holds a value, so the validation
+        error that blocks the run points at something the user can clear.
+        """
+        if self._middle_frame_inputs():
+            self.show_parameter_by_name("middle_frames")
+        else:
+            self.hide_parameter_by_name("middle_frames")
 
     def _apply_kling_4_visibility(self, model_id: str) -> None:
         """Kling 4.0 takes keyframes and a resolution; it has no mode, cfg scale, masks or negative prompt.
@@ -1028,6 +1040,14 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         if kling_4.is_kling_4(model_id):
             return self._validate_kling_4(exceptions, model_id) or None
+
+        # The v1-v3 payload has no middle frames; running without them would drop them silently.
+        if self._middle_frame_inputs():
+            exceptions.append(
+                ValueError(
+                    f"{model_id} does not take middle frames. Clear 'Middle Frames', or select Kling 4.0 to use them."
+                )
+            )
 
         # Validate at least one image is provided
         if not image and not image_tail:
