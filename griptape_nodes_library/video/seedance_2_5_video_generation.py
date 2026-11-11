@@ -1125,6 +1125,8 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             return
 
         draft_marker = result_json.get("draft")
+        # The provider documents this flag but does not state that it is always
+        # present. Only fall back to this node's own submission of the same job.
         is_submitted_draft = generation_id == self._submitted_draft_generation_id
         if draft_marker is True or ("draft" not in result_json and is_submitted_draft):
             provider_id = result_json.get("id")
