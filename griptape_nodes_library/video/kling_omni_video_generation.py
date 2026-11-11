@@ -405,7 +405,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         if parameter.name == "model_name":
             self._update_kling_4_visibility(entering_kling_4=self._entering_kling_4)
-        elif parameter.name in {"voice_ids", "end_frame_image"}:
+        elif parameter.name in {"voice_ids", "end_frame_image", "audio"}:
             # Clearing a value an unsupported model can't use hides its input again.
             self._update_kling_4_visibility()
 
@@ -419,6 +419,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     def _selected_model(self) -> str:
         return self.get_parameter_value("model_name") or "kling-v3-omni"
 
+    def _wants_original_audio(self) -> bool:
+        return (self.get_parameter_value("audio") or "native") == "original"
+
     def _update_kling_4_visibility(self, *, entering_kling_4: bool = False) -> None:
         """Kling 4.0 has no mode, multi-shot or keep-sound; it adds resolution, audio and voices.
 
@@ -428,7 +431,16 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         model_id = self._selected_model()
         aspect_ratios = list(kling_4.GENERATED_ASPECT_RATIOS)
         if not kling_4.is_kling_4(model_id):
-            self.hide_parameter_by_name(["resolution", "audio", "voice_ids"])
+            self.hide_parameter_by_name("resolution")
+            # Audio always holds a mode, so only 'original' (which v1-v3 can't honour) counts as set.
+            for name, populated in (
+                ("voice_ids", bool(kling_4.parse_id_list(self.get_parameter_value("voice_ids")))),
+                ("audio", self._wants_original_audio()),
+            ):
+                if populated:
+                    self.show_parameter_by_name(name)
+                else:
+                    self.hide_parameter_by_name(name)
             self.show_parameter_by_name(["mode", "multi_shot", "video_keep_sound", "end_frame_image"])
             aspect_ratios = ["16:9", "9:16", "1:1"]
             current = self.get_parameter_value("aspect_ratio")
@@ -817,7 +829,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 )
             )
 
-        if (self.get_parameter_value("audio") or "native") == "original":
+        if self._wants_original_audio():
             if not has_video:
                 exceptions.append(ValueError("Audio 'original' keeps the reference video's audio; connect a video."))
             if voice_ids:
@@ -853,6 +865,20 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         if kling_4.is_kling_4(self._selected_model()):
             return self._validate_kling_4(exceptions, self._selected_model()) or None
+
+        # The v1-v3 payload has no voices or audio mode; running without them would drop them silently.
+        model_id = self._selected_model()
+        if kling_4.parse_id_list(self.get_parameter_value("voice_ids")):
+            exceptions.append(
+                ValueError(f"{model_id} does not take voice IDs. Clear 'voice_ids', or select Kling 4.0 to use them.")
+            )
+        if self._wants_original_audio():
+            exceptions.append(
+                ValueError(
+                    f"{model_id} does not take 'audio'. Set it back to 'native' and use 'video_keep_sound' "
+                    "to keep the reference video's audio, or select Kling 4.0."
+                )
+            )
 
         # Get parameter values
         prompt = (self.get_parameter_value("prompt") or "").strip()
