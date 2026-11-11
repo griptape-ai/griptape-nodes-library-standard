@@ -77,7 +77,7 @@ Port the node's processing line by line, including its quirks; the preview shoul
 
 Run the node's own code (or the FFmpeg filter it builds) and the JS on the same pixels, and compare. This has caught real bugs every time. Pattern:
 
-1. A Python script builds a small test image (random pixels for colour ops, smooth gradients for YUV filters), runs the node's real helper or filter, and writes inputs and expected outputs to JSON. Run it with the engine under test: `uv run --with-editable ../../griptape-nodes-engine python -I script.py`.
+1. A Python script builds a small test image (random pixels for colour ops, smooth gradients for YUV filters), runs the node's real helper or filter, and writes inputs and expected outputs to JSON. Run it with the engine under test: `UV_PROJECT_ENVIRONMENT=.venv-dev uv run --with-editable ../../griptape-nodes-engine python -I script.py`.
 2. A Node script imports the operation (copy the JS files to `.mjs` and rewrite the import paths) and compares byte by byte: count of differing bytes and the largest difference.
 3. Put scratch files in `/tmp`, not the repo, and delete them.
 
@@ -97,7 +97,7 @@ Traps found this way:
 
 - Add the node to `PREVIEWED` in `tests/unit/image/test_image_processor_preview.py`. That checks the synced settings exist, the operation key exists in the JS, a source reaches the preview, and a source loaded with `initial_setup=True` reaches it too.
 - Keep tests off the network: the file's `no_downloads` fixture stubs image loading; extend it for new loaders.
-- Run against the engine under test: `uv run --with-editable ../../griptape-nodes-engine pytest tests/unit/image tests/unit/video`. Against the released engine, the `synced_parameters` tests fail until the engine ships.
+- Run against the engine under test: `UV_PROJECT_ENVIRONMENT=.venv-dev uv run --with-editable ../../griptape-nodes-engine pytest tests/unit/image tests/unit/video`. Against the released engine, the `synced_parameters` tests fail until the engine ships.
 - A new test must fail without the change. Swap in the previous file (`git show HEAD:path > path`), run it, put it back. A test that passes on the old code (for example because a network fetch fails silently and leaves the same empty value) proves nothing.
 - Syntax-check the JS: copy to `.mjs`, fix the import paths, and run `node --check`.
 

@@ -1,5 +1,11 @@
 SHELL := /bin/bash
 
+# Dev tooling lives in .venv-dev, away from the .venv the engine builds beside the manifest.
+# See "Two virtual environments" in CONTRIBUTING.md for why they must stay apart.
+export UV_PROJECT_ENVIRONMENT := .venv-dev
+# An activated .venv would otherwise make uv warn on every target.
+unexport VIRTUAL_ENV
+
 .PHONY: version/get
 version/get: ## Get version.
 	@jq -r '.metadata.library_version' griptape_nodes_library.json
@@ -125,6 +131,7 @@ check/json: ## Validate JSON files.
 	@echo "Checking JSON files..."
 	@find . -name "*.json" -type f \
 		! -path "./.venv/*" \
+		! -path "./.venv-dev/*" \
 		! -path "./node_modules/*" \
 		-exec sh -c 'jq empty "{}" > /dev/null 2>&1 || (echo "Invalid JSON: {}" && exit 1)' \;
 
