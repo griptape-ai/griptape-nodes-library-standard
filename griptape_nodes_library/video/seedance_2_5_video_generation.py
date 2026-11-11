@@ -73,6 +73,12 @@ FRAME_PARAMETERS = ("first_frame", "last_frame")
 SUPPORTS_PRIVATE_ASSETS = True
 
 
+class GenerationMode(StrEnum):
+    NORMAL = "Normal"
+    DRAFT = "Draft"
+    FINAL = "Final"
+
+
 class SeedanceTask(StrEnum):
     """The five task types Seedance 2.5 classifies a request into.
 
@@ -233,6 +239,8 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     Inputs:
         - prompt (str): Text prompt for the video
         - task (str): One of the five Seedance 2.5 task types (default: Text to Video)
+        - mode (str): Normal, Draft, or Final (default: Normal)
+        - draft_task_id (str): Completed provider Draft task ID, required in Final mode
         - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p)
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (4-30, or -1 to let the model choose)
@@ -245,6 +253,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
+        - draft_task_id_output (str): Provider task ID for a completed Draft
         - provider_response (dict): Verbatim response from API
         - video_url (VideoUrlArtifact): Saved static video URL
         - last_frame_url (ImageUrlArtifact): Saved last frame, when return_last_frame is set
@@ -260,8 +269,33 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self._submitted_draft_generation_id: str | None = None
         self.category = "API Nodes"
         self.description = "Generate video via Seedance 2.5 through Griptape Cloud model proxy"
+
+        self.add_parameter(
+            ParameterString(
+                name="mode",
+                default_value=GenerationMode.NORMAL,
+                tooltip=(
+                    "Normal generates a video in one step. Draft generates a 480p preview. "
+                    "Final generates a 1080p video from a completed Draft task ID using the same "
+                    "organisation and compatible credentials. Each step is billed separately; Draft IDs expire."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "Mode"},
+                traits={Options(choices=[mode.value for mode in GenerationMode])},
+            )
+        )
+        self.add_parameter(
+            ParameterString(
+                name="draft_task_id",
+                default_value="",
+                tooltip="Provider Draft task ID from a completed Draft, not the generation ID.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "Draft Task ID"},
+            )
+        )
 
         self.add_parameter(
             ParameterString(
@@ -454,6 +488,15 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
         # Outputs
         self.add_parameter(
+            ParameterString(
+                name="draft_task_id_output",
+                tooltip="Provider task ID of the completed Draft, for use in Final mode. Not the generation ID.",
+                allowed_modes={ParameterMode.OUTPUT},
+                settable=False,
+                ui_options={"display_name": "Draft Task ID"},
+            )
+        )
+        self.add_parameter(
             ParameterDict(
                 name="provider_response",
                 tooltip="Verbatim response from API",
@@ -530,7 +573,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         return super().after_value_set(parameter, value)
 
     def _react_to_parameter_change(self, param_name: str, value: Any, *, sync_only: bool) -> None:
-        if param_name in {"task", "return_last_frame"}:
+        if param_name in {"mode", "task", "return_last_frame"}:
             self._update_parameter_visibility()
 
         if param_name == "output_format" and isinstance(value, str):
@@ -557,21 +600,43 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
     def _update_parameter_visibility(self) -> None:
         """Show the inputs that belong to the selected task and lock the settings it constrains."""
+        mode = self.get_parameter_value("mode") or GenerationMode.NORMAL
+        is_final = mode == GenerationMode.FINAL
         task = self.get_parameter_value("task") or SeedanceTask.TEXT_TO_VIDEO
         constraints = _get_task_constraints(task)
 
-        if constraints.allows_frames:
+        if is_final:
+            self.show_parameter_by_name(["draft_task_id"])
+            self.hide_parameter_by_name(["task", "prompt", "ratio", "duration", "generate_audio"])
+        else:
+            self.hide_parameter_by_name(["draft_task_id"])
+            self.show_parameter_by_name(["task", "prompt", "ratio", "duration", "generate_audio"])
+
+        if mode == GenerationMode.NORMAL:
+            self.show_parameter_by_name(["resolution"])
+        else:
+            self.hide_parameter_by_name(["resolution"])
+
+        if mode == GenerationMode.DRAFT or self.parameter_output_values.get("draft_task_id_output"):
+            self.show_parameter_by_name(["draft_task_id_output"])
+        else:
+            self.hide_parameter_by_name(["draft_task_id_output"])
+
+        if not is_final and constraints.allows_frames:
             self.show_parameter_by_name(list(FRAME_PARAMETERS))
         else:
             self.hide_parameter_by_name(list(FRAME_PARAMETERS))
 
-        if constraints.allows_references:
+        if not is_final and constraints.allows_references:
             self.show_parameter_by_name(list(REFERENCE_PARAMETERS))
         else:
             self.hide_parameter_by_name(list(REFERENCE_PARAMETERS))
 
-        self._update_option_choices_for_task("ratio", list(constraints.ratio_choices), fallback="adaptive")
-        self._update_option_choices_for_task("duration", list(constraints.duration_choices), fallback=SMART_DURATION)
+        if not is_final:
+            self._update_option_choices_for_task("ratio", list(constraints.ratio_choices), fallback="adaptive")
+            self._update_option_choices_for_task(
+                "duration", list(constraints.duration_choices), fallback=SMART_DURATION
+            )
 
         if self.get_parameter_value("return_last_frame"):
             self.show_parameter_by_name(["last_frame_url", "last_frame_file"])
@@ -600,8 +665,19 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     def _get_api_model_id(self) -> str:
         return SEEDANCE_2_5_MODEL_ID
 
+    async def _submit_generation(
+        self, payload: dict[str, Any], headers: dict[str, str], api_model_id: str
+    ) -> str | None:
+        self._submitted_draft_generation_id = None
+        generation_id = await super()._submit_generation(payload, headers, api_model_id)
+        if generation_id and payload.get("draft") is True:
+            self._submitted_draft_generation_id = generation_id
+        return generation_id
+
     async def _process_generation(self) -> None:
+        self._submitted_draft_generation_id = None
         self._pending_asset_uploads = []
+        self.parameter_output_values["draft_task_id_output"] = ""
         try:
             await super()._process_generation()
         finally:
@@ -616,9 +692,21 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         except ValueError as e:
             exceptions.append(e)
 
+        if exceptions:
+            self.parameter_output_values["draft_task_id_output"] = ""
         return exceptions if exceptions else None
 
     def _get_parameters(self) -> dict[str, Any]:
+        mode = self.get_parameter_value("mode") or GenerationMode.NORMAL
+        if mode == GenerationMode.FINAL:
+            return {
+                "mode": mode,
+                "draft_task_id": self.get_parameter_value("draft_task_id"),
+                "output_format": self.get_parameter_value("output_format") or DEFAULT_OUTPUT_FORMAT,
+                "watermark": self.get_parameter_value("watermark"),
+                "return_last_frame": self.get_parameter_value("return_last_frame"),
+            }
+
         first_frame = normalize_artifact_input(
             self.get_parameter_value("first_frame"),
             ImageUrlArtifact,
@@ -644,6 +732,8 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         )
 
         return {
+            "mode": self.get_parameter_value("mode") or GenerationMode.NORMAL,
+            "draft_task_id": self.get_parameter_value("draft_task_id"),
             "prompt": self.get_parameter_value("prompt") or "",
             "task": self.get_parameter_value("task") or SeedanceTask.TEXT_TO_VIDEO,
             "resolution": self.get_parameter_value("resolution") or "720p",
@@ -666,6 +756,17 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
     def _validate_parameters(self, params: dict[str, Any]) -> None:
         """Validate the task, its media inputs, and its ratio/duration constraints."""
+        mode = params["mode"]
+        if mode not in set(GenerationMode):
+            msg = f"Unknown mode {mode!r}. Choose Normal, Draft, or Final."
+            raise ValueError(msg)
+        if mode == GenerationMode.FINAL:
+            draft_task_id = params.get("draft_task_id")
+            if not isinstance(draft_task_id, str) or not draft_task_id.strip():
+                msg = "Final mode requires a completed provider Draft Task ID, not a generation ID."
+                raise ValueError(msg)
+            return
+
         task = params["task"]
         if task not in set(SeedanceTask):
             supported = ", ".join(member.value for member in SeedanceTask)
@@ -677,7 +778,8 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         self._validate_media_matches_task(params, task, constraints)
         self._validate_reference_counts(params)
         self._validate_trigger_keywords(params, task, constraints)
-        self._validate_resolution(params)
+        if mode == GenerationMode.NORMAL:
+            self._validate_resolution(params)
         self._validate_ratio_and_duration(params, task, constraints)
 
         # Private-asset references require Griptape auth (not BYOK). Gate first so the user gets a
@@ -862,6 +964,17 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for the Seedance 2.5 API."""
         params = self._get_parameters()
+        self._validate_parameters(params)
+        if params["mode"] == GenerationMode.FINAL:
+            return {
+                "model": SEEDANCE_2_5_MODEL_ID,
+                "resolution": "1080p",
+                "content": [{"type": "draft_task", "draft_task": {"id": params["draft_task_id"].strip()}}],
+                "output_format": params["output_format"],
+                "watermark": bool(params["watermark"]),
+                "return_last_frame": bool(params["return_last_frame"]),
+            }
+
         self._log(
             f"{self.name} parameter summary: "
             f"model_id={SEEDANCE_2_5_MODEL_ID}, "
@@ -874,7 +987,10 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         )
 
         payload: dict[str, Any] = {"model": SEEDANCE_2_5_MODEL_ID}
-        if params["resolution"]:
+        if params["mode"] == GenerationMode.DRAFT:
+            payload["draft"] = True
+            payload["resolution"] = "480p"
+        elif params["resolution"]:
             payload["resolution"] = params["resolution"]
         if params["ratio"]:
             payload["ratio"] = params["ratio"]
@@ -999,6 +1115,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
         Only the video is hosted by the proxy; the last frame stays on provider parsing.
         """
+        self.parameter_output_values["draft_task_id_output"] = ""
         if not await self._save_generated_media(
             generation_id,
             "video_url",
@@ -1007,8 +1124,27 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         ):
             return
 
+        draft_marker = result_json.get("draft")
+        is_submitted_draft = generation_id == self._submitted_draft_generation_id
+        if draft_marker is True or ("draft" not in result_json and is_submitted_draft):
+            provider_id = result_json.get("id")
+            if not isinstance(provider_id, str) or not provider_id.strip():
+                self._set_status_results(
+                    was_successful=False,
+                    result_details="The completed Draft did not include a provider task ID; it cannot be used in Final mode.",
+                )
+                return
+            self.parameter_output_values["draft_task_id_output"] = provider_id.strip()
+        self._update_parameter_visibility()
+
         if self.get_parameter_value("return_last_frame"):
             await self._save_last_frame(result_json)
+
+    async def _refresh_async(self) -> None:
+        # Refresh can retrieve a different generation from the node's currently selected mode.
+        self.parameter_output_values["draft_task_id_output"] = ""
+        await super()._refresh_async()
+        self._update_parameter_visibility()
 
     async def _save_last_frame(self, result_json: dict[str, Any]) -> None:
         """Download the returned last frame, if any, into its own project file.
@@ -1036,6 +1172,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     def _set_safe_defaults(self) -> None:
         """Clear all output parameters on error."""
         self.parameter_output_values["generation_id"] = ""
+        self.parameter_output_values["draft_task_id_output"] = ""
         self.parameter_output_values["provider_response"] = None
         self.parameter_output_values["video_url"] = None
         self.parameter_output_values["last_frame_url"] = None

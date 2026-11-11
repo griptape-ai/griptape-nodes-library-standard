@@ -16,6 +16,7 @@ from griptape_nodes_library.assets import (
     ASSET_KIND_VIDEO,
     create_provider_asset_reference,
 )
+from griptape_nodes_library.proxy.griptape_proxy_node import GriptapeProxyNode
 from griptape_nodes_library.video.seedance_2_5_video_generation import (
     ADAPTIVE_ONLY_RATIO_CHOICES,
     ALL_DURATION_CHOICES,
@@ -28,6 +29,7 @@ from griptape_nodes_library.video.seedance_2_5_video_generation import (
     SEEDANCE_2_5_MODEL_ID,
     SMART_DURATION,
     TASK_CONSTRAINTS,
+    GenerationMode,
     OmniReferenceTaskType,
     Seedance25VideoGeneration,
     SeedanceTask,
@@ -909,3 +911,212 @@ async def test_parse_result_skips_last_frame_when_video_is_not_hosted(monkeypatc
     assert node.parameter_output_values["video_url"] is None
     assert node.parameter_output_values["was_successful"] is False
     assert "last_frame_url" not in node.parameter_output_values
+
+
+# --- Draft and final generation ---------------------------------------------------------------
+
+
+def test_default_mode_and_visibility() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    assert node.get_parameter_value("mode") == GenerationMode.NORMAL
+    assert _option_choices(node, "mode") == [mode.value for mode in GenerationMode]
+    assert _parameter_by_name(node, "draft_task_id").ui_options.get("hide") is True
+    assert _parameter_by_name(node, "draft_task_id_output").ui_options.get("hide") is True
+    assert _parameter_by_name(node, "resolution").ui_options.get("hide", False) is False
+
+
+@pytest.mark.parametrize("initial_setup", [False, True])
+def test_mode_visibility_and_workflow_load(initial_setup: bool) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
+    node.set_parameter_value("mode", GenerationMode.FINAL, initial_setup=initial_setup)
+    for name in ("task", "prompt", "resolution", "ratio", "duration", "generate_audio", "reference_images"):
+        assert _parameter_by_name(node, name).ui_options.get("hide") is True
+    assert not _parameter_by_name(node, "draft_task_id").ui_options.get("hide", False)
+    for name in ("output_format", "watermark", "return_last_frame"):
+        assert not _parameter_by_name(node, name).ui_options.get("hide", False)
+
+    node.set_parameter_value("mode", GenerationMode.DRAFT, initial_setup=initial_setup)
+    assert _parameter_by_name(node, "draft_task_id").ui_options.get("hide") is True
+    assert _parameter_by_name(node, "resolution").ui_options.get("hide") is True
+    assert not _parameter_by_name(node, "draft_task_id_output").ui_options.get("hide", False)
+    assert not _parameter_by_name(node, "reference_images").ui_options.get("hide", False)
+
+    node.set_parameter_value("mode", GenerationMode.NORMAL, initial_setup=initial_setup)
+    assert not _parameter_by_name(node, "resolution").ui_options.get("hide", False)
+
+
+@pytest.mark.asyncio
+async def test_draft_payload_forces_480p_without_changing_normal_resolution() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", "1080p")
+    node.set_parameter_value("mode", GenerationMode.DRAFT)
+    node.set_parameter_value("prompt", "A fox")
+    payload = await node._build_payload()
+    assert payload["draft"] is True
+    assert payload["resolution"] == "480p"
+    assert payload["content"] == [{"type": "text", "text": "A fox"}]
+    node.set_parameter_value("mode", GenerationMode.NORMAL)
+    assert (await node._build_payload())["resolution"] == "1080p"
+    assert "draft" not in await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_final_payload_omits_all_inherited_inputs() -> None:
+    node = _editing_node()
+    node.set_parameter_value("mode", GenerationMode.FINAL)
+    node.set_parameter_value("draft_task_id", "  cgt-draft-123  ")
+    node.set_parameter_value("output_format", "mov")
+    node.set_parameter_value("watermark", True)
+    node.set_parameter_value("return_last_frame", True)
+    node.set_parameter_value("resolution", "invalid connected value")
+    node.set_parameter_value("ratio", "invalid connected value")
+    node.set_parameter_value("duration", 99)
+    assert await node._build_payload() == {
+        "model": SEEDANCE_2_5_MODEL_ID,
+        "resolution": "1080p",
+        "content": [{"type": "draft_task", "draft_task": {"id": "cgt-draft-123"}}],
+        "output_format": "mov",
+        "watermark": True,
+        "return_last_frame": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_final_requires_provider_task_id() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("mode", GenerationMode.FINAL)
+    node.set_parameter_value("draft_task_id", "   ")
+    with pytest.raises(ValueError, match="completed provider Draft Task ID"):
+        await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_unknown_connected_mode_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    original_get = node.get_parameter_value
+    monkeypatch.setattr(
+        node, "get_parameter_value", lambda name: "unexpected" if name == "mode" else original_get(name)
+    )
+    with pytest.raises(ValueError, match="Unknown mode"):
+        await node._build_payload()
+
+
+@pytest.mark.asyncio
+async def test_result_exposes_provider_id_only_for_completed_draft(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+
+    async def save_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", save_media)
+    # The result, not the current mode, identifies the generation during Refresh.
+    await node._parse_result({"draft": True, "id": "provider-draft"}, "proxy-generation")
+    assert node.parameter_output_values["draft_task_id_output"] == "provider-draft"
+    assert not _parameter_by_name(node, "draft_task_id_output").ui_options.get("hide", False)
+    await node._parse_result({"draft": False, "id": "provider-final"}, "proxy-generation-2")
+    assert node.parameter_output_values["draft_task_id_output"] == ""
+
+
+@pytest.mark.asyncio
+async def test_draft_missing_provider_id_fails_and_clears_stale_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.parameter_output_values["draft_task_id_output"] = "stale"
+
+    async def save_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", save_media)
+    await node._parse_result({"draft": True}, "proxy-generation")
+    assert node.parameter_output_values["draft_task_id_output"] == ""
+    assert node.parameter_output_values["was_successful"] is False
+
+
+def test_failure_clears_provider_task_id() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.parameter_output_values["draft_task_id_output"] = "stale"
+    node._set_safe_defaults()
+    assert node.parameter_output_values["draft_task_id_output"] == ""
+
+
+def test_validation_failure_clears_provider_task_id() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("mode", GenerationMode.FINAL)
+    node.parameter_output_values["draft_task_id_output"] = "stale"
+    assert node.validate_before_node_run()
+    assert node.parameter_output_values["draft_task_id_output"] == ""
+
+
+@pytest.mark.asyncio
+async def test_refresh_uses_original_result_not_current_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("mode", GenerationMode.FINAL)
+    node.parameter_output_values["generation_id"] = "proxy-generation"
+
+    async def fetch_result(self, generation_id):
+        assert generation_id == "proxy-generation"
+        return {"draft": True, "id": "provider-draft"}
+
+    async def save_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(Seedance25VideoGeneration, "_fetch_generation_result", fetch_result)
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", save_media)
+    await node._refresh_completed("proxy-generation")
+    assert node.parameter_output_values["draft_task_id_output"] == "provider-draft"
+    assert node.parameter_output_values["generation_id"] == "proxy-generation"
+    assert node.parameter_output_values["was_successful"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("marker_fields", "generation_id", "expected"),
+    [
+        ({}, "proxy-draft", "provider-id"),
+        ({"draft": False}, "proxy-draft", ""),
+        ({"draft": None}, "proxy-draft", ""),
+        ({"draft": "true"}, "proxy-draft", ""),
+        ({}, "other-generation", ""),
+        ({"draft": True}, "other-generation", "provider-id"),
+    ],
+)
+async def test_missing_draft_marker_uses_submitted_generation_not_current_mode(
+    monkeypatch: pytest.MonkeyPatch, marker_fields: dict[str, object], generation_id: str, expected: str
+) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node._submitted_draft_generation_id = "proxy-draft"
+    node.set_parameter_value("mode", GenerationMode.FINAL)
+
+    async def save_media(self, generation_id, output_param, artifact_factory, **kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(Seedance25VideoGeneration, "_save_generated_media", save_media)
+    result = {"id": "provider-id", **marker_fields}
+    await node._parse_result(result, generation_id)
+    assert node.parameter_output_values["draft_task_id_output"] == expected
+
+
+@pytest.mark.asyncio
+async def test_submitted_generation_tracks_payload_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    node = Seedance25VideoGeneration(name="Seedance25")
+
+    async def submit(self, payload, headers, api_model_id):
+        return "proxy-draft"
+
+    monkeypatch.setattr(GriptapeProxyNode, "_submit_generation", submit)
+    await node._submit_generation({"draft": True}, {}, SEEDANCE_2_5_MODEL_ID)
+    assert node._submitted_draft_generation_id == "proxy-draft"
+    await node._submit_generation({}, {}, SEEDANCE_2_5_MODEL_ID)
+    assert node._submitted_draft_generation_id is None
+
+
+@pytest.mark.asyncio
+async def test_connected_final_mode_and_task_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    original_get = node.get_parameter_value
+    connected = {"mode": GenerationMode.FINAL, "draft_task_id": "connected-provider-id"}
+    monkeypatch.setattr(node, "get_parameter_value", lambda name: connected.get(name, original_get(name)))
+    assert (await node._build_payload())["content"] == [
+        {"type": "draft_task", "draft_task": {"id": "connected-provider-id"}}
+    ]
