@@ -904,6 +904,18 @@
           "kling": {
             "display_name": "Kling AI",
             "models": {
+              "gtc_kling_4_0": {
+                "display_name": "Kling 4.0",
+                "family": "Kling",
+                "provider_model_id": "kling-4.0",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_kling_4_0_flash": {
+                "display_name": "Kling 4.0 Flash",
+                "family": "Kling",
+                "provider_model_id": "kling-4.0-flash",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
               "gtc_kling_v3": {
                 "display_name": "Kling v3.0",
                 "family": "Kling",
@@ -2878,6 +2890,8 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_kling_4_0",
+              "gtc_kling_4_0_flash",
               "gtc_kling_v3",
               "gtc_kling_v2_6",
               "gtc_kling_v2_5_turbo"
@@ -2906,6 +2920,8 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_kling_4_0",
+              "gtc_kling_4_0_flash",
               "gtc_kling_v3",
               "gtc_kling_v2_6",
               "gtc_kling_v2_5_turbo"
@@ -3247,6 +3263,8 @@
           {
             "type": "model_usage",
             "model_ids": [
+              "gtc_kling_4_0",
+              "gtc_kling_4_0_flash",
               "gtc_kling_v3_omni",
               "gtc_kling_video_o1_omni"
             ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
@@ -9,7 +10,7 @@ from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -25,6 +26,7 @@ from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.media import prepare_media_data_uri
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.video import kling_4
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -104,6 +106,18 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     # Model capability definitions
     # modes: [] means no mode selection (model has a single fixed quality tier)
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        kling_4.KLING_4_0: {
+            "modes": [],
+            "durations": kling_4.KLING_4_CAPABILITIES[kling_4.KLING_4_0].durations,
+            "supports_sound": False,
+            "supports_tail_frame": True,
+        },
+        kling_4.KLING_4_0_FLASH: {
+            "modes": [],
+            "durations": kling_4.KLING_4_CAPABILITIES[kling_4.KLING_4_0_FLASH].durations,
+            "supports_sound": False,
+            "supports_tail_frame": False,
+        },
         "kling-v3": {
             "modes": V3_MODE_CHOICES,
             "durations": list(range(3, 16)),
@@ -143,6 +157,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             node=self,
             parameter=model_name_param,
             model_choices=[
+                kling_4.KLING_4_0,
+                kling_4.KLING_4_0_FLASH,
                 "kling-v3",
                 "kling-v2-6",
                 "kling-v2-5-turbo",
@@ -257,6 +273,31 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 ui_options={"display_name": "End Frame"},
             )
         )
+        self.add_parameter(
+            ParameterList(
+                name="middle_frames",
+                item_converters=[
+                    functools.partial(
+                        normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,)
+                    )
+                ],
+                input_types=[
+                    "ImageArtifact",
+                    "ImageUrlArtifact",
+                    "str",
+                    "list[ImageArtifact]",
+                    "list[ImageUrlArtifact]",
+                    "list[str]",
+                ],
+                default_value=[],
+                tooltip=(
+                    "Keyframes between the start and end frame, in the order they appear (Kling 4.0 only). "
+                    "Referenced in the prompt as @frame_2, @frame_3 and so on; the start frame is @frame_1."
+                ),
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"expander": True, "display_name": "Middle Frames", "hide_property": True, "hide": True},
+            )
+        )
 
         # Generation Settings Group
         with ParameterGroup(name="Generation Settings") as gen_settings_group:
@@ -286,6 +327,14 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 tooltip="Generate native audio with the video (kling-v2-6 only)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["on", "off"])},
+                ui_options={"hide": True},
+            )
+            ParameterString(
+                name="resolution",
+                default_value=kling_4.RESOLUTION_1080P,
+                tooltip="Output resolution (Kling 4.0 models). Kling 4.0 Flash is 720p only.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P])},
                 ui_options={"hide": True},
             )
         self.add_node_element(gen_settings_group)
@@ -386,6 +435,11 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             self._update_multi_shot_parameter_visibility()
         elif parameter.name == "mode":
             self._update_mode_dependent_features()
+        elif parameter.name in {"image_tail", "middle_frames"}:
+            model_id = self.get_parameter_value("model_name") or ""
+            if kling_4.is_kling_4(model_id):
+                # Clearing a value the model can't use hides its input again.
+                self._apply_kling_4_visibility(model_id)
 
     def _update_duration_choices(self) -> None:
         """Update duration dropdown based on the current model."""
@@ -404,6 +458,13 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         model_id = model_name
         capabilities = self.MODEL_CAPABILITIES.get(model_id, {})
 
+        if kling_4.is_kling_4(model_id):
+            self._apply_kling_4_visibility(model_id)
+            return
+
+        self.hide_parameter_by_name(["resolution", "middle_frames"])
+        self.show_parameter_by_name(["cfg_scale", "negative_prompt"])
+
         # Show mask features for all models
         self.show_parameter_by_name(["static_mask", "dynamic_masks"])
 
@@ -420,6 +481,31 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         else:
             self._hide_multi_shot_inputs()
             self.show_parameter_by_name("prompt")
+
+    def _apply_kling_4_visibility(self, model_id: str) -> None:
+        """Kling 4.0 takes keyframes and a resolution; it has no mode, cfg scale, masks or negative prompt.
+
+        A keyframe input the selected model can't use stays visible while it holds a
+        value, so the validation error that blocks the run points at something the
+        user can clear.
+        """
+        capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+        self.hide_parameter_by_name(["mode", "cfg_scale", "negative_prompt", "sound", "static_mask", "dynamic_masks"])
+        self._hide_multi_shot_inputs()
+        self.show_parameter_by_name(["prompt", "duration"])
+        for name, populated in (
+            ("image_tail", bool(self.get_parameter_value("image_tail"))),
+            ("middle_frames", bool(self._middle_frame_inputs())),
+        ):
+            if capabilities.supports_keyframes or populated:
+                self.show_parameter_by_name(name)
+            else:
+                self.hide_parameter_by_name(name)
+        current = self.get_parameter_value("resolution")
+        self._update_option_choices(
+            "resolution", capabilities.resolutions, kling_4.resolution_choice(model_id, current)
+        )
+        self.show_parameter_by_name("resolution")
 
     def _apply_generation_settings_visibility(self, model_id: str) -> None:
         """Apply mode/duration/sound visibility for selected model."""
@@ -540,7 +626,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         custom logic to detect and elide them in logs.
         """
         # Field names that are known to contain image data
-        IMAGE_FIELDS = {"image", "image_tail", "static_mask"}
+        IMAGE_FIELDS = {"image", "image_tail", "static_mask", "url"}
 
         def elide_value(obj: Any, key: str | None = None) -> Any:
             if isinstance(obj, str):
@@ -584,6 +670,8 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         """
         model_name = self.get_parameter_value("model_name") or "kling-v2-6"
         model_id = model_name
+        if kling_4.is_kling_4(model_id):
+            return await self._build_kling_4_payload(model_id)
 
         # Normalize image parameters before processing
         image_input = normalize_artifact_input(
@@ -645,6 +733,41 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 payload["dynamic_masks"] = json.loads(dynamic_masks)
 
         return payload
+
+    def _middle_frame_inputs(self) -> list[Any]:
+        frames = self.get_parameter_value("middle_frames") or []
+        if not isinstance(frames, list):
+            frames = [frames]
+        return [frame for frame in frames if frame]
+
+    async def _build_kling_4_payload(self, model_id: str) -> dict[str, Any]:
+        """Keyframes in playback order, ids frame_1..frame_n so the prompt can reference them."""
+        capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+        frame_inputs: list[tuple[str, str, Any]] = [("first_frame", "Start Frame", self.get_parameter_value("image"))]
+        if capabilities.supports_keyframes:
+            frame_inputs += [("middle_frame", "Middle Frames", frame) for frame in self._middle_frame_inputs()]
+            if self.get_parameter_value("image_tail"):
+                frame_inputs.append(("last_frame", "End Frame", self.get_parameter_value("image_tail")))
+
+        contents: list[dict[str, Any]] = [
+            {"type": "prompt", "text": (self.get_parameter_value("prompt") or "").strip()}
+        ]
+        # Ids follow input position; a frame that won't load raises rather than shifting them.
+        for frame_number, (frame_type, label, frame_input) in enumerate(frame_inputs, start=1):
+            image = await kling_4.prepare_image(
+                normalize_artifact_input(frame_input, ImageUrlArtifact, accepted_types=(ImageArtifact,)),
+                label=label,
+                node_name=self.name,
+            )
+            contents.append(kling_4.image_item(frame_type, image, f"frame_{frame_number}"))
+
+        return {
+            "contents": contents,
+            "settings": kling_4.build_settings(
+                resolution=self.get_parameter_value("resolution") or capabilities.default_resolution,
+                duration=int(self.get_parameter_value("duration") or 5),
+            ),
+        }
 
     def _add_prompt_fields(self, payload: dict[str, Any], model_id: str, prompt: str) -> None:
         """Attach prompt or multi_prompt fields based on multi-shot mode."""
@@ -837,10 +960,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
 
-        Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
+        Kling 4.0 reports the id in `data[].outputs[]`; v1-v3 in `data.task_result.videos[]`.
         """
-        videos = result_json.get("data", {}).get("task_result", {}).get("videos", [])
-        video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
+        video_id = kling_4.kling_video_id(result_json)
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
@@ -856,6 +978,34 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         """Clear output parameters on error."""
         self.parameter_output_values["video_url"] = None
         self.parameter_output_values["kling_video_id"] = ""
+
+    def _validate_kling_4(self, exceptions: list[Exception], model_id: str) -> list[Exception]:
+        capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+        exceptions += kling_4.validate_common(
+            model_id,
+            prompt=self.get_parameter_value("prompt"),
+            resolution=self.get_parameter_value("resolution"),
+            duration=self.get_parameter_value("duration"),
+        )
+
+        if not self.get_parameter_value("image"):
+            exceptions.append(ValueError(f"{model_id} needs a start frame. Connect an image to 'Start Frame'."))
+
+        middle_frames = self._middle_frame_inputs()
+        if not capabilities.supports_keyframes and (middle_frames or self.get_parameter_value("image_tail")):
+            exceptions.append(
+                ValueError(
+                    f"{model_id} supports a start frame only. Clear 'End Frame' and 'Middle Frames', "
+                    "or select Kling 4.0 to use them."
+                )
+            )
+        frame_count = 1 + len(middle_frames) + (1 if self.get_parameter_value("image_tail") else 0)
+        if frame_count > kling_4.MAX_IMAGES:
+            exceptions.append(
+                ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_IMAGES} keyframes in total (got {frame_count}).")
+            )
+
+        return exceptions
 
     def validate_before_node_run(self) -> list[Exception] | None:  # noqa: C901, PLR0912
         """Validate parameters before execution."""
@@ -875,6 +1025,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         mode = self.get_parameter_value("mode") or "pro"
         duration = self.get_parameter_value("duration") or 5
         dynamic_masks = self.get_parameter_value("dynamic_masks") or ""
+
+        if kling_4.is_kling_4(model_id):
+            return self._validate_kling_4(exceptions, model_id) or None
 
         # Validate at least one image is provided
         if not image and not image_tail:

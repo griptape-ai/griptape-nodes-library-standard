@@ -294,7 +294,7 @@ def test_kling_image_retired_model_repairs_saved_dropdown(saved_model: str) -> N
     node = _create_node("KlingImageToVideoGeneration")
     parameter = node.get_parameter_by_name("model_name")
     assert parameter is not None
-    live_models = ["kling-v3", "kling-v2-6", "kling-v2-5-turbo"]
+    live_models = ["kling-4.0", "kling-4.0-flash", "kling-v3", "kling-v2-6", "kling-v2-5-turbo"]
     initial_choices = list(parameter.find_elements_by_type(Options)[0].choices)
 
     # A saved workflow restores options after node construction, before the value.
