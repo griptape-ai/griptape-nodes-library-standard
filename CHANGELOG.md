@@ -10,6 +10,81 @@ the `library_version` in `griptape_nodes_library.json`.
 
 <!-- Entries go in changelog.d/, one file each. See changelog.d/README.md. -->
 
+## [0.91.0] - 2026-11-11
+
+### Added
+
+- `Agent`, `Griptape Cloud Prompt`, and `Describe Image` offer Claude Haiku 5.5 through
+  Griptape Cloud.
+- Extract PDF Images node pulls the images out of a PDF, such as the pages of a scanned document,
+  at the resolution they are stored at. It saves them into a versioned folder like
+  `extracted_v001/page_001.png`, lets you pick `png`, `jpg`, `webp`, or the stored format, and its
+  `rotation` parameter turns every image by 90° or 180° with a live preview for scans stored sideways.
+  [#934](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/934)
+- Output format dropdowns on the image, video, audio, and 3D generation and processing nodes now carry
+  the engine's `FileFormat` trait, so a host running the workflow (such as Nuke) can hide formats it
+  cannot open. Needs engine 0.107.0 or later.
+  [griptape-nodes-engine#6193](https://github.com/griptape-ai/griptape-nodes-engine/issues/6193)
+- Flatten List node turns a list of nested lists into one flat list, keeping item order. `depth`
+  limits how many levels it flattens; 0 flattens every level.
+  [#936](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/936)
+- FLUX 3 Image Generation, FLUX 3 Video Generation, FLUX 3 Video Edit, and FLUX 3 Video Upscale
+  nodes run Black Forest Labs' FLUX 3 models (`flux-3-image`, `flux-3-image-klein`,
+  `flux-3-video`, `flux-video-edit-v1`, and `flux-video-upscale-v1`).
+  [#897](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/897)
+- Added interactive previews for some image and video nodes.
+- Ask Yes/No, Pick One, and Rate accept an optional Images input, so questions can classify or
+  compare images. Context is optional when images are connected.
+  [#778](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/778)
+- `Kling Text to Video Generation`, `Kling Image to Video Generation` and `Kling Omni Video
+  Generation` offer Kling 4.0 and Kling 4.0 Flash: 3-30s (Flash 3-20s) at 720p or 1080p (Flash
+  720p), with a 21:9 aspect ratio. Image to Video takes middle keyframes with Kling 4.0, and Omni
+  takes voice IDs and an `audio` setting that keeps the reference video's sound.
+  https://github.com/griptape-ai/griptape-nodes-library-standard/issues/849
+- Rotate Image node turns an image by 90°, 180°, or a custom angle.
+  [#906](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/906)
+- Eleven Labs Sound Effect Generation has a model dropdown offering Eleven Text to Sound v3
+  alongside v2, which stays the default.
+  [#894](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/894)
+
+### Changed
+
+- **Breaking:** `Extract Frames` now fails when the `File Output Settings` node wired to
+  **Directory** has no filename set. Before, it ignored that node and saved to the **Directory**
+  value. Set a filename on the `File Output Settings` node, or disconnect it to use **Directory**.
+  [griptape-nodes-engine#5971](https://github.com/griptape-ai/griptape-nodes-engine/issues/5971)
+- `Adjust Mask Size`'s adjustment is now a parameter you can set on the node or connect a value to.
+- `Combine Masks` shows only the connections for its incoming masks, not each mask's image, since the
+  interactive preview shows the combined result.
+- `Image Grid Splitter`'s `preview` output no longer shows its image on the node, since the interactive
+  preview shows the grid. It still outputs the image.
+- Image nodes with a preview no longer update their output until you run them.
+- List inputs that take images, videos, or audio, such as `input_images` on Google Image
+  Generation and `additional_images` on Grok Image Edit, convert a file path to media in its own
+  row, without rewriting the rest of the list. The library requires engine 0.105.0.
+- Searching the node picker for "reformat", Nuke's name for resizing, finds Resize Image and
+  Resize Video.
+  [#902](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/902)
+- `Crop Image` and `Crop Video`'s crop editors and their settings now stay in sync while you drag either one.
+
+### Fixed
+
+- Extract Frames saves into your home folder when `directory` starts with `~/`. It used to create a
+  folder named `~` inside the project outputs folder.
+  [#933](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/933)
+- `Extract Frames` running in a worker now saves into the folder from a `File Output Settings`
+  node wired to **Directory**, instead of the **Directory** value.
+  [griptape-nodes-engine#5971](https://github.com/griptape-ai/griptape-nodes-engine/issues/5971)
+- LTX Video to Video HDR's `project_path` shows placeholder text before a run saying the saved EXR
+  ZIP's path appears there, and its tooltip points to `output_file` for where the ZIP is saved.
+  [#946](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/946)
+- `Set Color to Transparent`'s `grow_shrink` tooltip now says positive values grow the transparent area
+  and negative values shrink it, which is what the setting has always done.
+- `Workflow Node` inside an Isolated Execution group now reuses the workflow it imported on
+  earlier runs instead of importing another copy on every run, and runs instead of failing to read
+  the workflow's inputs and outputs. Requires engine 0.106.0.
+  [#883](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/883)
+
 ## [0.90.3] - 2026-11-09
 
 ### Added
@@ -73,7 +148,8 @@ the `library_version` in `griptape_nodes_library.json`.
   old look.
   [#888](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/888)
 
-[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.3...HEAD
+[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.91.0...HEAD
+[0.91.0]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.3...v0.91.0
 [0.90.3]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.2...v0.90.3
 [0.90.2]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.1...v0.90.2
 [0.90.1]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.0...v0.90.1
