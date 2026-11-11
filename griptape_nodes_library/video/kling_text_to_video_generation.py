@@ -763,24 +763,18 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         shot_type = self.get_parameter_value("shot_type") or "customize"
         shot_count = self.get_parameter_value("shot_count") or 1
 
+        if kling_4.is_kling_4(model_id):
+            exceptions += kling_4.validate_common(
+                model_id,
+                prompt=prompt,
+                resolution=self.get_parameter_value("resolution"),
+                duration=self.get_parameter_value("duration"),
+            )
+            return exceptions or None
+
         requires_prompt = model_id != V3_MODEL_ID or (not multi_shot) or shot_type == "intelligence"
         if requires_prompt and not prompt.strip():
             exceptions.append(ValueError("A prompt is required to generate video. Enter one in 'prompt'."))
-
-        if kling_4.is_kling_4(model_id):
-            length_error = kling_4.prompt_length_error(prompt)
-            if length_error:
-                exceptions.append(ValueError(length_error))
-            resolution_error = kling_4.resolution_error(model_id, self.get_parameter_value("resolution"))
-            if resolution_error:
-                exceptions.append(ValueError(resolution_error))
-            capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
-            duration = self.get_parameter_value("duration")
-            if duration not in capabilities.durations:
-                exceptions.append(
-                    ValueError(f"{model_id} supports durations of 3-{capabilities.max_duration}s (got {duration}s).")
-                )
-            return exceptions or None
 
         if requires_prompt and len(prompt) > MAX_PROMPT_LENGTH:
             exceptions.append(

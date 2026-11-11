@@ -124,6 +124,24 @@ def resolution_error(model_id: str, resolution: Any) -> str | None:
     return f"{model_id} does not support resolution '{resolution}'. Use {', '.join(supported)}."
 
 
+def validate_common(model_id: str, *, prompt: Any, resolution: Any, duration: Any) -> list[ValueError]:
+    """The checks every Kling 4.0 node shares: a prompt within Kling's limit, resolution and duration."""
+    errors: list[ValueError] = []
+    text = str(prompt or "").strip()
+    if not text:
+        errors.append(ValueError("A prompt is required to generate video. Enter one in 'prompt'."))
+    length_error = prompt_length_error(text)
+    if length_error:
+        errors.append(ValueError(length_error))
+    error = resolution_error(model_id, resolution)
+    if error:
+        errors.append(ValueError(error))
+    capabilities = KLING_4_CAPABILITIES[model_id]
+    if duration not in capabilities.durations:
+        errors.append(ValueError(f"{model_id} supports durations of 3-{capabilities.max_duration}s (got {duration}s)."))
+    return errors
+
+
 async def prepare_image(image_input: Any, *, label: str, node_name: str) -> str:
     """Raw base64 for a supplied image input; raises rather than dropping one that won't load.
 

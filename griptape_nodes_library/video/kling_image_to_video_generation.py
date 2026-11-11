@@ -967,12 +967,12 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
     def _validate_kling_4(self, exceptions: list[Exception], model_id: str) -> list[Exception]:
         capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
-        prompt = self.get_parameter_value("prompt") or ""
-        if not prompt.strip():
-            exceptions.append(ValueError("A prompt is required to generate video. Enter one in 'prompt'."))
-        length_error = kling_4.prompt_length_error(prompt)
-        if length_error:
-            exceptions.append(ValueError(length_error))
+        exceptions += kling_4.validate_common(
+            model_id,
+            prompt=self.get_parameter_value("prompt"),
+            resolution=self.get_parameter_value("resolution"),
+            duration=self.get_parameter_value("duration"),
+        )
 
         if not self.get_parameter_value("image"):
             exceptions.append(ValueError(f"{model_id} needs a start frame. Connect an image to 'Start Frame'."))
@@ -986,14 +986,6 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_IMAGES} keyframes in total (got {frame_count}).")
             )
 
-        resolution_error = kling_4.resolution_error(model_id, self.get_parameter_value("resolution"))
-        if resolution_error:
-            exceptions.append(ValueError(resolution_error))
-        duration = self.get_parameter_value("duration")
-        if duration not in capabilities.durations:
-            exceptions.append(
-                ValueError(f"{model_id} supports durations of 3-{capabilities.max_duration}s (got {duration}s).")
-            )
         return exceptions
 
     def validate_before_node_run(self) -> list[Exception] | None:  # noqa: C901, PLR0912

@@ -442,7 +442,12 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         )
         aspect_ratios.append(kling_4.ASPECT_RATIO_ADAPTIVE)
         current = self.get_parameter_value("aspect_ratio")
-        self._update_option_choices("aspect_ratio", aspect_ratios, current if current in aspect_ratios else "16:9")
+        # The v1-v3 default, 16:9, would override the framing of a first frame or
+        # base video on 4.0; adaptive follows them and falls back to 16:9. A saved
+        # aspect_ratio still wins, since it is restored after model_name.
+        if current in (None, "", "16:9"):
+            current = kling_4.ASPECT_RATIO_ADAPTIVE
+        self._update_option_choices("aspect_ratio", aspect_ratios, current)
 
     def _get_supported_modes(self) -> list[str]:
         """Return the valid mode choices for the selected model and inputs."""
@@ -747,12 +752,12 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
     def _validate_kling_4(self, exceptions: list[Exception], model_id: str) -> list[Exception]:  # noqa: C901
         capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
-        prompt = (self.get_parameter_value("prompt") or "").strip()
-        if not prompt:
-            exceptions.append(ValueError("A prompt is required to generate video. Enter one in 'prompt'."))
-        length_error = kling_4.prompt_length_error(prompt)
-        if length_error:
-            exceptions.append(ValueError(length_error))
+        exceptions += kling_4.validate_common(
+            model_id,
+            prompt=self.get_parameter_value("prompt"),
+            resolution=self.get_parameter_value("resolution"),
+            duration=self.get_parameter_value("duration"),
+        )
 
         has_end_frame = bool(self.get_parameter_value("end_frame_image"))
         if has_end_frame and not capabilities.supports_keyframes:
@@ -796,14 +801,6 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             if voice_ids:
                 exceptions.append(ValueError("Audio 'original' cannot be combined with voice IDs."))
 
-        resolution_error = kling_4.resolution_error(model_id, self.get_parameter_value("resolution"))
-        if resolution_error:
-            exceptions.append(ValueError(resolution_error))
-        duration = self.get_parameter_value("duration")
-        if duration not in capabilities.durations:
-            exceptions.append(
-                ValueError(f"{model_id} supports durations of 3-{capabilities.max_duration}s (got {duration}s).")
-            )
         return exceptions
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:

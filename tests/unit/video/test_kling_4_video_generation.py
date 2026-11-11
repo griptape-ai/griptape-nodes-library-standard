@@ -299,3 +299,51 @@ def test_omni_flash_rejects_voice_ids_instead_of_dropping_them() -> None:
     node.set_parameter_value("voice_ids", "829837252279803904")
 
     assert _validation_messages(node) == ["kling-4.0-flash does not take voice IDs; use Kling 4.0 for voices."]
+
+
+def test_omni_defaults_to_adaptive_on_kling_4_and_keeps_a_chosen_ratio() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    assert node.get_parameter_value("aspect_ratio") == "16:9"
+
+    node.set_parameter_value("model_name", "kling-4.0")
+    assert node.get_parameter_value("aspect_ratio") == "adaptive"
+
+    node.set_parameter_value("aspect_ratio", "9:16")
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+    assert node.get_parameter_value("aspect_ratio") == "9:16"
+
+
+def test_omni_saved_16_9_survives_reload_on_kling_4() -> None:
+    # Saved workflows restore parameters in declaration order: model_name, then aspect_ratio.
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("aspect_ratio", "16:9")
+
+    assert node.get_parameter_value("aspect_ratio") == "16:9"
+
+
+@pytest.mark.parametrize(
+    "node_class", [KlingTextToVideoGeneration, KlingImageToVideoGeneration, KlingOmniVideoGeneration]
+)
+def test_common_validation_is_shared_and_strips_the_prompt(node_class: type) -> None:
+    node = node_class(name="Kling")
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+    node.set_parameter_value("prompt", "   ")
+    node.parameter_values["duration"] = 25
+
+    messages = _validation_messages(node)
+
+    assert "A prompt is required to generate video. Enter one in 'prompt'." in messages
+    assert "kling-4.0-flash supports durations of 3-20s (got 25s)." in messages
+    assert messages.count("A prompt is required to generate video. Enter one in 'prompt'.") == 1
+
+
+def test_validate_common_reports_each_shared_check() -> None:
+    errors = [
+        str(error) for error in kling_4.validate_common("kling-4.0-flash", prompt="", resolution="1080p", duration=2)
+    ]
+    assert errors == [
+        "A prompt is required to generate video. Enter one in 'prompt'.",
+        "kling-4.0-flash does not support resolution '1080p'. Use 720p.",
+        "kling-4.0-flash supports durations of 3-20s (got 2s).",
+    ]
