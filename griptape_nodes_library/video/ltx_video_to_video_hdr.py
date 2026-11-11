@@ -165,8 +165,12 @@ class LTXVideoToVideoHDR(PublicVideoUrlMixin, GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="project_path",
-                tooltip="Project macro path of the saved EXR-frames ZIP.",
+                tooltip=(
+                    "Project macro path of the saved EXR-frames ZIP. Set after a run; "
+                    "choose where it is saved with 'output_file'."
+                ),
                 allowed_modes={ParameterMode.OUTPUT},
+                placeholder_text="Saved EXR ZIP path appears after a run.",
             )
         )
 
