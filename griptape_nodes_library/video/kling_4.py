@@ -33,6 +33,10 @@ MAX_ELEMENTS = 7
 MAX_VOICES = 3
 MAX_REFERENCES = 15
 
+MIN_DURATION_SECONDS = 3
+KLING_4_0_MAX_DURATION_SECONDS = 30
+KLING_4_0_FLASH_MAX_DURATION_SECONDS = 20
+
 
 @dataclass(frozen=True)
 class Kling4Capabilities:
@@ -44,21 +48,21 @@ class Kling4Capabilities:
 
     @property
     def durations(self) -> list[int]:
-        return list(range(3, self.max_duration + 1))
+        return list(range(MIN_DURATION_SECONDS, self.max_duration + 1))
 
 
 KLING_4_CAPABILITIES: dict[str, Kling4Capabilities] = {
     KLING_4_0: Kling4Capabilities(
         resolutions=[RESOLUTION_720P, RESOLUTION_1080P],
         default_resolution=RESOLUTION_1080P,
-        max_duration=30,
+        max_duration=KLING_4_0_MAX_DURATION_SECONDS,
         supports_keyframes=True,
         supports_voices=True,
     ),
     KLING_4_0_FLASH: Kling4Capabilities(
         resolutions=[RESOLUTION_720P],
         default_resolution=RESOLUTION_720P,
-        max_duration=20,
+        max_duration=KLING_4_0_FLASH_MAX_DURATION_SECONDS,
         supports_keyframes=False,
         supports_voices=False,
     ),
@@ -138,7 +142,12 @@ def validate_common(model_id: str, *, prompt: Any, resolution: Any, duration: An
         errors.append(ValueError(error))
     capabilities = KLING_4_CAPABILITIES[model_id]
     if duration not in capabilities.durations:
-        errors.append(ValueError(f"{model_id} supports durations of 3-{capabilities.max_duration}s (got {duration}s)."))
+        errors.append(
+            ValueError(
+                f"{model_id} supports durations of {MIN_DURATION_SECONDS}-{capabilities.max_duration}s "
+                f"(got {duration}s)."
+            )
+        )
     return errors
 
 

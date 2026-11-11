@@ -435,6 +435,11 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             self._update_multi_shot_parameter_visibility()
         elif parameter.name == "mode":
             self._update_mode_dependent_features()
+        elif parameter.name in {"image_tail", "middle_frames"}:
+            model_id = self.get_parameter_value("model_name") or ""
+            if kling_4.is_kling_4(model_id):
+                # Clearing a value the model can't use hides its input again.
+                self._apply_kling_4_visibility(model_id)
 
     def _update_duration_choices(self) -> None:
         """Update duration dropdown based on the current model."""
@@ -478,15 +483,24 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             self.show_parameter_by_name("prompt")
 
     def _apply_kling_4_visibility(self, model_id: str) -> None:
-        """Kling 4.0 takes keyframes and a resolution; it has no mode, cfg scale, masks or negative prompt."""
+        """Kling 4.0 takes keyframes and a resolution; it has no mode, cfg scale, masks or negative prompt.
+
+        A keyframe input the selected model can't use stays visible while it holds a
+        value, so the validation error that blocks the run points at something the
+        user can clear.
+        """
         capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
         self.hide_parameter_by_name(["mode", "cfg_scale", "negative_prompt", "sound", "static_mask", "dynamic_masks"])
         self._hide_multi_shot_inputs()
         self.show_parameter_by_name(["prompt", "duration"])
-        if capabilities.supports_keyframes:
-            self.show_parameter_by_name(["image_tail", "middle_frames"])
-        else:
-            self.hide_parameter_by_name(["image_tail", "middle_frames"])
+        for name, populated in (
+            ("image_tail", bool(self.get_parameter_value("image_tail"))),
+            ("middle_frames", bool(self._middle_frame_inputs())),
+        ):
+            if capabilities.supports_keyframes or populated:
+                self.show_parameter_by_name(name)
+            else:
+                self.hide_parameter_by_name(name)
         current = self.get_parameter_value("resolution")
         self._update_option_choices(
             "resolution", capabilities.resolutions, kling_4.resolution_choice(model_id, current)
@@ -979,7 +993,12 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
 
         middle_frames = self._middle_frame_inputs()
         if not capabilities.supports_keyframes and (middle_frames or self.get_parameter_value("image_tail")):
-            exceptions.append(ValueError(f"{model_id} supports a start frame only; use Kling 4.0 for more keyframes."))
+            exceptions.append(
+                ValueError(
+                    f"{model_id} supports a start frame only. Clear 'End Frame' and 'Middle Frames', "
+                    "or select Kling 4.0 to use them."
+                )
+            )
         frame_count = 1 + len(middle_frames) + (1 if self.get_parameter_value("image_tail") else 0)
         if frame_count > kling_4.MAX_IMAGES:
             exceptions.append(

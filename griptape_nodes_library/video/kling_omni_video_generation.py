@@ -111,6 +111,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         - result_details (str): Details about the generation result or error
     """
 
+    # Set by before_value_set from the outgoing model; a new node starts on v1-v3.
+    _entering_kling_4: bool = True
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
@@ -401,13 +404,27 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             self._update_multi_shot_parameter_visibility()
 
         if parameter.name == "model_name":
+            self._update_kling_4_visibility(entering_kling_4=self._entering_kling_4)
+        elif parameter.name in {"voice_ids", "end_frame_image"}:
+            # Clearing a value an unsupported model can't use hides its input again.
             self._update_kling_4_visibility()
+
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        if parameter.name == "model_name":
+            # Read before the new model is stored: entering 4.0 from v1-v3 migrates
+            # the legacy 16:9 default, switching between 4.0 variants does not.
+            self._entering_kling_4 = not kling_4.is_kling_4(self._selected_model())
+        return super().before_value_set(parameter, value)
 
     def _selected_model(self) -> str:
         return self.get_parameter_value("model_name") or "kling-v3-omni"
 
-    def _update_kling_4_visibility(self) -> None:
-        """Kling 4.0 has no mode, multi-shot or keep-sound; it adds resolution, audio and voices."""
+    def _update_kling_4_visibility(self, *, entering_kling_4: bool = False) -> None:
+        """Kling 4.0 has no mode, multi-shot or keep-sound; it adds resolution, audio and voices.
+
+        An input the selected model can't use stays visible while it holds a value, so
+        the validation error that blocks the run points at something the user can clear.
+        """
         model_id = self._selected_model()
         aspect_ratios = list(kling_4.GENERATED_ASPECT_RATIOS)
         if not kling_4.is_kling_4(model_id):
@@ -426,11 +443,11 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         for shot_index in range(1, MAX_MULTI_PROMPT_COUNT + 1):
             self.hide_parameter_by_name([f"shot_{shot_index}_prompt", f"shot_{shot_index}_duration"])
         self.show_parameter_by_name(["prompt", "resolution", "audio", "element_ids"])
-        if capabilities.supports_voices:
+        if capabilities.supports_voices or self.get_parameter_value("voice_ids"):
             self.show_parameter_by_name("voice_ids")
         else:
             self.hide_parameter_by_name("voice_ids")
-        if capabilities.supports_keyframes:
+        if capabilities.supports_keyframes or self.get_parameter_value("end_frame_image"):
             self.show_parameter_by_name("end_frame_image")
         else:
             self.hide_parameter_by_name("end_frame_image")
@@ -443,9 +460,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         aspect_ratios.append(kling_4.ASPECT_RATIO_ADAPTIVE)
         current = self.get_parameter_value("aspect_ratio")
         # The v1-v3 default, 16:9, would override the framing of a first frame or
-        # base video on 4.0; adaptive follows them and falls back to 16:9. A saved
-        # aspect_ratio still wins, since it is restored after model_name.
-        if current in (None, "", "16:9"):
+        # base video on 4.0; adaptive follows them and falls back to 16:9. Only on
+        # entering 4.0, so a 16:9 picked on a 4.0 model survives switching to Flash.
+        # A saved aspect_ratio still wins, since it is restored after model_name.
+        if entering_kling_4 and current in (None, "", "16:9"):
             current = kling_4.ASPECT_RATIO_ADAPTIVE
         self._update_option_choices("aspect_ratio", aspect_ratios, current)
 
@@ -761,7 +779,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         has_end_frame = bool(self.get_parameter_value("end_frame_image"))
         if has_end_frame and not capabilities.supports_keyframes:
-            exceptions.append(ValueError(f"{model_id} does not take an end frame; use Kling 4.0 for keyframes."))
+            exceptions.append(
+                ValueError(f"{model_id} does not take an end frame. Clear 'end frame', or select Kling 4.0 to use it.")
+            )
         image_count = (
             len(self._reference_image_inputs())
             + (1 if self.get_parameter_value("first_frame_image") else 0)
@@ -778,7 +798,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         voice_ids = kling_4.parse_id_list(self.get_parameter_value("voice_ids"))
         if voice_ids and not capabilities.supports_voices:
-            exceptions.append(ValueError(f"{model_id} does not take voice IDs; use Kling 4.0 for voices."))
+            exceptions.append(
+                ValueError(f"{model_id} does not take voice IDs. Clear 'voice_ids', or select Kling 4.0 to use them.")
+            )
             voice_ids = []
         if len(voice_ids) > kling_4.MAX_VOICES:
             exceptions.append(

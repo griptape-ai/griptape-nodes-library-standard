@@ -119,9 +119,12 @@ def test_image_flash_rejects_extra_keyframes() -> None:
     node.set_parameter_value("image", _image())
     node.set_parameter_value("middle_frames", [_image()])
 
-    assert {"image_tail", "middle_frames"} <= _hidden(node)
+    # Populated middle frames stay visible so the user can clear them; the empty end frame hides.
+    assert "middle_frames" not in _hidden(node)
+    assert "image_tail" in _hidden(node)
     assert _validation_messages(node) == [
-        "kling-4.0-flash supports a start frame only; use Kling 4.0 for more keyframes."
+        "kling-4.0-flash supports a start frame only. Clear 'End Frame' and 'Middle Frames', "
+        "or select Kling 4.0 to use them."
     ]
 
 
@@ -298,7 +301,53 @@ def test_omni_flash_rejects_voice_ids_instead_of_dropping_them() -> None:
     node.set_parameter_value("prompt", "x")
     node.set_parameter_value("voice_ids", "829837252279803904")
 
-    assert _validation_messages(node) == ["kling-4.0-flash does not take voice IDs; use Kling 4.0 for voices."]
+    assert _validation_messages(node) == [
+        "kling-4.0-flash does not take voice IDs. Clear 'voice_ids', or select Kling 4.0 to use them."
+    ]
+
+
+def test_omni_switching_to_flash_keeps_populated_unsupported_inputs_visible_until_cleared() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("voice_ids", "829837252279803904")
+    node.set_parameter_value("end_frame_image", _image())
+
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+
+    # Still visible and still rejected, so the user can see what blocks the run.
+    assert not ({"voice_ids", "end_frame_image"} & _hidden(node))
+    assert _validation_messages(node) == [
+        "kling-4.0-flash does not take an end frame. Clear 'end frame', or select Kling 4.0 to use it.",
+        "kling-4.0-flash does not take voice IDs. Clear 'voice_ids', or select Kling 4.0 to use them.",
+    ]
+
+    node.set_parameter_value("voice_ids", "")
+    node.set_parameter_value("end_frame_image", None)
+
+    assert {"voice_ids", "end_frame_image"} <= _hidden(node)
+
+
+def test_image_switching_to_flash_keeps_populated_keyframes_visible_until_cleared() -> None:
+    node = KlingImageToVideoGeneration(name="KlingImage")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("image_tail", _image())
+
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+    assert "image_tail" not in _hidden(node)
+
+    node.set_parameter_value("image_tail", None)
+    assert "image_tail" in _hidden(node)
+
+
+def test_omni_keeps_an_explicit_16_9_when_switching_between_kling_4_models() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("aspect_ratio", "16:9")
+
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+
+    assert node.get_parameter_value("aspect_ratio") == "16:9"
 
 
 def test_omni_defaults_to_adaptive_on_kling_4_and_keeps_a_chosen_ratio() -> None:
