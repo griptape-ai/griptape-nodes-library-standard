@@ -6,9 +6,15 @@ so no ffmpeg or real video is needed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest
+from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest
+from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
+from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 from griptape_nodes_library.video.extract_frames import ExtractFrames
 
@@ -24,6 +30,57 @@ def _write_frames(directory: Path, numbers: list[int], *, prefix: str = "frames"
 @pytest.fixture
 def node() -> ExtractFrames:
     return ExtractFrames(name="test_extract_frames")
+
+
+def _create_node(node_type: str, name: str, **values: Any) -> None:
+    """Create a node through the engine's own request path, so it's a real member of the open workflow."""
+    result = GriptapeNodes.handle_request(CreateNodeRequest(node_type=node_type, node_name=name))
+    assert result.succeeded(), result.result_details
+    for parameter_name, value in values.items():
+        result = GriptapeNodes.handle_request(
+            SetParameterValueRequest(node_name=name, parameter_name=parameter_name, value=value)
+        )
+        assert result.succeeded(), result.result_details
+
+
+def _connect(source: str, source_parameter: str, target: str, target_parameter: str) -> None:
+    result = GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=source,
+            source_parameter_name=source_parameter,
+            target_node_name=target,
+            target_parameter_name=target_parameter,
+        )
+    )
+    assert result.succeeded(), result.result_details
+
+
+def _get_extract_frames(name: str = "ef") -> ExtractFrames:
+    """Look up the node the engine created.
+
+    Not an `isinstance` check: the engine loads library node classes through its own dynamic
+    import, so the resulting object's class is a distinct (if identical) class from the one this
+    test module imports directly.
+    """
+    found = GriptapeNodes.ObjectManager().attempt_get_object_by_name(name)
+    assert found is not None
+    assert type(found).__name__ == "ExtractFrames"
+    return found
+
+
+@pytest.fixture
+def real_graph(open_workflow: None, tmp_path: Path) -> ExtractFrames:
+    """A real ExtractFrames node in a real flow, with outputs routed under tmp_path.
+
+    `BaseNode.engine` and the settings-node lookup read `self._workflow.engine` /
+    `.workflow_id`, which only a node actually built by the engine -- not a stand-in object --
+    has bound.
+    """
+    GriptapeNodes.ConfigManager().workspace_path = tmp_path
+    result = GriptapeNodes.handle_request(CreateFlowRequest(parent_flow_name=None, flow_name="TestFlow"))
+    assert result.succeeded(), result.result_details
+    _create_node("ExtractFrames", "ef")
+    return _get_extract_frames()
 
 
 class TestScanOutputSequence:
@@ -80,10 +137,9 @@ class TestSequenceOutputWiring:
             _write_frames(tmp_path, frames)
             return [tmp_path / f"frames.{str(n).zfill(4)}.png" for n in frames]
 
-        monkeypatch.setattr(node, "_resolve_output_dir", lambda: tmp_path)
         monkeypatch.setattr(node, "_extract_frames", fake_extract_frames)
 
-        node._perform_extraction("unused.mp4", frames)
+        node._perform_extraction("unused.mp4", frames, tmp_path)
 
         sequence = node.parameter_output_values["sequence"]
         assert sequence is not None
@@ -96,6 +152,40 @@ class TestSequenceOutputWiring:
         node._set_safe_defaults()
 
         assert node.parameter_output_values["sequence"] is None
+
+
+class TestOutputDirectoryFromSettings:
+    """A File Output Settings node wired to 'directory' is read by request, so a worker run honors it too."""
+
+    def test_uses_the_folder_of_the_settings_nodes_destination(self, real_graph: ExtractFrames, tmp_path: Path) -> None:
+        _create_node(
+            "FileOutputSettings",
+            "fos",
+            # A macro with no version/collision slot, so resolving it is deterministic.
+            macro="{outputs}/{sub_dirs?:/}{file_name_base}.{file_extension}",
+            filename="shots/frame.png",
+        )
+        _connect("fos", "file_destination", real_graph.name, "directory")
+
+        assert real_graph._resolve_output_dir() == tmp_path / "outputs" / "shots"
+
+    def test_without_settings_uses_the_directory_value(self, real_graph: ExtractFrames, tmp_path: Path) -> None:
+        real_graph.set_parameter_value("directory", str(tmp_path / "frames"))
+
+        assert real_graph._resolve_output_dir() == tmp_path / "frames"
+
+    def test_a_settings_node_with_no_filename_raises(self, real_graph: ExtractFrames) -> None:
+        _create_node("FileOutputSettings", "fos")
+        _connect("fos", "file_destination", real_graph.name, "directory")
+
+        with pytest.raises(NodeError, match="has no destination set"):
+            real_graph._resolve_output_dir()
+
+    def test_a_node_in_no_workflow_uses_the_directory_value(self, node: ExtractFrames, tmp_path: Path) -> None:
+        """A node built outside any workflow (not yet added to one) has nothing connected to it."""
+        node.set_parameter_value("directory", str(tmp_path / "frames"))
+
+        assert node._resolve_output_dir() == tmp_path / "frames"
 
 
 class TestProcessFailures:
@@ -116,3 +206,34 @@ class TestProcessFailures:
             next(node.process())
 
         assert node._execution_succeeded is False
+
+    def _stub_until_the_folder(self, node: ExtractFrames, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Get process() past the video and frame checks, then hit a File Output Settings node
+        with no filename configured, so reading its destination fails.
+        """
+        monkeypatch.setattr(node, "_resolve_video_for_ffmpeg", lambda _raw: "clip.mp4")
+        monkeypatch.setattr(node, "_build_frame_list", lambda _url: [1, 2])
+        _create_node("FileOutputSettings", "fos")
+        _connect("fos", "file_destination", node.name, "directory")
+
+    def test_a_settings_failure_raises_when_failed_is_not_wired(
+        self, real_graph: ExtractFrames, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_until_the_folder(real_graph, monkeypatch)
+        real_graph._has_outgoing_connections = lambda _param: False  # type: ignore[method-assign]
+
+        with pytest.raises(NodeError, match="has no destination set"):
+            next(real_graph.process())
+
+        assert real_graph._execution_succeeded is False
+
+    def test_a_settings_failure_routes_to_failed_when_wired(
+        self, real_graph: ExtractFrames, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub_until_the_folder(real_graph, monkeypatch)
+        real_graph._has_outgoing_connections = lambda _param: True  # type: ignore[method-assign]
+
+        with pytest.raises(StopIteration):
+            next(real_graph.process())
+
+        assert real_graph._execution_succeeded is False

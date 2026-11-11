@@ -11,6 +11,7 @@ from typing import Any
 
 from griptape_nodes.common.sequences import MissingItemPolicy, Sequence
 from griptape_nodes.exe_types.core_types import (
+    NodeError,
     NodeMessageResult,
     Parameter,
     ParameterGroup,
@@ -21,7 +22,7 @@ from griptape_nodes.exe_types.param_components.progress_bar_component import Pro
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
-from griptape_nodes.files.file import File
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.os_events import (
     ScanSequencesRequest,
     ScanSequencesResultSuccess,
@@ -460,8 +461,16 @@ class ExtractFrames(SuccessFailureNode):
             self._fail(ValueError("No frames to extract with the current settings."))
             return
 
+        # Resolved before extraction so a settings failure goes through _fail like the checks above;
+        # an exception raised inside the yielded callable skips the except around the yield.
         try:
-            yield lambda: self._perform_extraction(video_url, frame_numbers)
+            output_dir = self._resolve_output_dir()
+        except (NodeError, ValueError, FileLoadError) as e:
+            self._fail(e)
+            return
+
+        try:
+            yield lambda: self._perform_extraction(video_url, frame_numbers, output_dir)
         except Exception as e:
             self._set_safe_defaults()
             self._set_status_results(was_successful=False, result_details=f"Frame extraction failed: {e}")
@@ -473,8 +482,7 @@ class ExtractFrames(SuccessFailureNode):
         self._set_status_results(was_successful=False, result_details=str(error))
         self._handle_failure_exception(error)
 
-    def _perform_extraction(self, video_url: str, frame_numbers: list[int]) -> None:
-        output_dir = self._resolve_output_dir()
+    def _perform_extraction(self, video_url: str, frame_numbers: list[int], output_dir: pathlib.Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         prefix = self.get_parameter_value("file_prefix") or DEFAULT_OUTPUT_PREFIX
