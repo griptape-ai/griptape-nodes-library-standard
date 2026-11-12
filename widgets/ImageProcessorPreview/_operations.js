@@ -13,6 +13,7 @@
 import { applyLut, blendByte, gaussianBlur, luma } from "./_pixels.js";
 import { VIDEO_OPERATIONS } from "./_video_operations.js";
 import { colorBars } from "./_color_bars.js";
+import { divisibleSize } from "./_divisible_size.js";
 import { textImage, textOverlay } from "./_text.js";
 import {
   colorToTransparent,
@@ -249,6 +250,7 @@ function resizeLayout(v, w, h) {
     const s = num(v.percentage_scale, 100) / 100;
     return { width: Math.trunc(w * s), height: Math.trunc(h * s) };
   }
+  if (mode === "divisible by") return divisibleSize(v, w, h);
   let targetW;
   let targetH;
   if (mode === "width and height") {

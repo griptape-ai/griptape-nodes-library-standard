@@ -8,6 +8,7 @@ from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -22,6 +23,7 @@ from griptape_nodes.traits.slider import Slider
 from static_ffmpeg import run  # type: ignore[import-untyped]
 
 from griptape_nodes_library.image.image_preview import ImagePreviewMixin
+from griptape_nodes_library.utils.divisible_size import AnchorDimension, Rounding
 from griptape_nodes_library.utils.video_utils import (
     detect_video_format,
     to_video_artifact,
@@ -40,6 +42,10 @@ class ResizeSettings:
     background_color: str
     scaling_algorithm: str
     lanczos_parameter: float
+    divisor: int
+    rounding: str
+    preserve_aspect_ratio: bool
+    anchor_dimension: str
 
 
 class ResizeVideo(ImagePreviewMixin, ControlNode):
@@ -54,6 +60,10 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
         "fit_mode",
         "background_color",
         "percentage",
+        "divisor",
+        "rounding",
+        "preserve_aspect_ratio",
+        "anchor_dimension",
         "scaling_algorithm",
         "lanczos_parameter",
     ]
@@ -63,6 +73,12 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
     RESIZE_MODE_HEIGHT = "height"
     RESIZE_MODE_PERCENTAGE = "percentage"
     RESIZE_MODE_WIDTH_HEIGHT = "width and height"
+    RESIZE_MODE_DIVISIBLE = "divisible by"
+
+    DIVISIBLE_PARAMETERS: ClassVar[list[str]] = ["divisor", "rounding", "preserve_aspect_ratio", "anchor_dimension"]
+    MIN_DIVISOR = 2
+    MAX_DIVISOR = 1024
+    DEFAULT_DIVISOR = 64
 
     MIN_TARGET_SIZE = 1
     MAX_TARGET_SIZE = 8000
@@ -98,7 +114,10 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
             resize_mode_param = ParameterString(
                 name="resize_mode",
                 default_value=self.RESIZE_MODE_PERCENTAGE,
-                tooltip="How to resize the video: by width, height, percentage, or width and height",
+                tooltip=(
+                    "How to resize the video: by width, height, width and height, percentage, "
+                    "or to dimensions divisible by a number"
+                ),
             )
             resize_mode_param.add_trait(
                 Options(
@@ -107,6 +126,7 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
                         self.RESIZE_MODE_HEIGHT,
                         self.RESIZE_MODE_WIDTH_HEIGHT,
                         self.RESIZE_MODE_PERCENTAGE,
+                        self.RESIZE_MODE_DIVISIBLE,
                     ]
                 )
             )
@@ -163,6 +183,38 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
             )
             percentage_parameter.add_trait(Slider(min_val=self.MIN_PERCENTAGE_SCALE, max_val=self.MAX_PERCENTAGE_SCALE))
 
+            # Divisibility parameters (for divisible by mode)
+            ParameterInt(
+                name="divisor",
+                default_value=self.DEFAULT_DIVISOR,
+                min_val=self.MIN_DIVISOR,
+                max_val=self.MAX_DIVISOR,
+                tooltip=(
+                    f"Output width and height become multiples of this even number "
+                    f"({self.MIN_DIVISOR}-{self.MAX_DIVISOR}). Video encoders need even dimensions."
+                ),
+            )
+            ParameterString(
+                name="rounding",
+                default_value=Rounding.ROUND,
+                tooltip="Round each dimension to the nearest multiple, down (floor), or up (ceil)",
+                traits={Options(choices=list(Rounding))},
+            )
+            ParameterBool(
+                name="preserve_aspect_ratio",
+                default_value=True,
+                tooltip=(
+                    "On: round the anchor dimension, scale the other by the same factor, then round it. "
+                    "Off: round width and height independently."
+                ),
+            )
+            ParameterString(
+                name="anchor_dimension",
+                default_value=AnchorDimension.AUTO,
+                tooltip="Dimension rounded first when preserving aspect ratio. Auto uses the larger one.",
+                traits={Options(choices=list(AnchorDimension))},
+            )
+
             # Add scaling algorithm parameter
             scaling_algorithm_parameter = ParameterString(
                 name="scaling_algorithm",
@@ -198,6 +250,7 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
         self.hide_parameter_by_name("target_height")
         self.hide_parameter_by_name("fit_mode")
         self.hide_parameter_by_name("background_color")
+        self.hide_parameter_by_name(self.DIVISIBLE_PARAMETERS)
         self.show_parameter_by_name("percentage")
 
         # Add output video parameter
@@ -245,6 +298,13 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
                 self.show_parameter_by_name("target_height")
                 self.show_parameter_by_name("fit_mode")
                 self.hide_parameter_by_name("background_color")
+            elif value == self.RESIZE_MODE_DIVISIBLE:
+                self.hide_parameter_by_name("percentage")
+                self.hide_parameter_by_name("target_size")
+                self.hide_parameter_by_name("target_width")
+                self.hide_parameter_by_name("target_height")
+                self.hide_parameter_by_name("fit_mode")
+                self.hide_parameter_by_name("background_color")
             else:
                 self.hide_parameter_by_name("percentage")
                 self.show_parameter_by_name("target_size")
@@ -252,6 +312,10 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
                 self.hide_parameter_by_name("target_height")
                 self.hide_parameter_by_name("fit_mode")
                 self.hide_parameter_by_name("background_color")
+            if value == self.RESIZE_MODE_DIVISIBLE:
+                self.show_parameter_by_name(self.DIVISIBLE_PARAMETERS)
+            else:
+                self.hide_parameter_by_name(self.DIVISIBLE_PARAMETERS)
         elif parameter.name == "fit_mode":
             if value == self.FIT_MODE_FIT:
                 self.show_parameter_by_name("background_color")
@@ -307,6 +371,15 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
                 msg = f"'target_height' must be between {self.MIN_TARGET_SIZE} and {self.MAX_TARGET_SIZE}, got {target_height}."
                 exceptions.append(ValueError(msg))
 
+        if resize_mode == self.RESIZE_MODE_DIVISIBLE:
+            divisor = self.parameter_values.get("divisor", self.DEFAULT_DIVISOR)
+            if divisor < self.MIN_DIVISOR or divisor > self.MAX_DIVISOR or divisor % 2 != 0:
+                msg = (
+                    f"'divisor' must be an even number between {self.MIN_DIVISOR} and {self.MAX_DIVISOR}, "
+                    f"got {divisor}. Video encoders need even dimensions."
+                )
+                exceptions.append(ValueError(msg))
+
         return exceptions if exceptions else None
 
     def _build_scale_expression(self, settings: ResizeSettings) -> str:
@@ -345,8 +418,48 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
                 f"flags={flags},pad={even_width}:{even_height}:x=(ow-iw)/2:y=(oh-ih)/2:color={pad_color}"
             )
 
+        if settings.resize_mode == self.RESIZE_MODE_DIVISIBLE:
+            width_expr, height_expr = self._divisible_size_expressions(settings)
+            return f"scale=w='{width_expr}':h='{height_expr}':flags={flags}"
+
         error_msg = f"Unknown resize mode: {settings.resize_mode!r}"
         raise ValueError(error_msg)
+
+    def _divisible_size_expressions(self, settings: ResizeSettings) -> tuple[str, str]:
+        """FFmpeg width and height expressions matching utils.divisible_size.divisible_dimensions."""
+        divisor = settings.divisor
+
+        def snap(value: str) -> str:
+            match settings.rounding:
+                case Rounding.ROUND:
+                    steps = f"floor(({value})/{divisor}+0.5)"
+                case Rounding.FLOOR:
+                    steps = f"floor(({value})/{divisor})"
+                case Rounding.CEIL:
+                    steps = f"ceil(({value})/{divisor})"
+                case _:
+                    msg = f"Unknown rounding: {settings.rounding!r}"
+                    raise ValueError(msg)
+            return f"max(1,{steps})*{divisor}"
+
+        if not settings.preserve_aspect_ratio:
+            return snap("iw"), snap("ih")
+
+        width_anchored = (snap("iw"), snap(f"ih*({snap('iw')})/iw"))
+        height_anchored = (snap(f"iw*({snap('ih')})/ih"), snap("ih"))
+        match settings.anchor_dimension:
+            case AnchorDimension.AUTO:
+                return (
+                    f"if(gte(iw,ih),{width_anchored[0]},{height_anchored[0]})",
+                    f"if(gte(iw,ih),{width_anchored[1]},{height_anchored[1]})",
+                )
+            case AnchorDimension.WIDTH:
+                return width_anchored
+            case AnchorDimension.HEIGHT:
+                return height_anchored
+            case _:
+                msg = f"Unknown anchor dimension: {settings.anchor_dimension!r}"
+                raise ValueError(msg)
 
     def _make_even(self, value: int) -> int:
         even_value = (max(1, value) // 2) * 2
@@ -472,6 +585,10 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
             background_color=self.parameter_values.get("background_color", "#000000"),
             scaling_algorithm=self.parameter_values.get("scaling_algorithm", "bicubic"),
             lanczos_parameter=self.parameter_values.get("lanczos_parameter", 3.0),
+            divisor=self.parameter_values.get("divisor", self.DEFAULT_DIVISOR),
+            rounding=self.parameter_values.get("rounding", Rounding.ROUND),
+            preserve_aspect_ratio=self.parameter_values.get("preserve_aspect_ratio", True),
+            anchor_dimension=self.parameter_values.get("anchor_dimension", AnchorDimension.AUTO),
         )
         # Initialize logs
         self.append_value_to_parameter("logs", "[Processing video resize..]\n")
