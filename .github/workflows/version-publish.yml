@@ -27,6 +27,19 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: widgets/package-lock.json
+
+      # The tag must carry widget bundles that match their sources.
+      - name: Check committed widget bundles match their sources
+        run: |
+          make widgets/install
+          make widgets/check-dist
+
       - name: Publish tags
         run: make version/publish
 

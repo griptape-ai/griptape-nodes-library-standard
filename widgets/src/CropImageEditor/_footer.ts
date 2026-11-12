@@ -1,9 +1,59 @@
 // Zoom + rotate slider controls and status bar for CropImageEditor.
 
-import { mkIcon } from './_icons.js';
-import { SLIDER_ACCENT } from './_styles.js';
+import { mkIcon } from './_icons';
+import { SLIDER_ACCENT } from './_styles';
 
-function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey, defaultVal, isLocked, isDisabled, onRender, onEmit }) {
+type SliderParam = "zoom" | "rotate";
+
+interface SliderCallbacks {
+  isLocked: (key: string) => boolean;
+  isDisabled: () => boolean;
+  onRender: () => void;
+  onEmit: () => void;
+}
+
+interface SliderRowOptions extends SliderCallbacks {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  getVal: () => number;
+  setVal: (v: number) => void;
+  format: (v: number) => string;
+  paramKey: SliderParam;
+  defaultVal: number;
+}
+
+interface SliderRow {
+  row: HTMLDivElement;
+  sync: (lockedParams: readonly string[], disabled: boolean) => void;
+}
+
+export interface FooterOptions extends SliderCallbacks {
+  getZoom: () => number;
+  setZoom: (v: number) => void;
+  getRotate: () => number;
+  setRotate: (v: number) => void;
+  version: string;
+}
+
+export interface FooterStatus {
+  imageLoaded: boolean;
+  lockedParams: readonly string[];
+  ecL: number;
+  ecT: number;
+  ecW: number;
+  ecH: number;
+}
+
+export interface Footer {
+  controls: HTMLDivElement;
+  statusBar: HTMLDivElement;
+  sync: (lockedParams: readonly string[], disabled: boolean) => void;
+  updateStatus: (status: FooterStatus) => void;
+}
+
+function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey, defaultVal, isLocked, isDisabled, onRender, onEmit }: SliderRowOptions): SliderRow {
   const row = document.createElement("div");
   row.style.cssText = "display:flex;align-items:center;gap:8px;";
 
@@ -13,8 +63,8 @@ function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey
 
   const slider = document.createElement("input");
   slider.type = "range";
-  slider.min = min; slider.max = max; slider.step = step;
-  slider.value = getVal();
+  slider.min = String(min); slider.max = String(max); slider.step = String(step);
+  slider.value = String(getVal());
   slider.style.cssText = `flex:1;accent-color:${SLIDER_ACCENT};`;
 
   const display = document.createElement("span");
@@ -40,7 +90,7 @@ function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey
   slider.addEventListener("input", (e) => {
     if (isLocked(paramKey) || isDisabled()) return;
     e.stopPropagation();
-    setVal(parseFloat(e.target.value));
+    setVal(parseFloat((e.target as HTMLInputElement).value));
     display.textContent = format(getVal());
     onRender();
   });
@@ -55,7 +105,7 @@ function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey
     if (isLocked(paramKey) || isDisabled()) return;
     e.stopPropagation();
     setVal(defaultVal);
-    slider.value = defaultVal;
+    slider.value = String(defaultVal);
     display.textContent = format(defaultVal);
     onRender();
     onEmit();
@@ -66,11 +116,11 @@ function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey
   row.appendChild(display);
   row.appendChild(resetBtn);
 
-  function sync(lockedParams, disabled) {
+  function sync(lockedParams: readonly string[], disabled: boolean): void {
     const locked = lockedParams.includes(paramKey) || disabled;
     slider.disabled = locked;
     resetBtn.disabled = locked;
-    slider.value = getVal();
+    slider.value = String(getVal());
     display.textContent = format(getVal());
     row.style.opacity = locked ? "0.4" : "1";
   }
@@ -78,7 +128,7 @@ function makeSliderRow({ label, min, max, step, getVal, setVal, format, paramKey
   return { row, sync };
 }
 
-export function createFooter({ getZoom, setZoom, getRotate, setRotate, isLocked, isDisabled, onRender, onEmit, version }) {
+export function createFooter({ getZoom, setZoom, getRotate, setRotate, isLocked, isDisabled, onRender, onEmit, version }: FooterOptions): Footer {
   const controls = document.createElement("div");
   controls.className = "nodrag nowheel";
   controls.style.cssText = [
@@ -119,12 +169,12 @@ export function createFooter({ getZoom, setZoom, getRotate, setRotate, isLocked,
   statusBar.appendChild(statusL);
   statusBar.appendChild(statusR);
 
-  function sync(lockedParams, disabled) {
+  function sync(lockedParams: readonly string[], disabled: boolean): void {
     zoomRow.sync(lockedParams, disabled);
     rotateRow.sync(lockedParams, disabled);
   }
 
-  function updateStatus({ imageLoaded, lockedParams, ecL, ecT, ecW, ecH }) {
+  function updateStatus({ imageLoaded, lockedParams, ecL, ecT, ecW, ecH }: FooterStatus): void {
     if (!imageLoaded) {
       statusL.textContent = "No image connected";
       statusL.style.color = "";

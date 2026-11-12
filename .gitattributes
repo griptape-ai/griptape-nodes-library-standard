@@ -1,0 +1,2 @@
+# Built widget bundles are compared byte for byte with a fresh build; never convert line endings.
+widgets/dist/** -text

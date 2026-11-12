@@ -37,3 +37,28 @@ jobs:
 
       - name: Run unit tests
         run: make test/unit
+
+  widgets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: widgets/package-lock.json
+
+      - name: Install widget dependencies
+        run: make widgets/install
+
+      - name: Type-check widgets
+        run: make widgets/typecheck
+
+      - name: Test widgets
+        run: make widgets/test
+
+      - name: Check committed widget bundles match their sources
+        run: make widgets/check-dist
