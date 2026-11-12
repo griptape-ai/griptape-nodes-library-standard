@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import subprocess
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
@@ -15,6 +19,7 @@ from griptape_nodes_library.audio.transcribe_audio import TranscribeAudio
 from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
 from griptape_nodes_library.llm.agent_state import AgentState
 from griptape_nodes_library.llm.model_config import ModelConfig, ModelProvider
+from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path
 
 DATA_URI = "data:audio/mpeg;base64,QUFB"
 
@@ -112,6 +117,68 @@ class TestResolveAudioDataUri:
         node = _make_node()
         result = await node._resolve_audio_data_uri("")
         assert result is None
+
+
+def _make_video(path: Path, *, with_audio: bool) -> Path:
+    cmd = [get_ffmpeg_path(), "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=1"]
+    if with_audio:
+        cmd += ["-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-shortest"]
+    cmd.append(str(path))
+    subprocess.run(cmd, capture_output=True, check=True, timeout=120)  # noqa: S603
+    return path
+
+
+class TestResolveVideoInput:
+    """A video connected to ``audio`` is transcribed from its audio track."""
+
+    @pytest.mark.asyncio
+    async def test_video_url_artifact_extracts_mp3_track(self, tmp_path: Path) -> None:
+        node = _make_node()
+        video = _make_video(tmp_path / "clip.mp4", with_audio=True)
+
+        result = await node._resolve_audio_data_uri(VideoUrlArtifact(str(video)))
+
+        assert result is not None
+        prefix = "data:audio/mpeg;base64,"
+        assert result.startswith(prefix)
+        assert len(base64.b64decode(result.removeprefix(prefix))) > 0
+
+    @pytest.mark.asyncio
+    async def test_dict_serialized_video_url_artifact(self, tmp_path: Path) -> None:
+        node = _make_node()
+        video = _make_video(tmp_path / "clip.mp4", with_audio=True)
+
+        result = await node._resolve_audio_data_uri({"type": "VideoUrlArtifact", "value": str(video)})
+
+        assert result is not None
+        assert result.startswith("data:audio/mpeg;base64,")
+
+    @pytest.mark.asyncio
+    async def test_video_without_audio_track_raises(self, tmp_path: Path) -> None:
+        node = _make_node()
+        video = _make_video(tmp_path / "silent.mp4", with_audio=False)
+
+        with pytest.raises(ValueError, match="Could not extract an audio track from the video input"):
+            await node._resolve_audio_data_uri(VideoUrlArtifact(str(video)))
+
+    @pytest.mark.asyncio
+    async def test_audio_track_over_upload_limit_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        node = _make_node()
+        video = _make_video(tmp_path / "clip.mp4", with_audio=True)
+        monkeypatch.setattr(transcribe_audio_module, "MAX_UPLOAD_BYTES", 1)
+
+        with pytest.raises(ValueError, match="too long to transcribe"):
+            await node._resolve_audio_data_uri(VideoUrlArtifact(str(video)))
+
+    @pytest.mark.asyncio
+    async def test_video_path_string_extracts_track(self, tmp_path: Path) -> None:
+        node = _make_node()
+        video = _make_video(tmp_path / "clip.mov", with_audio=True)
+
+        result = await node._resolve_audio_data_uri(AudioUrlArtifact(str(video)))
+
+        assert result is not None
+        assert result.startswith("data:audio/mpeg;base64,")
 
 
 class TestBuildPayload:

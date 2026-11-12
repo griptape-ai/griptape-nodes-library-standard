@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import base64
 import logging
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlparse
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
@@ -17,6 +22,8 @@ from griptape_nodes.traits.slider import Slider
 from griptape_nodes_library.llm.agent_node_support import default_cloud_model_config
 from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs
 from griptape_nodes_library.proxy import GriptapeProxyNode
+from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path, run_ffmpeg_cmd
+from griptape_nodes_library.utils.video_utils import is_video_url_artifact, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +39,10 @@ LEGACY_MODEL_VALUES: dict[str, str] = {
     "gpt-4o-mini-transcribe": "whisper-1",
     "gpt-4o-transcribe": "whisper-1",
 }
+
+# Video containers the provider rejects. mp4 and webm are sent as-is: the provider accepts both.
+VIDEO_EXTENSIONS = {".3gp", ".avi", ".flv", ".m4v", ".mkv", ".mov", ".mts", ".wmv"}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 RESPONSE_FORMAT_CHOICES = ["json", "verbose_json"]
 DEFAULT_RESPONSE_FORMAT = "json"
@@ -61,7 +72,10 @@ class TranscribeAudio(GriptapeProxyNode):
             ParameterAudio(
                 name="audio",
                 default_value=None,
-                tooltip="Audio to transcribe. Supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, flac. Max 25MB.",
+                tooltip=(
+                    "Audio or video to transcribe. Supported audio formats: mp3, mp4, mpeg, mpga, m4a, wav, "
+                    "webm, flac. Max 25MB. A video is transcribed from its audio track."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"clickable_file_browser": True, "expander": True},
             )
@@ -223,13 +237,17 @@ class TranscribeAudio(GriptapeProxyNode):
         """Resolve an audio parameter value to a base64 data URI.
 
         Args:
-            audio_value: The value from the audio parameter (AudioUrlArtifact, dict, or string)
+            audio_value: The value from the audio parameter (AudioUrlArtifact, VideoUrlArtifact, dict, or string)
 
         Returns:
             str | None: The base64 data URI, or None if resolution failed
         """
         if audio_value is None:
             return None
+
+        video_url = self._video_url(audio_value)
+        if video_url:
+            return await self._extract_audio_data_uri(video_url)
 
         # Handle AudioUrlArtifact
         if isinstance(audio_value, AudioUrlArtifact):
@@ -244,6 +262,10 @@ class TranscribeAudio(GriptapeProxyNode):
         if not audio_url:
             return None
 
+        # The parameter's converter wraps a path to a video file as audio.
+        if PurePosixPath(urlparse(audio_url).path).suffix.lower() in VIDEO_EXTENSIONS:
+            return await self._extract_audio_data_uri(audio_url)
+
         try:
             # ``File`` resolves project macro paths (e.g. ``{outputs}/clip.mp3``) emitted by
             # upstream nodes, which a plain HTTP GET against the value would not.
@@ -251,6 +273,71 @@ class TranscribeAudio(GriptapeProxyNode):
         except FileLoadError as e:
             self._log(f"Failed to load audio: {e}")
             return None
+
+    @staticmethod
+    def _video_url(value: Any) -> str | None:
+        """Return the location of a video input, or None when the value is not a video."""
+        if is_video_url_artifact(value):
+            return value.value
+        if isinstance(value, dict) and value.get("type") == "VideoUrlArtifact":
+            return value.get("value")
+        return None
+
+    async def _extract_audio_data_uri(self, video_url: str) -> str:
+        """Extract a video's first audio track as a base64 mp3 data URI.
+
+        The track is downmixed to 16 kHz mono speech quality, which fits about 1h45m under the
+        provider's 25MB limit.
+
+        Raises:
+            ValueError: If the video can't be loaded, has no audio track, or the audio is too long.
+        """
+        try:
+            input_path = File(video_url).resolve()
+        except FileLoadError as e:
+            msg = f"Failed to load the video input: {e}"
+            raise ValueError(msg) from e
+
+        if not validate_url(input_path):
+            msg = f"The video input is not a valid file path or URL: {input_path}"
+            raise ValueError(msg)
+
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+            output_path = Path(temp_file.name)
+
+        try:
+            cmd = [
+                get_ffmpeg_path(),
+                "-i",
+                input_path,
+                "-map",
+                "0:a:0",
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-acodec",
+                "libmp3lame",
+                "-b:a",
+                "32k",
+                "-y",
+                str(output_path),
+            ]
+            try:
+                await asyncio.to_thread(run_ffmpeg_cmd, cmd, log=self._log)
+            except ValueError as e:
+                msg = f"Could not extract an audio track from the video input. {e}"
+                raise ValueError(msg) from e
+            audio_bytes = output_path.read_bytes()
+        finally:
+            output_path.unlink(missing_ok=True)
+
+        if len(audio_bytes) > MAX_UPLOAD_BYTES:
+            msg = "The video's audio track is too long to transcribe in one request. Trim the video and try again."
+            raise ValueError(msg)
+
+        return f"data:audio/mpeg;base64,{base64.b64encode(audio_bytes).decode()}"
 
     async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for OpenAI audio transcription."""
