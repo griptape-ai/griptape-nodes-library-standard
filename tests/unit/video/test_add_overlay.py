@@ -123,9 +123,8 @@ def test_scale_to_cover_scales_and_crops_overlay_to_base_size(node: AddOverlay, 
 
     filter_complex = _filter_complex(cmd)
     assert "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080" in filter_complex
-    assert "[1]setsar=1,format=gbrp[bg]" in filter_complex
-    assert "format=gbrp[fg]" in filter_complex
-    assert "[bg][fg]blend=all_mode=screen" in filter_complex
+    assert "[1]setsar=1,format=gbrp,split[bg_blend][bg_keep]" in filter_complex
+    assert "[bg_blend][fg_color]blend=all_mode=screen" in filter_complex
 
 
 def test_scale_to_fit_stretches_overlay_to_base_size(node: AddOverlay, captured_paths: list[str]) -> None:  # noqa: ARG001
@@ -206,3 +205,321 @@ def test_blend_modes_render_when_overlay_and_base_differ_in_size(tmp_path: Path,
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)  # noqa: S603
     assert result.returncode == 0, result.stderr[-2000:]
     assert output.stat().st_size > 0
+
+
+# ---------------------------------------------------------------------------
+# Alpha: blend modes respect it, a matte supplies it, premultiplied input is unpremultiplied
+# ---------------------------------------------------------------------------
+
+SIZE = "64x64"
+
+
+def _build(node: AddOverlay, base: Path, output: Path, overlay: Path, **kwargs: Any) -> list[str]:
+    params: dict[str, Any] = {"blend_mode": "overlay", "amount": 1.0, "sizing": "Scale to fit"}
+    params.update(kwargs)
+    if "matte_video" in params:
+        params["matte_video"] = ImageUrlArtifact(str(params["matte_video"]))
+    return node._build_ffmpeg_command(
+        str(base), str(output), 10.0, overlay_video=ImageUrlArtifact(str(overlay)), **params
+    )
+
+
+def _render_pixel(cmd: list[str], output: Path, tmp_path: Path, xy: tuple[int, int] = (32, 32)) -> tuple[int, int, int]:
+    from PIL import Image  # noqa: PLC0415
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)  # noqa: S603
+    assert result.returncode == 0, result.stderr[-2000:]
+    frame = tmp_path / "frame.png"
+    subprocess.run(  # noqa: S603
+        [_ffmpeg_path(), "-y", "-i", str(output), "-frames:v", "1", "-update", "1", str(frame)],
+        capture_output=True,
+        check=True,
+        timeout=120,
+    )
+    return Image.open(frame).convert("RGB").getpixel(xy)
+
+
+@pytest.fixture
+def gray_base(tmp_path: Path) -> Path:
+    return _make_input(tmp_path / "base.mp4", f"color=c=0x646464:s={SIZE}:duration=1:rate=10")
+
+
+@pytest.fixture
+def black_base(tmp_path: Path) -> Path:
+    return _make_input(tmp_path / "base.mp4", f"color=c=black:s={SIZE}:duration=1:rate=10")
+
+
+def _assert_close(actual: tuple[int, int, int], expected: int, tolerance: int = 6) -> None:
+    assert all(abs(channel - expected) <= tolerance for channel in actual), f"{actual} is not near {expected}"
+
+
+@pytest.mark.parametrize("blend_mode", [mode for mode in AddOverlay.BLEND_MODES if mode != "overlay"])
+def test_blend_modes_leave_base_untouched_under_a_transparent_overlay(
+    tmp_path: Path, gray_base: Path, blend_mode: str
+) -> None:
+    overlay = _make_input(tmp_path / "clear.png", f"color=c=white@0.0:s={SIZE},format=rgba", frames=1)
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(AddOverlay(name="Add Overlay"), gray_base, output, overlay, blend_mode=blend_mode)
+
+    _assert_close(_render_pixel(cmd, output, tmp_path), 100)
+
+
+def test_screen_blend_mixes_by_overlay_alpha(tmp_path: Path, gray_base: Path) -> None:
+    # White at half alpha screened over gray 100 is white; half-mixed with the base gives about 178.
+    overlay = _make_input(tmp_path / "half.png", f"color=c=white@0.5:s={SIZE},format=rgba", frames=1)
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(AddOverlay(name="Add Overlay"), gray_base, output, overlay, blend_mode="screen")
+
+    _assert_close(_render_pixel(cmd, output, tmp_path), 178)
+
+
+def test_premultiplied_alpha_is_unpremultiplied_before_compositing(tmp_path: Path, black_base: Path) -> None:
+    # RGB 128 at alpha 128. Premultiplied means the colour is already scaled: 128 over black stays about 128.
+    # Read as straight, the same pixel composites to about 64.
+    overlay = _make_input(tmp_path / "pm.png", f"color=c=0x808080@0.5:s={SIZE},format=rgba", frames=1)
+    node = AddOverlay(name="Add Overlay")
+
+    straight_out = tmp_path / "straight.mp4"
+    straight = _render_pixel(_build(node, black_base, straight_out, overlay), straight_out, tmp_path)
+    premultiplied_out = tmp_path / "premultiplied.mp4"
+    premultiplied = _render_pixel(
+        _build(node, black_base, premultiplied_out, overlay, alpha_convention="premultiplied"),
+        premultiplied_out,
+        tmp_path,
+    )
+
+    _assert_close(straight, 64)
+    _assert_close(premultiplied, 128)
+
+
+@pytest.mark.parametrize("blend_mode", ["overlay", "screen"])
+def test_black_matte_hides_and_white_matte_shows_the_overlay(tmp_path: Path, black_base: Path, blend_mode: str) -> None:
+    overlay = _make_input(tmp_path / "white.png", f"color=c=white:s={SIZE}", frames=1)
+    black_matte = _make_input(tmp_path / "black_matte.png", f"color=c=black:s={SIZE}", frames=1)
+    white_matte = _make_input(tmp_path / "white_matte.png", f"color=c=white:s={SIZE}", frames=1)
+    node = AddOverlay(name="Add Overlay")
+
+    hidden_out = tmp_path / "hidden.mp4"
+    hidden = _render_pixel(
+        _build(node, black_base, hidden_out, overlay, blend_mode=blend_mode, matte_video=black_matte),
+        hidden_out,
+        tmp_path,
+    )
+    shown_out = tmp_path / "shown.mp4"
+    shown = _render_pixel(
+        _build(node, black_base, shown_out, overlay, blend_mode=blend_mode, matte_video=white_matte),
+        shown_out,
+        tmp_path,
+    )
+
+    _assert_close(hidden, 0)
+    _assert_close(shown, 255, tolerance=10)
+
+
+def test_matte_is_scaled_to_the_overlay_size(tmp_path: Path, black_base: Path) -> None:
+    overlay = _make_input(tmp_path / "white.png", f"color=c=white:s={SIZE}", frames=1)
+    small_matte = _make_input(tmp_path / "matte.png", "color=c=white:s=8x8", frames=1)
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(AddOverlay(name="Add Overlay"), black_base, output, overlay, matte_video=small_matte)
+
+    _assert_close(_render_pixel(cmd, output, tmp_path), 255, tolerance=10)
+
+
+def test_matte_is_the_third_ffmpeg_input_and_absent_without_one(node: AddOverlay, captured_paths: list[str]) -> None:  # noqa: ARG001
+    with_matte = node._build_ffmpeg_command(
+        "/base.mp4",
+        "/out.mp4",
+        30.0,
+        overlay_video=ImageUrlArtifact("/logo.png"),
+        matte_video=ImageUrlArtifact("/matte.png"),
+    )
+    without_matte = node._build_ffmpeg_command(
+        "/base.mp4", "/out.mp4", 30.0, overlay_video=ImageUrlArtifact("/logo.png")
+    )
+
+    inputs = [with_matte[i + 1] for i, token in enumerate(with_matte) if token == "-i"]
+    assert inputs == ["/resolved/logo.png", "/base.mp4", "/resolved/matte.png"]
+    assert "[2]" in _filter_complex(with_matte)
+    assert with_matte.count("-i") == 3
+    assert without_matte.count("-i") == 2
+    assert "[2]" not in _filter_complex(without_matte)
+
+
+def test_matte_without_a_location_raises(node: AddOverlay) -> None:
+    with pytest.raises(ValueError, match="matte_video"):
+        node._build_ffmpeg_command(
+            "/base.mp4",
+            "/out.mp4",
+            30.0,
+            overlay_video=ImageUrlArtifact("/logo.png"),
+            matte_video=ImageArtifact(b"\x00", format="png", width=1, height=1),
+        )
+
+
+def test_unknown_alpha_convention_raises(node: AddOverlay) -> None:
+    with pytest.raises(ValueError, match="Unknown alpha convention"):
+        node._build_ffmpeg_command(
+            "/base.mp4",
+            "/out.mp4",
+            30.0,
+            overlay_video=ImageUrlArtifact("/logo.png"),
+            alpha_convention="sideways",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Edge cleanup: choke and edge softness
+# ---------------------------------------------------------------------------
+
+
+def test_edge_cleanup_adds_nothing_to_the_graph_by_default(node: AddOverlay, captured_paths: list[str]) -> None:  # noqa: ARG001
+    cmd = node._build_ffmpeg_command("/base.mp4", "/out.mp4", 30.0, overlay_video=ImageUrlArtifact("/logo.png"))
+
+    filter_complex = _filter_complex(cmd)
+    assert "erosion" not in filter_complex
+    assert "gblur" not in filter_complex
+
+
+def test_choke_erodes_the_alpha_once_per_pixel(node: AddOverlay, captured_paths: list[str]) -> None:  # noqa: ARG001
+    cmd = node._build_ffmpeg_command(
+        "/base.mp4", "/out.mp4", 30.0, overlay_video=ImageUrlArtifact("/logo.png"), choke=3, edge_softness=1.5
+    )
+
+    filter_complex = _filter_complex(cmd)
+    assert "alphaextract,erosion,erosion,erosion,gblur=sigma=1.5[edge_alpha]" in filter_complex
+
+
+def test_choke_pulls_the_edge_in_and_leaves_the_centre(tmp_path: Path, black_base: Path) -> None:
+    # An opaque white square at x=16..47. One pixel in from its left edge is solid white without a choke
+    # and becomes base black once the alpha is eroded by two pixels. The centre stays white.
+    overlay = _make_input(
+        tmp_path / "square.png",
+        f"color=c=black@0.0:s={SIZE},format=rgba,drawbox=x=16:y=16:w=32:h=32:color=white@1.0:t=fill:replace=1",
+        frames=1,
+    )
+    node = AddOverlay(name="Add Overlay")
+
+    plain_out = tmp_path / "plain.mp4"
+    plain = _render_pixel(_build(node, black_base, plain_out, overlay), plain_out, tmp_path, xy=(17, 32))
+    choked_out = tmp_path / "choked.mp4"
+    choked_edge = _render_pixel(
+        _build(node, black_base, choked_out, overlay, choke=2), choked_out, tmp_path, xy=(17, 32)
+    )
+    choked_centre = _render_pixel(_build(node, black_base, choked_out, overlay, choke=2), choked_out, tmp_path)
+
+    _assert_close(plain, 255, tolerance=10)
+    _assert_close(choked_edge, 0, tolerance=10)
+    _assert_close(choked_centre, 255, tolerance=10)
+
+
+@pytest.mark.parametrize("blend_mode", ["overlay", "screen"])
+def test_choke_and_softness_render_in_every_mode(tmp_path: Path, gray_base: Path, blend_mode: str) -> None:
+    overlay = _make_input(tmp_path / "half.png", f"color=c=white@0.5:s={SIZE},format=rgba", frames=1)
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(
+        AddOverlay(name="Add Overlay"), gray_base, output, overlay, blend_mode=blend_mode, choke=2, edge_softness=1.0
+    )
+
+    _render_pixel(cmd, output, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# A still image on either input: the video sets the length
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("location", "expected"),
+    [
+        ("/a/b/logo.PNG", True),
+        ("/a/b/photo.jpeg", True),
+        ("http://localhost:8124/static/a.webp?x=1", True),
+        ("data:image/png;base64,AAAA", True),
+        ("data:video/mp4;base64,AAAA", False),
+        ("/a/b/clip.mp4", False),
+        ("/a/b/clip.mov", False),
+        ("http://localhost:8124/static/clip.mp4?x=1.png", False),
+    ],
+)
+def test_still_images_are_recognised_by_location(node: AddOverlay, location: str, expected: bool) -> None:  # noqa: FBT001
+    assert node._is_still_image(location) is expected
+
+
+def test_an_image_is_accepted_as_the_base_input(node: AddOverlay) -> None:
+    node.parameter_values["video"] = ImageUrlArtifact("/base.png")
+
+    assert node._validate_video_input() is None
+
+
+def test_a_missing_base_input_is_still_rejected(node: AddOverlay) -> None:
+    node.parameter_values["video"] = None
+
+    assert node._validate_video_input()
+
+
+def test_video_overlay_over_image_base_takes_the_overlay_length(tmp_path: Path) -> None:
+    base = _make_input(tmp_path / "base.png", f"color=c=blue:s={SIZE}", frames=1)
+    overlay = _make_input(tmp_path / "overlay.mp4", f"color=c=red:s={SIZE}:duration=1:rate=10")
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(AddOverlay(name="Add Overlay"), base, output, overlay)
+    pixel = _render_pixel(cmd, output, tmp_path)
+
+    probe = subprocess.run(  # noqa: S603
+        [
+            AddOverlay(name="Add Overlay")._get_ffmpeg_paths()[1],
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames,r_frame_rate",
+            "-of",
+            "csv=p=0",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    frame_rate, frame_count = probe.stdout.strip().split(",")
+    assert frame_rate == "10/1"
+    assert int(frame_count) == 10
+    assert pixel[0] > 200
+    assert pixel[2] < 60
+
+
+def test_image_overlay_over_video_base_runs_for_the_video_length(tmp_path: Path) -> None:
+    base = _make_input(tmp_path / "base.mp4", f"color=c=blue:s={SIZE}:duration=1:rate=10")
+    overlay = _make_input(tmp_path / "overlay.png", f"color=c=red:s={SIZE}", frames=1)
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(AddOverlay(name="Add Overlay"), base, output, overlay)
+    pixel = _render_pixel(cmd, output, tmp_path)
+
+    assert pixel[0] > 200
+    assert pixel[2] < 60
+
+
+def test_two_images_raise_because_the_result_has_no_length(tmp_path: Path) -> None:
+    base = _make_input(tmp_path / "base.png", f"color=c=blue:s={SIZE}", frames=1)
+    overlay = _make_input(tmp_path / "overlay.png", f"color=c=red:s={SIZE}", frames=1)
+
+    with pytest.raises(ValueError, match="At least one"):
+        _build(AddOverlay(name="Add Overlay"), base, tmp_path / "out.mp4", overlay)
+
+
+def test_image_base_does_not_loop_a_video_base(node: AddOverlay, captured_paths: list[str]) -> None:  # noqa: ARG001
+    cmd = node._build_ffmpeg_command("/base.mp4", "/out.mp4", 30.0, overlay_video=ImageUrlArtifact("/logo.png"))
+
+    assert "-loop" not in cmd
+
+
+def test_amount_defaults_to_full_strength() -> None:
+    assert AddOverlay(name="Add Overlay").get_parameter_value("amount") == 1.0
