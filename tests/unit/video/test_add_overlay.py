@@ -236,7 +236,9 @@ def _render_pixel(cmd: list[str], output: Path, tmp_path: Path, xy: tuple[int, i
         check=True,
         timeout=120,
     )
-    return Image.open(frame).convert("RGB").getpixel(xy)
+    pixel = Image.open(frame).convert("RGB").getpixel(xy)
+    assert isinstance(pixel, tuple)
+    return pixel[0], pixel[1], pixel[2]
 
 
 @pytest.fixture

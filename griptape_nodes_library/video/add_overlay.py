@@ -83,10 +83,12 @@ class AddOverlay(BaseVideoProcessor):
 
     def _setup_custom_parameters(self) -> None:
         """Setup overlay parameters."""
-        self.get_parameter_by_name("video").tooltip = (
-            "The base video, or a still image to composite a video overlay onto. "
-            "With an image, the overlay video sets the length and frame rate of the result."
-        )
+        base_param = self.get_parameter_by_name("video")
+        if base_param is not None:
+            base_param.tooltip = (
+                "The base video, or a still image to composite a video overlay onto. "
+                "With an image, the overlay video sets the length and frame rate of the result."
+            )
         overlay_param = ParameterVideo(
             name="overlay_video",
             input_types=["VideoArtifact", "VideoUrlArtifact", "ImageArtifact", "ImageUrlArtifact"],
