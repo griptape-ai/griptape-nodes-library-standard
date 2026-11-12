@@ -2,6 +2,7 @@ from math import gcd
 from typing import Any, ClassVar
 
 from griptape_nodes.exe_types.core_types import NodeMessageResult, Parameter, ParameterGroup
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -11,6 +12,7 @@ from griptape_nodes.traits.slider import Slider
 from PIL import Image
 
 from griptape_nodes_library.image.base_image_processor import BaseImageProcessor
+from griptape_nodes_library.utils.divisible_size import AnchorDimension, Rounding, divisible_dimensions
 
 
 class RescaleImage(BaseImageProcessor):
@@ -26,6 +28,10 @@ class RescaleImage(BaseImageProcessor):
         "aspect_ratio",
         "fit_mode",
         "background_color",
+        "divisor",
+        "rounding",
+        "preserve_aspect_ratio",
+        "anchor_dimension",
         "resample_filter",
     ]
 
@@ -35,6 +41,12 @@ class RescaleImage(BaseImageProcessor):
     RESIZE_MODE_PERCENTAGE = "percentage"
     RESIZE_MODE_WIDTH_HEIGHT = "width and height"
     RESIZE_MODE_ASPECT_RATIO = "aspect ratio"
+    RESIZE_MODE_DIVISIBLE = "divisible by"
+
+    DIVISIBLE_PARAMETERS: ClassVar[list[str]] = ["divisor", "rounding", "preserve_aspect_ratio", "anchor_dimension"]
+    MIN_DIVISOR = 1
+    MAX_DIVISOR = 1024
+    DEFAULT_DIVISOR = 64
 
     # Target size constants (for width/height modes)
     MIN_TARGET_SIZE = 1
@@ -83,6 +95,14 @@ class RescaleImage(BaseImageProcessor):
                 self.show_parameter_by_name("fit_mode")
                 # Background color visibility will be controlled by fit_mode
                 self.hide_parameter_by_name("background_color")
+            elif value == self.RESIZE_MODE_DIVISIBLE:
+                self.hide_parameter_by_name("percentage_scale")
+                self.hide_parameter_by_name("target_size")
+                self.hide_parameter_by_name("target_width")
+                self.hide_parameter_by_name("target_height")
+                self.hide_parameter_by_name("aspect_ratio")
+                self.hide_parameter_by_name("fit_mode")
+                self.hide_parameter_by_name("background_color")
             else:
                 self.hide_parameter_by_name("percentage_scale")
                 self.show_parameter_by_name("target_size")
@@ -91,6 +111,10 @@ class RescaleImage(BaseImageProcessor):
                 self.hide_parameter_by_name("aspect_ratio")
                 self.hide_parameter_by_name("fit_mode")
                 self.hide_parameter_by_name("background_color")
+            if value == self.RESIZE_MODE_DIVISIBLE:
+                self.show_parameter_by_name(self.DIVISIBLE_PARAMETERS)
+            else:
+                self.hide_parameter_by_name(self.DIVISIBLE_PARAMETERS)
         elif parameter.name == "fit_mode":
             # Show background color only for fit mode
             if value == self.FIT_MODE_FIT:
@@ -106,7 +130,10 @@ class RescaleImage(BaseImageProcessor):
             resize_mode_param = ParameterString(
                 name="resize_mode",
                 default_value=self.RESIZE_MODE_PERCENTAGE,
-                tooltip="How to resize the image: by width, height, percentage, or width and height",
+                tooltip=(
+                    "How to resize the image: by width, height, width and height, percentage, aspect ratio, "
+                    "or to dimensions divisible by a number"
+                ),
             )
             resize_mode_param.add_trait(
                 Options(
@@ -116,6 +143,7 @@ class RescaleImage(BaseImageProcessor):
                         self.RESIZE_MODE_WIDTH_HEIGHT,
                         self.RESIZE_MODE_PERCENTAGE,
                         self.RESIZE_MODE_ASPECT_RATIO,
+                        self.RESIZE_MODE_DIVISIBLE,
                     ]
                 )
             )
@@ -200,6 +228,35 @@ class RescaleImage(BaseImageProcessor):
             )
             background_color_param.add_trait(ColorPicker(format="hex"))
 
+            # Divisibility parameters (for divisible by mode)
+            ParameterInt(
+                name="divisor",
+                default_value=self.DEFAULT_DIVISOR,
+                min_val=self.MIN_DIVISOR,
+                max_val=self.MAX_DIVISOR,
+                tooltip=f"Output width and height become multiples of this number ({self.MIN_DIVISOR}-{self.MAX_DIVISOR})",
+            )
+            ParameterString(
+                name="rounding",
+                default_value=Rounding.ROUND,
+                tooltip="Round each dimension to the nearest multiple, down (floor), or up (ceil)",
+                traits={Options(choices=list(Rounding))},
+            )
+            ParameterBool(
+                name="preserve_aspect_ratio",
+                default_value=True,
+                tooltip=(
+                    "On: round the anchor dimension, scale the other by the same factor, then round it. "
+                    "Off: round width and height independently."
+                ),
+            )
+            ParameterString(
+                name="anchor_dimension",
+                default_value=AnchorDimension.AUTO,
+                tooltip="Dimension rounded first when preserving aspect ratio. Auto uses the larger one.",
+                traits={Options(choices=list(AnchorDimension))},
+            )
+
             # Resample filter parameter
             resample_filter_param = ParameterString(
                 name="resample_filter",
@@ -219,6 +276,7 @@ class RescaleImage(BaseImageProcessor):
         self.hide_parameter_by_name("aspect_ratio")
         self.hide_parameter_by_name("fit_mode")
         self.hide_parameter_by_name("background_color")
+        self.hide_parameter_by_name(self.DIVISIBLE_PARAMETERS)
 
     def _get_processing_description(self) -> str:
         """Get description of what this processor does."""
@@ -261,6 +319,10 @@ class RescaleImage(BaseImageProcessor):
         fit_mode = kwargs.get("fit_mode", self.FIT_MODE_FIT)
         background_color = kwargs.get("background_color", "transparent")
         resample_filter = kwargs.get("resample_filter", "lanczos")
+        divisor = kwargs.get("divisor", self.DEFAULT_DIVISOR)
+        rounding = kwargs.get("rounding", Rounding.ROUND)
+        preserve_aspect_ratio = kwargs.get("preserve_aspect_ratio", True)
+        anchor_dimension = kwargs.get("anchor_dimension", AnchorDimension.AUTO)
 
         # Get the resample filter constant
         resample_constant = self._get_resample_constant(resample_filter)
@@ -313,6 +375,16 @@ class RescaleImage(BaseImageProcessor):
                 "resample_constant": resample_constant,
             }
             resized_image = self._resize_with_fit_mode(pil_image, resize_config)
+        elif resize_mode == self.RESIZE_MODE_DIVISIBLE:
+            new_width, new_height = divisible_dimensions(
+                pil_image.width,
+                pil_image.height,
+                divisor,
+                rounding,
+                preserve_aspect_ratio=preserve_aspect_ratio,
+                anchor_dimension=anchor_dimension,
+            )
+            resized_image = pil_image.resize((new_width, new_height), resample_constant)
         else:
             msg = f"Unknown resize mode: {resize_mode!r}"
             raise ValueError(msg)
@@ -485,6 +557,12 @@ class RescaleImage(BaseImageProcessor):
                 except ValueError as e:
                     exceptions.append(e)
 
+        if resize_mode == self.RESIZE_MODE_DIVISIBLE:
+            divisor = self.get_parameter_value("divisor")
+            if divisor is None or divisor < self.MIN_DIVISOR or divisor > self.MAX_DIVISOR:
+                msg = f"'Divisor' must be between {self.MIN_DIVISOR} and {self.MAX_DIVISOR}, got {divisor}."
+                exceptions.append(ValueError(msg))
+
         return exceptions if exceptions else None
 
     def _get_custom_parameters(self) -> dict[str, Any]:
@@ -498,6 +576,10 @@ class RescaleImage(BaseImageProcessor):
             "aspect_ratio": self.get_parameter_value("aspect_ratio"),
             "fit_mode": self.get_parameter_value("fit_mode"),
             "background_color": self.get_parameter_value("background_color"),
+            "divisor": self.get_parameter_value("divisor"),
+            "rounding": self.get_parameter_value("rounding"),
+            "preserve_aspect_ratio": self.get_parameter_value("preserve_aspect_ratio"),
+            "anchor_dimension": self.get_parameter_value("anchor_dimension"),
             "resample_filter": self.get_parameter_value("resample_filter"),
         }
 
