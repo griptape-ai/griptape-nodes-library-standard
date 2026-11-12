@@ -141,9 +141,6 @@ class DirectoryOutputSettings(BaseNode):
             name="dirname",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             tooltip="Folder name or path (supports macros like {workflow_name}_renders)",
-            # The engine substitutes workflow variables into "{name}" tokens before a run, which
-            # would resolve {outputs} and drop an unset {sub_dirs?:/}. The node resolves them itself.
-            allow_variable_substitution=False,
             traits={
                 FileSystemPicker(
                     allow_files=False,
@@ -160,6 +157,8 @@ class DirectoryOutputSettings(BaseNode):
             default_value="",
             allowed_modes={ParameterMode.PROPERTY},
             tooltip="Macro template for output folder resolution",
+            # The engine substitutes workflow variables into "{name}" tokens before a run, which
+            # would resolve {outputs} and drop an unset {sub_dirs?:/}. The node resolves them itself.
             allow_variable_substitution=False,
             settable=True,
         )

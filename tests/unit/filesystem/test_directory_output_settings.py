@@ -30,12 +30,9 @@ def test_macro_and_policy_default_from_the_save_output_directory_situation(node:
     assert node.get_parameter_value("auto_create_path") is True
 
 
-@pytest.mark.parametrize("parameter_name", ["dirname", "macro"])
-def test_macro_tokens_are_not_substituted_as_workflow_variables(
-    node: DirectoryOutputSettings, parameter_name: str
-) -> None:
+def test_macro_tokens_are_not_substituted_as_workflow_variables(node: DirectoryOutputSettings) -> None:
     """Substituting before a run would resolve {outputs} and drop an unset {sub_dirs?:/}."""
-    parameter = node.get_parameter_by_name(parameter_name)
+    parameter = node.get_parameter_by_name("macro")
 
     assert parameter is not None
     assert parameter.allow_variable_substitution is False
