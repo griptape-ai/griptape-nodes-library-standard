@@ -335,10 +335,10 @@ Study the existing test carefully and replicate its structure. Key patterns:
 
 The local griptape-cloud infrastructure should still be running from the `/impl-proxy-client` phase.
 
-**Important:** Use `uv run python` (not bare `python`) to ensure the correct virtual environment and dependencies are available:
+**Important:** Use `uv run python` (not bare `python`) to ensure the correct virtual environment and dependencies are available. Set `UV_PROJECT_ENVIRONMENT=.venv-dev` so `uv` uses the dev environment rather than the engine's `.venv` (see "Two virtual environments" in `CONTRIBUTING.md`):
 
 ```bash
-GT_CLOUD_PROXY_BASE_URL=http://localhost:8000 GT_CLOUD_PROXY_API_KEY=local uv run python -m pytest tests/integration/test_<provider>_<modality>.py -v
+UV_PROJECT_ENVIRONMENT=.venv-dev GT_CLOUD_PROXY_BASE_URL=http://localhost:8000 GT_CLOUD_PROXY_API_KEY=local uv run python -m pytest tests/integration/test_<provider>_<modality>.py -v
 ```
 
 These proxy-specific env vars override only the proxy endpoint and API key without affecting other engine systems (file storage, user auth, etc.) that use `GT_CLOUD_BASE_URL` / `GT_CLOUD_API_KEY`. The `GT_CLOUD_PROXY_API_KEY` must NOT start with `gt-` when targeting local infra, because the local server's `ApiKeyAuthenticator` would reject any `gt-` token not in its DB. A non-`gt-` value like `local` falls through to `LocalUserAuthenticator` which auto-authenticates.

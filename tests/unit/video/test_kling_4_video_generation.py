@@ -396,3 +396,56 @@ def test_validate_common_reports_each_shared_check() -> None:
         "kling-4.0-flash does not support resolution '1080p'. Use 720p.",
         "kling-4.0-flash supports durations of 3-20s (got 2s).",
     ]
+
+
+def test_image_switching_to_v3_keeps_populated_middle_frames_visible_and_rejected() -> None:
+    node = KlingImageToVideoGeneration(name="KlingImage")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "go")
+    node.set_parameter_value("image", _image())
+    node.set_parameter_value("middle_frames", [_image()])
+
+    node.set_parameter_value("model_name", "kling-v3")
+
+    # The v1-v3 payload has no middle frames, so the run is blocked rather than dropping them.
+    assert "middle_frames" not in _hidden(node)
+    assert _validation_messages(node) == [
+        "kling-v3 does not take middle frames. Clear 'Middle Frames', or select Kling 4.0 to use them."
+    ]
+
+    node.set_parameter_value("middle_frames", [])
+
+    assert "middle_frames" in _hidden(node)
+    assert _validation_messages(node) == []
+
+
+def test_image_v3_hides_empty_middle_frames() -> None:
+    node = KlingImageToVideoGeneration(name="KlingImage")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("model_name", "kling-v3")
+
+    assert "middle_frames" in _hidden(node)
+
+
+def test_omni_switching_to_v3_keeps_populated_kling_4_inputs_visible_and_rejected() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "@voice_1 says hello")
+    node.set_parameter_value("voice_ids", "829837252279803904")
+    node.set_parameter_value("audio", "original")
+
+    node.set_parameter_value("model_name", "kling-v3-omni")
+
+    assert not ({"voice_ids", "audio"} & _hidden(node))
+    assert "resolution" in _hidden(node)
+    assert _validation_messages(node) == [
+        "kling-v3-omni does not take voice IDs. Clear 'voice_ids', or select Kling 4.0 to use them.",
+        "kling-v3-omni does not take 'audio'. Set it back to 'native' and use 'video_keep_sound' "
+        "to keep the reference video's audio, or select Kling 4.0.",
+    ]
+
+    node.set_parameter_value("voice_ids", "")
+    node.set_parameter_value("audio", "native")
+
+    assert {"voice_ids", "audio"} <= _hidden(node)
+    assert _validation_messages(node) == []
