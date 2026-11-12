@@ -18,7 +18,7 @@ Widgets are TypeScript sources in `widgets/src/<Name>/`, built into one self-con
   ]
 }
 ```
-The `name` here must match what you pass to `Widget(name=..., library=...)` in Python. Add the entry to `ENTRIES` in `widgets/scripts/build.mjs` too: `MyWidget: "src/MyWidget/MyWidget.ts"`.
+The `name` here must match what you pass to `Widget(name=..., library=...)` in Python. Add the entry to `ENTRIES` in `widgets/scripts/build.mjs` too: `MyWidget: "src/MyWidget/MyWidget.tsx"`.
 
 ### 2. Attach to a Python parameter
 ```python
@@ -36,10 +36,12 @@ self.add_parameter(
 )
 ```
 
-### 3. Write `widgets/src/MyWidget/MyWidget.ts`
-The editor's contract types come from `@griptape-ai/nodes-widget-api` (see `widgets/.npmrc` for where it's installed from). Import them with `import type`; the package has no runtime code.
+### 3. Write `widgets/src/MyWidget/MyWidget.tsx`
+The editor's contract types come from `@griptape-ai/nodes-widget-api` (see `widgets/.npmrc` for where it's installed from). Import them with `import type`.
 
-```ts
+Files that build DOM are TSX. The package's JSX runtime (`jsxImportSource` in `widgets/tsconfig.json`) turns `<div>` into an `HTMLDivElement` directly: no React, no virtual DOM, nothing re-renders. Keep the elements you change later in consts and change them in `update`. `onPointerDown={fn}` adds a `pointerdown` listener; `style` takes CSS text or a camelCase object; `class` sets the class. Listeners with options (`{ passive: false }`, `once`) and listeners on `document` or `window` stay `addEventListener`. Every JSX expression is typed `JSX.Element`, so cast where the element type matters. The package README has the full rules.
+
+```tsx
 import type { WidgetHandle, WidgetProps } from "@griptape-ai/nodes-widget-api";
 
 interface MyValue { adjustment?: number; url?: string }
@@ -50,17 +52,18 @@ export default function MyWidget(host: HTMLElement, props: MyWidgetProps): Widge
   const container = host as MyContainer;
   const { value, onChange } = props;
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "nodrag nowheel";
+  const btn = (
+    <button
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onChange({ ...value, adjustment: (value?.adjustment ?? 0) + 1 });
+      }}
+    >
+      {`Value: ${value?.adjustment ?? 0}`}
+    </button>
+  ) as HTMLButtonElement;
 
-  const btn = document.createElement("button");
-  btn.textContent = `Value: ${value?.adjustment ?? 0}`;
-  btn.addEventListener("pointerdown", (e) => {
-    e.stopPropagation();
-    onChange({ ...value, adjustment: (value?.adjustment ?? 0) + 1 });
-  });
-
-  wrapper.appendChild(btn);
+  const wrapper = (<div class="nodrag nowheel">{btn}</div>) as HTMLDivElement;
   container.appendChild(wrapper);
 
   function cleanup() { wrapper.remove(); }
@@ -268,14 +271,14 @@ Every widget has its own directory; split a complex one into helper modules so t
 
 ```
 widgets/src/MyWidget/
-  MyWidget.ts     ← entry point (listed in ENTRIES in scripts/build.mjs)
+  MyWidget.tsx    ← entry point (listed in ENTRIES in scripts/build.mjs)
   _types.ts       ← the value shapes it exchanges with the node
   _styles.ts      ← visual constants (colors, sizes)
-  _sidebar.ts     ← preset controls, toolbars
-  _footer.ts      ← sliders, status bar
+  _sidebar.tsx    ← preset controls, toolbars
+  _footer.tsx     ← sliders, status bar
 ```
 
-Import siblings with relative paths and no extension. The build bundles them, and any npm package the widget imports, into `widgets/dist/MyWidget.js`, so the editor fetches one file:
+Files that contain JSX are `.tsx`; the rest stay `.ts`. Import siblings with relative paths and no extension. The build bundles them, and any npm package the widget imports, into `widgets/dist/MyWidget.js`, so the editor fetches one file:
 ```ts
 import { HANDLE_R, HANDLE_FILL } from './_styles';
 import { createSidebar } from './_sidebar';
@@ -283,11 +286,10 @@ import { createFooter }  from './_footer';
 ```
 
 Each sub-module exports a factory function that returns DOM elements and a `sync` method:
-```ts
-// _sidebar.ts
+```tsx
+// _sidebar.tsx
 export function createSidebar({ getState, onAction }: SidebarOptions) {
-  const el = document.createElement("div");
-  // ... build DOM ...
+  const el = (<div>{/* ... build DOM ... */}</div>) as HTMLDivElement;
   function syncDisabled(locked, disabled) { /* update button states */ }
   return { el, syncDisabled };
 }
@@ -295,12 +297,12 @@ export function createSidebar({ getState, onAction }: SidebarOptions) {
 
 ---
 
-## Icons: use Lucide SVGs via a `_icons.ts` file
+## Icons: use Lucide SVGs via a `_icons.tsx` file
 
-Widgets use Lucide icons (MIT licensed). Store only the inner SVG path markup in the widget's `_icons.ts` — not the full `<svg>` tag — and wrap it with a `mkIcon` factory that applies the standard Lucide attributes.
+Widgets use Lucide icons (MIT licensed). Store only the inner SVG path markup in the widget's `_icons.tsx` — not the full `<svg>` tag — and wrap it with an `Icon` component that applies the standard Lucide attributes.
 
-**`_icons.ts`**
-```ts
+**`_icons.tsx`**
+```tsx
 // Lucide SVG icon paths (MIT licensed)
 
 export const ICON_PATHS: Record<string, string> = {
@@ -309,29 +311,26 @@ export const ICON_PATHS: Record<string, string> = {
   // add more as needed...
 };
 
-export function mkIcon(name: string, size = 15): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", String(size));
-  svg.setAttribute("height", String(size));
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.style.cssText = "display:block;flex-shrink:0;pointer-events:none;";
-  svg.innerHTML = ICON_PATHS[name] || "";
-  return svg;
-}
-```
+export function Icon({ name, size = 15 }: { name: string; size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24" width={size} height={size}
+      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+      style="display:block;flex-shrink:0;pointer-events:none;"
+      innerHTML={ICON_PATHS[name] || ""}
+    />
+  );
+}```
 
 **Usage:**
-```ts
-import { mkIcon } from './_icons';
+```tsx
+import { Icon } from './_icons';
 
-const btn = document.createElement("button");
-btn.appendChild(mkIcon("rotate-ccw", 14));
-btn.title = "Reset rotation";
+const btn = (
+  <button title="Reset rotation">
+    <Icon name="rotate-ccw" size={14} />
+  </button>
+);
 ```
 
 **How to get path data for a new icon:**
@@ -340,7 +339,7 @@ btn.title = "Reset rotation";
 3. Strip the outer `<svg ...>` tag — keep only the inner `<path>`, `<circle>`, `<line>`, etc. elements as a single string
 4. Add it to `ICON_PATHS`
 
-`mkIcon` sets `stroke="currentColor"` so icons inherit the button/label text color automatically, and they adapt to both light and dark themes. Set `pointer-events:none` so icon clicks don't block the parent button's handler.
+`Icon` sets `stroke="currentColor"` so icons inherit the button/label text color automatically, and they adapt to both light and dark themes. Set `pointer-events:none` so icon clicks don't block the parent button's handler.
 
 ---
 

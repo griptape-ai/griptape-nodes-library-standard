@@ -1,0 +1,1 @@
+- Widgets load faster: their bundles are minified, about 40% smaller (the Splat Viewer about 20% smaller).

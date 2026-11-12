@@ -1,4 +1,4 @@
-import { mkIcon } from './_icons';
+import { Icon } from './_icons';
 import type { GalleryItem, WebcamCaptureLiveValues, WebcamCaptureValue, WebcamGallery } from './_types';
 import type { WidgetHandle, WidgetProps } from '@griptape-ai/nodes-widget-api';
 
@@ -21,28 +21,17 @@ type WebcamCaptureContainer = HTMLElement & { _wcInst?: WebcamCaptureInstance };
 
 function injectStyles(): void {
   if (document.getElementById("wc-styles")) return;
-  const style = document.createElement("style");
-  style.id = "wc-styles";
-  style.textContent = [
-    "@keyframes wc-spin{to{transform:rotate(360deg)}}",
-    ".wc-thumb{width:106px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;",
-      "flex-shrink:0;border:3px solid transparent;transition:border-color 0.15s;display:block;}",
-    ".wc-thumb.selected{border-color:var(--primary);}",
-  ].join("");
-  document.head.appendChild(style);
+  document.head.append(
+    <style id="wc-styles">
+      {"@keyframes wc-spin{to{transform:rotate(360deg)}}"}
+      {".wc-thumb{width:106px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;" +
+        "flex-shrink:0;border:3px solid transparent;transition:border-color 0.15s;display:block;}"}
+      {".wc-thumb.selected{border-color:var(--primary);}"}
+    </style>,
+  );
 }
 
-function mkSelect(): HTMLSelectElement {
-  const sel = document.createElement("select");
-  sel.style.cssText = [
-    "flex:1", "min-width:0", "padding:4px 6px", "border-radius:5px",
-    "border:1px solid var(--border)", "background:var(--background)",
-    "color:var(--foreground)", "font-size:12px", "cursor:pointer",
-  ].join(";");
-  sel.addEventListener("pointerdown", (e) => e.stopPropagation());
-  sel.addEventListener("mousedown",   (e) => e.stopPropagation());
-  return sel;
-}
+const stopPropagation = (e: Event) => e.stopPropagation();
 
 export default function WebcamCapture(
   host: HTMLElement,
@@ -87,77 +76,112 @@ export default function WebcamCapture(
 
   // ── DOM ──────────────────────────────────────────────────────────────────
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "nodrag nowheel";
-  wrapper.style.cssText = "display:flex;flex-direction:column;height:100%;padding:8px;box-sizing:border-box;gap:6px;";
+  const releaseShutter = () => { shutterBtn.style.transform = "translateX(-50%)"; };
 
-  // Preview area
-  const videoWrap = document.createElement("div");
-  videoWrap.style.cssText = [
-    "position:relative", "background:#111", "border-radius:8px",
-    "flex:1 1 0", "min-height:160px", "overflow:hidden",
-    "display:flex", "align-items:center", "justify-content:center",
-  ].join(";");
+  const video = (
+    <video
+      style="width:100%;height:100%;object-fit:contain;display:block;"
+      autoplay muted playsInline
+    />
+  ) as HTMLVideoElement;
 
-  const video = document.createElement("video");
-  video.style.cssText = "width:100%;height:100%;object-fit:contain;display:block;";
-  video.autoplay = true;
-  video.muted = true;
-  video.playsInline = true;
-
-  const placeholder = document.createElement("div");
-  placeholder.style.cssText = "position:absolute;color:var(--muted-foreground);font-size:13px;text-align:center;padding:24px;user-select:none;";
-  placeholder.textContent = "Starting camera…";
+  const placeholder = (
+    <div style="position:absolute;color:var(--muted-foreground);font-size:13px;text-align:center;padding:24px;user-select:none;">
+      Starting camera…
+    </div>
+  ) as HTMLDivElement;
 
   // Shutter button — circular, overlaid at bottom center
-  const shutterBtn = document.createElement("button");
-  shutterBtn.style.cssText = [
-    "position:absolute", "bottom:12px", "left:50%", "transform:translateX(-50%)",
-    "width:52px", "height:52px", "border-radius:50%",
-    "border:3px solid rgba(255,255,255,0.85)", "background:rgba(20,20,20,0.55)",
-    "cursor:pointer", "display:flex", "align-items:center", "justify-content:center",
-    "backdrop-filter:blur(4px)", "color:white", "transition:transform 0.1s,opacity 0.15s",
-  ].join(";");
-  shutterBtn.appendChild(mkIcon("camera", 22));
-  shutterBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); shutterBtn.style.transform = "translateX(-50%) scale(0.88)"; });
-  shutterBtn.addEventListener("pointerup",   ()  => { shutterBtn.style.transform = "translateX(-50%)"; });
-  shutterBtn.addEventListener("pointerleave",()  => { shutterBtn.style.transform = "translateX(-50%)"; });
-  shutterBtn.addEventListener("mousedown",   (e) => e.stopPropagation());
-
-  videoWrap.append(placeholder, video, shutterBtn);
+  const shutterBtn = (
+    <button
+      style={{
+        position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)",
+        width: "52px", height: "52px", borderRadius: "50%",
+        border: "3px solid rgba(255,255,255,0.85)", background: "rgba(20,20,20,0.55)",
+        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+        backdropFilter: "blur(4px)", color: "white", transition: "transform 0.1s,opacity 0.15s",
+      }}
+      onPointerDown={(e) => { e.stopPropagation(); shutterBtn.style.transform = "translateX(-50%) scale(0.88)"; }}
+      onPointerUp={releaseShutter}
+      onPointerLeave={releaseShutter}
+      onMouseDown={stopPropagation}
+      onClick={capture}
+    >
+      <Icon name="camera" size={22} />
+    </button>
+  ) as HTMLButtonElement;
 
   // Photo strip — oldest left, newest right
-  const thumbStrip = document.createElement("div");
-  thumbStrip.style.cssText = [
-    "display:flex", "gap:6px", "overflow-x:auto",
-    "padding:2px 0", "scrollbar-width:thin",
-    "min-height:86px",
-  ].join(";");
-  thumbStrip.addEventListener("pointerdown", (e) => e.stopPropagation());
-  thumbStrip.addEventListener("mousedown",   (e) => e.stopPropagation());
+  const thumbStrip = (
+    <div
+      style={{
+        display: "flex", gap: "6px", overflowX: "auto",
+        padding: "2px 0", scrollbarWidth: "thin",
+        minHeight: "86px",
+      }}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+    />
+  ) as HTMLDivElement;
 
-  // Bottom row: camera selector + clear
-  const videoSel = mkSelect();
+  const videoSel = (
+    <select
+      style={{
+        flex: "1", minWidth: "0", padding: "4px 6px", borderRadius: "5px",
+        border: "1px solid var(--border)", background: "var(--background)",
+        color: "var(--foreground)", fontSize: "12px", cursor: "pointer",
+      }}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onChange={switchDevices}
+    />
+  ) as HTMLSelectElement;
 
-  const clearBtn = document.createElement("button");
-  clearBtn.style.cssText = [
-    "display:flex", "align-items:center", "gap:5px",
-    "padding:4px 10px", "border-radius:5px",
-    "border:1px solid var(--destructive)", "background:transparent",
-    "color:var(--destructive)", "font-size:12px", "cursor:pointer",
-    "white-space:nowrap", "flex-shrink:0",
-  ].join(";");
-  clearBtn.appendChild(mkIcon("trash-2", 13));
-  const clearSpan = document.createElement("span");
-  clearBtn.appendChild(clearSpan);
-  clearBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
-  clearBtn.addEventListener("mousedown",   (e) => e.stopPropagation());
+  const clearSpan = (<span />) as HTMLSpanElement;
+  const clearBtn = (
+    <button
+      style={{
+        display: "flex", alignItems: "center", gap: "5px",
+        padding: "4px 10px", borderRadius: "5px",
+        border: "1px solid var(--destructive)", background: "transparent",
+        color: "var(--destructive)", fontSize: "12px", cursor: "pointer",
+        whiteSpace: "nowrap", flexShrink: "0",
+      }}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onClick={clearGallery}
+    >
+      <Icon name="trash-2" size={13} />
+      {clearSpan}
+    </button>
+  ) as HTMLButtonElement;
 
-  const bottomRow = document.createElement("div");
-  bottomRow.style.cssText = "display:flex;align-items:center;gap:6px;color:var(--muted-foreground);";
-  bottomRow.append(mkIcon("camera", 15), videoSel, clearBtn);
-
-  wrapper.append(videoWrap, thumbStrip, bottomRow);
+  const wrapper = (
+    <div
+      class="nodrag nowheel"
+      style="display:flex;flex-direction:column;height:100%;padding:8px;box-sizing:border-box;gap:6px;"
+    >
+      {/* Preview area */}
+      <div
+        style={{
+          position: "relative", background: "#111", borderRadius: "8px",
+          flex: "1 1 0", minHeight: "160px", overflow: "hidden",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        {placeholder}
+        {video}
+        {shutterBtn}
+      </div>
+      {thumbStrip}
+      {/* Bottom row: camera selector + clear */}
+      <div style="display:flex;align-items:center;gap:6px;color:var(--muted-foreground);">
+        <Icon name="camera" size={15} />
+        {videoSel}
+        {clearBtn}
+      </div>
+    </div>
+  ) as HTMLDivElement;
   container.append(wrapper);
 
   // ── Thumbnails ────────────────────────────────────────────────────────────
@@ -170,30 +194,28 @@ export default function WebcamCapture(
 
     // Confirmed items: oldest left → newest right
     galleryItems.forEach((item, idx) => {
-      const img = document.createElement("img");
-      img.className = "wc-thumb" + (idx === selectedIndex ? " selected" : "");
-      img.src = item.url || "";
-      img.title = `Photo ${idx + 1}`;
-      img.addEventListener("click",       () => selectThumbnail(idx));
-      img.addEventListener("pointerdown", (e) => e.stopPropagation());
-      img.addEventListener("mousedown",   (e) => e.stopPropagation());
-      thumbStrip.appendChild(img);
+      thumbStrip.append(
+        <img
+          class={"wc-thumb" + (idx === selectedIndex ? " selected" : "")}
+          src={item.url || ""}
+          title={`Photo ${idx + 1}`}
+          onClick={() => selectThumbnail(idx)}
+          onPointerDown={stopPropagation}
+          onMouseDown={stopPropagation}
+        />,
+      );
     });
 
     // Pending items on the right — image underneath, spinner on top
     pendingThumbs.forEach((dataUrl) => {
-      const wrap = document.createElement("div");
-      wrap.style.cssText = "position:relative;width:106px;height:80px;flex-shrink:0;border-radius:6px;overflow:hidden;border:3px solid transparent;";
-      const img = document.createElement("img");
-      img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;opacity:0.35;";
-      img.src = dataUrl;
-      const spinnerWrap = document.createElement("div");
-      spinnerWrap.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);";
-      const spin = document.createElement("div");
-      spin.style.cssText = "width:22px;height:22px;border:2px solid rgba(255,255,255,0.2);border-top-color:white;border-radius:50%;animation:wc-spin 0.75s linear infinite;";
-      spinnerWrap.appendChild(spin);
-      wrap.append(img, spinnerWrap);
-      thumbStrip.appendChild(wrap);
+      thumbStrip.append(
+        <div style="position:relative;width:106px;height:80px;flex-shrink:0;border-radius:6px;overflow:hidden;border:3px solid transparent;">
+          <img style="width:100%;height:100%;object-fit:cover;display:block;opacity:0.35;" src={dataUrl} />
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);">
+            <div style="width:22px;height:22px;border:2px solid rgba(255,255,255,0.2);border-top-color:white;border-radius:50%;animation:wc-spin 0.75s linear infinite;" />
+          </div>
+        </div>,
+      );
     });
 
     // Scroll newest (rightmost) into view
@@ -224,12 +246,7 @@ export default function WebcamCapture(
       const cameras = devices.filter((d) => d.kind === "videoinput");
       const current = videoSel.value;
       videoSel.innerHTML = "";
-      cameras.forEach((d, i) => {
-        const opt = document.createElement("option");
-        opt.value = d.deviceId;
-        opt.textContent = d.label || `Camera ${i + 1}`;
-        videoSel.appendChild(opt);
-      });
+      videoSel.append(...cameras.map((d, i) => <option value={d.deviceId}>{d.label || `Camera ${i + 1}`}</option>));
       if (current && [...videoSel.options].some((o) => o.value === current)) videoSel.value = current;
       if (stream) {
         const vs = stream.getVideoTracks()[0]?.getSettings?.()?.deviceId;
@@ -396,9 +413,6 @@ export default function WebcamCapture(
 
   // ── Wire up & init ────────────────────────────────────────────────────────
 
-  shutterBtn.addEventListener("click", capture);
-  clearBtn.addEventListener("click",   clearGallery);
-  videoSel.addEventListener("change",  switchDevices);
   navigator.mediaDevices.addEventListener("devicechange", populateDevices);
 
   container._wcInst = { handleUpdate, cleanup, wrapper };

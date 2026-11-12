@@ -1,5 +1,5 @@
 import { CARD_HUES, CARD_HEIGHTS, injectStyles } from './_styles';
-import { mkIcon } from './_icons';
+import { Icon } from './_icons';
 import { createToolbar } from './_toolbar';
 import { createViewer } from './_viewer';
 import type { GridItem, GridLayout, GridValue } from './_types';
@@ -66,6 +66,16 @@ interface DragState {
   startCell: HTMLElement | null;
 }
 
+const stopPropagation = (e: Event) => e.stopPropagation();
+
+function Spinner() {
+  return <div class="sfg-spinner"><Icon name="loader-circle" size={22} /></div>;
+}
+
+function ErrorCard() {
+  return <div class="sfg-error-card"><Icon name="alert-circle" size={28} /></div>;
+}
+
 export default function SelectFromGrid(
   host: HTMLElement,
   props: SelectFromGridProps,
@@ -93,10 +103,6 @@ export default function SelectFromGrid(
   let multiSelect     = (latestValue.settings?.multi_select) !== false;
   let showLabels      = latestValue.show_labels !== false;
   let labelSize       = latestValue.label_size  || 10;
-
-  // ── DOM: wrapper ──────────────────────────────────────────────────────────
-  const wrapper = document.createElement("div");
-  wrapper.className = "sfg-widget nodrag nowheel";
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
   const { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn,
@@ -137,14 +143,26 @@ export default function SelectFromGrid(
     onRemove:      (idx) => setSelection(selectedIndices.filter((i) => i !== idx)),
   });
 
-  wrapper.appendChild(controls);
-  if (!showLabels) wrapper.classList.add("sfg-hide-labels");
-  wrapper.style.setProperty("--sfg-label-size", labelSize + "px");
+  // ── DOM ───────────────────────────────────────────────────────────────────
+  const grid = (
+    <div
+      class="sfg-grid"
+      onPointerDown={onGridPointerDown}
+      onPointerMove={onGridPointerMove}
+      onPointerUp={onGridPointerUp}
+      onPointerCancel={onGridPointerCancel}
+    />
+  ) as HTMLDivElement;
 
-  // ── DOM: grid ─────────────────────────────────────────────────────────────
-  const grid = document.createElement("div");
-  grid.className = "sfg-grid";
-  wrapper.appendChild(grid);
+  const wrapper = (
+    <div
+      class={"sfg-widget nodrag nowheel" + (showLabels ? "" : " sfg-hide-labels")}
+      style={{ "--sfg-label-size": labelSize + "px" }}
+    >
+      {controls}
+      {grid}
+    </div>
+  ) as HTMLDivElement;
 
   container.appendChild(wrapper);
 
@@ -226,77 +244,51 @@ export default function SelectFromGrid(
     { root: grid, rootMargin: "300px 0px", threshold: 0 }
   );
 
-  function mkSpinner() {
-    const s = document.createElement("div");
-    s.className = "sfg-spinner";
-    s.appendChild(mkIcon("loader-circle", 22));
-    return s;
-  }
-
   function buildCellContent(cell: HTMLElement, item: GridItem, idx: number, skeleton = false) {
     cell.dataset.idx = String(idx);
-    const inner = document.createElement("div");
-    inner.className = "sfg-cell-inner";
+    const hue       = CARD_HUES[idx % CARD_HUES.length];
+    const minHeight = layout === "masonry" ? CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px" : null;
 
     if (skeleton) {
-      inner.style.background = `hsla(${CARD_HUES[idx % CARD_HUES.length]}, 22%, 50%, 0.09)`;
-      if (layout === "masonry") inner.style.minHeight = CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px";
-      cell.appendChild(inner);
+      cell.appendChild(<div class="sfg-cell-inner" style={{ background: `hsla(${hue}, 22%, 50%, 0.09)`, minHeight }} />);
       return;
     }
 
     const isMedia = item.type === "image" || item.type === "video" || item.type === "audio";
 
-    if (isMedia) {
-      // Spinner placeholder only — media element created lazily by cellObserver
-      inner.classList.add("sfg-loading");
-      inner.appendChild(mkSpinner());
-    } else {
-      switch (item.type) {
-        case "dict": {
-          const dictEl = document.createElement("div");
-          dictEl.className   = "sfg-dict-card";
-          dictEl.textContent = (item.value as string) || "{}";
-          inner.appendChild(dictEl);
-          break;
-        }
-        default: {
-          const hue  = CARD_HUES[idx % CARD_HUES.length];
-          const card = document.createElement("div");
-          card.className        = "sfg-quote-card";
-          card.style.background = `hsla(${hue}, 22%, 50%, 0.09)`;
-          if (layout === "masonry") card.style.minHeight = CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px";
-          const textEl = document.createElement("div");
-          textEl.className   = "sfg-quote-text";
-          textEl.textContent = item.value !== undefined ? String(item.value) : (item.label || "");
-          card.appendChild(textEl);
-          inner.appendChild(card);
-          break;
-        }
-      }
-    }
+    cell.appendChild(
+      <div class={"sfg-cell-inner" + (isMedia ? " sfg-loading" : "")}>
+        {isMedia ? (
+          // Spinner placeholder only — media element created lazily by cellObserver
+          <Spinner />
+        ) : item.type === "dict" ? (
+          <div class="sfg-dict-card" textContent={(item.value as string) || "{}"} />
+        ) : (
+          <div class="sfg-quote-card" style={{ background: `hsla(${hue}, 22%, 50%, 0.09)`, minHeight }}>
+            <div
+              class="sfg-quote-text"
+              textContent={item.value !== undefined ? String(item.value) : (item.label || "")}
+            />
+          </div>
+        )}
+      </div>,
+    );
 
-    cell.appendChild(inner);
-
-    const expandBtn = document.createElement("button");
-    expandBtn.type = "button";
-    expandBtn.className = "sfg-expand-btn";
-    expandBtn.title = "View fullscreen";
-    expandBtn.appendChild(mkIcon("maximize-2", 12));
     // Stop here so the grid doesn't treat the press as a selection click or lasso start
-    expandBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
-    expandBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      viewer.open(idx);
-    });
-    cell.appendChild(expandBtn);
+    cell.appendChild(
+      <button
+        type="button" class="sfg-expand-btn" title="View fullscreen"
+        onPointerDown={stopPropagation}
+        onClick={(e) => {
+          e.stopPropagation();
+          viewer.open(idx);
+        }}
+      >
+        <Icon name="maximize-2" size={12} />
+      </button>,
+    );
 
-    if (item.label) {
-      const lbl = document.createElement("div");
-      lbl.className   = "sfg-item-label";
-      lbl.textContent = item.label;
-      cell.appendChild(lbl);
-    }
+    if (item.label) cell.appendChild(<div class="sfg-item-label">{item.label}</div>);
 
     if (isMedia) cellObserver.observe(cell);
   }
@@ -328,42 +320,43 @@ export default function SelectFromGrid(
     const showError = () => {
       inner.classList.remove("sfg-loading");
       if (spinner) spinner.remove();
-      const card = document.createElement("div");
-      card.className = "sfg-error-card";
-      card.appendChild(mkIcon("alert-circle", 28));
-      inner.appendChild(card);
+      inner.appendChild(<ErrorCard />);
     };
 
     switch (item.type) {
       case "image": {
-        const img    = document.createElement("img");
-        img.src      = item.url as string;
-        img.alt      = item.label || "";
-        img.decoding = "async";
-        img.addEventListener("load", () => {
-          inner.classList.remove("sfg-loading");
-          img.classList.add("sfg-loaded");
-          fadeOutSpinner();
-        });
-        img.addEventListener("error", showError);
+        const img = (
+          <img
+            src={item.url as string}
+            alt={item.label || ""}
+            decoding="async"
+            onLoad={() => {
+              inner.classList.remove("sfg-loading");
+              img.classList.add("sfg-loaded");
+              fadeOutSpinner();
+            }}
+            onError={showError}
+          />
+        ) as HTMLImageElement;
         inner.appendChild(img);
         break;
       }
       case "video": {
-        const vid       = document.createElement("video");
-        vid.src         = item.url as string;
-        if (item.thumbnail) vid.poster = item.thumbnail;
-        vid.muted       = true;
-        vid.loop        = true;
-        vid.playsInline = true;
-        vid.preload     = "metadata";
-        vid.addEventListener("loadedmetadata", () => {
-          inner.classList.remove("sfg-loading");
-          vid.currentTime = 0.001;
-          vid.classList.add("sfg-loaded");
-          fadeOutSpinner();
-        });
-        vid.addEventListener("error", showError);
+        const vid = (
+          <video
+            src={item.url as string}
+            poster={item.thumbnail || null}
+            muted loop playsInline
+            preload="metadata"
+            onLoadedMetadata={() => {
+              inner.classList.remove("sfg-loading");
+              vid.currentTime = 0.001;
+              vid.classList.add("sfg-loaded");
+              fadeOutSpinner();
+            }}
+            onError={showError}
+          />
+        ) as HTMLVideoElement;
         cell.addEventListener("mouseenter", () => void vid.play().catch(() => {}));
         cell.addEventListener("mouseleave", () => { vid.pause(); vid.currentTime = 0; });
         inner.appendChild(vid);
@@ -372,25 +365,20 @@ export default function SelectFromGrid(
       case "audio": {
         inner.classList.remove("sfg-loading");
         if (spinner) spinner.remove();
-        const card = document.createElement("div");
-        card.className = "sfg-audio-card";
-        card.appendChild(mkIcon("music", 28));
-        if (item.url) {
-          const audio    = document.createElement("audio");
-          audio.src      = item.url;
-          audio.controls = true;
-          audio.addEventListener("pointerdown", (e) => e.stopPropagation());
-          audio.addEventListener("click",       (e) => e.stopPropagation());
-          audio.addEventListener("error", () => {
-            card.replaceWith((() => {
-              const e = document.createElement("div");
-              e.className = "sfg-error-card";
-              e.appendChild(mkIcon("alert-circle", 28));
-              return e;
-            })());
-          });
-          card.appendChild(audio);
-        }
+        const card = (
+          <div class="sfg-audio-card">
+            <Icon name="music" size={28} />
+            {item.url ? (
+              <audio
+                src={item.url}
+                controls
+                onPointerDown={stopPropagation}
+                onClick={stopPropagation}
+                onError={() => card.replaceWith(<ErrorCard />)}
+              />
+            ) : null}
+          </div>
+        ) as HTMLDivElement;
         inner.appendChild(card);
         break;
       }
@@ -440,34 +428,25 @@ export default function SelectFromGrid(
     applyGridLayout();
 
     if (items.length === 0) {
-      const empty = document.createElement("div");
-      empty.className   = "sfg-empty";
-      empty.textContent = "Connect a list to display items here";
-      grid.appendChild(empty);
+      grid.appendChild(<div class="sfg-empty">Connect a list to display items here</div>);
       updateCount();
       return;
     }
 
+    const mkCell = (item: GridItem, idx: number) => {
+      const cell = (
+        <div class={"sfg-cell" + (selectedIndices.includes(idx) ? " selected" : "")} />
+      ) as HTMLDivElement;
+      buildCellContent(cell, item, idx, skeleton);
+      return cell;
+    };
+
     if (layout === "masonry") {
-      const cols = Array.from({ length: columns }, () => {
-        const col = document.createElement("div");
-        col.className = "sfg-masonry-col";
-        grid.appendChild(col);
-        return col;
-      });
-      items.forEach((item, idx) => {
-        const cell = document.createElement("div");
-        cell.className = "sfg-cell" + (selectedIndices.includes(idx) ? " selected" : "");
-        buildCellContent(cell, item, idx, skeleton);
-        (cols[idx % columns] as HTMLDivElement).appendChild(cell);
-      });
+      const cols = Array.from({ length: columns }, () => (<div class="sfg-masonry-col" />) as HTMLDivElement);
+      grid.append(...cols);
+      items.forEach((item, idx) => (cols[idx % columns] as HTMLDivElement).appendChild(mkCell(item, idx)));
     } else {
-      items.forEach((item, idx) => {
-        const cell = document.createElement("div");
-        cell.className = "sfg-cell" + (selectedIndices.includes(idx) ? " selected" : "");
-        buildCellContent(cell, item, idx, skeleton);
-        grid.appendChild(cell);
-      });
+      grid.append(...items.map(mkCell));
     }
 
     updateCount();
@@ -514,26 +493,26 @@ export default function SelectFromGrid(
     };
   }
 
-  grid.addEventListener("pointerdown", (e) => {
+  function onGridPointerDown(e: PointerEvent) {
     if (isDisabled || e.button !== 0) return;
     e.stopPropagation();
 
     const { x: startX, y: startY } = clientToLocal(e.clientX, e.clientY);
 
     // Lasso is only created in multi-select mode
-    let lasso = null;
+    let lasso: HTMLDivElement | null = null;
     if (multiSelect) {
-      lasso = document.createElement("div");
-      lasso.className = "sfg-lasso";
-      Object.assign(lasso.style, { left: startX + "px", top: startY + "px", width: "0", height: "0" });
+      lasso = (
+        <div class="sfg-lasso" style={{ left: startX + "px", top: startY + "px", width: "0", height: "0" }} />
+      ) as HTMLDivElement;
       grid.appendChild(lasso);
     }
 
     dragState = { startX, startY, lasso, dragging: false, startCell: findCellEl(e.target as HTMLElement) };
     grid.setPointerCapture(e.pointerId);
-  });
+  }
 
-  grid.addEventListener("pointermove", (e) => {
+  function onGridPointerMove(e: PointerEvent) {
     if (!dragState) return;
     const { x: curX, y: curY } = clientToLocal(e.clientX, e.clientY);
     const dx = curX - dragState.startX;
@@ -562,9 +541,9 @@ export default function SelectFromGrid(
         cell.classList.toggle("pending", overlaps && !selectedIndices.includes(idx));
       });
     }
-  });
+  }
 
-  grid.addEventListener("pointerup", (e) => {
+  function onGridPointerUp(e: PointerEvent) {
     if (!dragState) return;
     if (dragState.lasso) dragState.lasso.remove();
     grid.querySelectorAll(".sfg-cell.pending").forEach((c) => c.classList.remove("pending"));
@@ -598,15 +577,15 @@ export default function SelectFromGrid(
     }
 
     dragState = null;
-  });
+  }
 
-  grid.addEventListener("pointercancel", () => {
+  function onGridPointerCancel() {
     if (dragState) {
       if (dragState.lasso) dragState.lasso.remove();
       grid.querySelectorAll(".sfg-cell.pending").forEach((c) => c.classList.remove("pending"));
       dragState = null;
     }
-  });
+  }
 
   // ── Initial render ────────────────────────────────────────────────────────
   renderGrid();

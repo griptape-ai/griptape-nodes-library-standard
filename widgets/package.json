@@ -14,7 +14,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@griptape-ai/nodes-widget-api": "0.1.1",
+    "@griptape-ai/nodes-widget-api": "0.2.0",
     "@sparkjsdev/spark": "2.4.0",
     "@types/node": "22.20.5",
     "@types/three": "0.180.0",

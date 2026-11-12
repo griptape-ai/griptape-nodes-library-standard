@@ -1,11 +1,11 @@
 # Widgets
 
-Custom parameter widgets for the standard library. Each widget is authored in TypeScript in this
-package and built into one self-contained browser module.
+Custom parameter widgets for the standard library. Each widget is authored in TypeScript and TSX in
+this package and built into one minified, self-contained browser module.
 
 ```
 widgets/
-  src/<Name>/            widget sources (entry: <Name>.ts, value shapes in _types.ts)
+  src/<Name>/            widget sources (entry: <Name>.tsx, value shapes in _types.ts)
   scripts/build.mjs      the build: esbuild, staged, verified, then promoted; ENTRIES lists the widgets
   test/                  vitest tests (happy-dom), one file per widget plus the build's own
   dist/                  built bundles, committed
@@ -27,7 +27,11 @@ widgets/
 
 The props a widget is mounted with, the handle it returns, and the module shape the editor loads
 are typed by `@griptape-ai/nodes-widget-api`, which the Griptape Nodes editor publishes from its
-widget loader. Widgets import it with `import type`, so nothing from it reaches a bundle.
+widget loader. Widgets import its types with `import type`.
+
+The package is also the JSX import source (`widgets/tsconfig.json`): its runtime turns `<div>` into
+an `HTMLDivElement` directly, with no React and no re-rendering, and about 2 KB of it is bundled into
+each widget. Its README has the rules for props, listeners, and styles.
 
 For now the package is published only to a local registry, which `.npmrc` points the
 `@griptape-ai` scope at (`http://localhost:4873/`). Start that registry and publish the package

@@ -24,6 +24,16 @@ const DISPLAY_ORDER: SplatResolution[] = ["100k", "500k", "full_res"];  // dropd
 const RESOLUTION_LABELS: Record<SplatResolution, string> = { "100k": "100k", "500k": "500k", "full_res": "Full Res" };
 const TAG = "[SplatViewer]";
 
+const stopPropagation = (e: Event) => e.stopPropagation();
+
+// Keeps pointer, wheel and key events from reaching the node editor behind the widget.
+const stopNodeEvents = {
+  onPointerDown: stopPropagation,
+  onMouseDown: stopPropagation,
+  onWheel: stopPropagation,
+  onKeyDown: stopPropagation,
+};
+
 export default function SplatViewer(
   container: HTMLElement,
   props: SplatViewerProps,
@@ -42,67 +52,59 @@ export default function SplatViewer(
   let sceneCleanup: (() => void) | null = null;
   let selectedKey: SplatResolution | null = null;   // user's current picker selection
   let currentSplats: SplatMap = {};   // latest parsed splats map
-  let selectEl: HTMLSelectElement | null = null;      // reference to the <select> element
 
-  // ---------- outer wrapper -------------------------------------------------
+  // ---------- picker ---------------------------------------------------------
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "splat-viewer-widget nodrag nowheel";
-  wrapper.style.cssText = `
-    position:relative; width:100%; height:${height}px;
-    overflow:hidden; display:flex; flex-direction:column;
-  `;
-  ["pointerdown", "mousedown", "wheel", "keydown"].forEach((evt) =>
-    wrapper.addEventListener(evt, (e) => e.stopPropagation()),
-  );
-  container.innerHTML = "";
-  container.appendChild(wrapper);
-
-  // ---------- picker bar ---------------------------------------------------
-
-  const pickerBar = document.createElement("div");
-  pickerBar.style.cssText = `
-    display:flex; align-items:center; gap:8px; padding:4px 8px;
-    background:rgba(0,0,0,0.35); border-bottom:1px solid rgba(255,255,255,0.08);
-    flex-shrink:0; z-index:2;
-  `;
-  ["pointerdown", "mousedown", "wheel", "keydown"].forEach((evt) =>
-    pickerBar.addEventListener(evt, (e) => e.stopPropagation()),
-  );
-
-  const pickerLabel = document.createElement("span");
-  pickerLabel.style.cssText = "font:11px system-ui; color:#999; white-space:nowrap;";
-  pickerLabel.textContent = "Resolution";
-  pickerBar.appendChild(pickerLabel);
-
-  selectEl = document.createElement("select");
-  selectEl.style.cssText = `
-    padding:2px 4px; font:11px system-ui;
-    background:#1a1a1a; color:#ddd;
-    border:1px solid #333; border-radius:3px;
-    cursor:pointer;
-  `;
-  DISPLAY_ORDER.forEach((key) => {
-    const opt = document.createElement("option");
-    opt.value = key;
-    opt.textContent = RESOLUTION_LABELS[key];
-    selectEl!.appendChild(opt);
-  });
-  selectEl.addEventListener("pointerdown", (e) => e.stopPropagation());
-  selectEl.addEventListener("change", () => {
-    const chosen = selectEl!.value as SplatResolution;
-    console.info(TAG, `picker changed to "${chosen}"`);
-    selectedKey = chosen;
-    loadSelected();
-  });
-  pickerBar.appendChild(selectEl);
-  wrapper.appendChild(pickerBar);
+  const selectEl = (
+    <select
+      style={`
+        padding:2px 4px; font:11px system-ui;
+        background:#1a1a1a; color:#ddd;
+        border:1px solid #333; border-radius:3px;
+        cursor:pointer;
+      `}
+      onPointerDown={stopPropagation}
+      onChange={() => {
+        const chosen = selectEl.value as SplatResolution;
+        console.info(TAG, `picker changed to "${chosen}"`);
+        selectedKey = chosen;
+        loadSelected();
+      }}
+    >
+      {DISPLAY_ORDER.map((key) => <option value={key}>{RESOLUTION_LABELS[key]}</option>)}
+    </select>
+  ) as HTMLSelectElement;
 
   // ---------- stage (canvas lives here) ------------------------------------
 
-  const stage = document.createElement("div");
-  stage.style.cssText = "flex:1; position:relative; overflow:hidden;";
-  wrapper.appendChild(stage);
+  const stage = (<div style="flex:1; position:relative; overflow:hidden;" />) as HTMLDivElement;
+
+  // ---------- outer wrapper: picker bar above stage --------------------------
+
+  container.innerHTML = "";
+  container.append(
+    <div
+      class="splat-viewer-widget nodrag nowheel"
+      style={`
+        position:relative; width:100%; height:${height}px;
+        overflow:hidden; display:flex; flex-direction:column;
+      `}
+      {...stopNodeEvents}
+    >
+      <div
+        style={`
+          display:flex; align-items:center; gap:8px; padding:4px 8px;
+          background:rgba(0,0,0,0.35); border-bottom:1px solid rgba(255,255,255,0.08);
+          flex-shrink:0; z-index:2;
+        `}
+        {...stopNodeEvents}
+      >
+        <span style="font:11px system-ui; color:#999; white-space:nowrap;">Resolution</span>
+        {selectEl}
+      </div>
+      {stage}
+    </div>,
+  );
 
   // ---------- helpers -------------------------------------------------------
 
@@ -157,13 +159,13 @@ export default function SplatViewer(
   // ---------- dropdown state ------------------------------------------------
 
   function refreshDropdown(splats: SplatMap) {
-    Array.from(selectEl!.options).forEach((opt) => {
+    Array.from(selectEl.options).forEach((opt) => {
       const key = opt.value as SplatResolution;
       const wired = !!(splats && splats[key]?.url);
       opt.disabled = !wired;
       opt.textContent = RESOLUTION_LABELS[key] + (wired ? "" : " (not wired)");
     });
-    if (selectedKey) selectEl!.value = selectedKey;
+    if (selectedKey) selectEl.value = selectedKey;
   }
 
   // ---------- placeholder ---------------------------------------------------
@@ -172,14 +174,17 @@ export default function SplatViewer(
     console.info(TAG, "showPlaceholder:", text);
     teardownScene();
     stage.innerHTML = "";
-    const msg = document.createElement("div");
-    msg.style.cssText = `
-      position:absolute; inset:0;
-      display:flex; align-items:center; justify-content:center;
-      color:#888; font:12px ui-monospace,monospace; pointer-events:none;
-    `;
-    msg.textContent = text;
-    stage.appendChild(msg);
+    stage.append(
+      <div
+        style={`
+          position:absolute; inset:0;
+          display:flex; align-items:center; justify-content:center;
+          color:#888; font:12px ui-monospace,monospace; pointer-events:none;
+        `}
+      >
+        {text}
+      </div>,
+    );
   }
 
   // ---------- scene lifecycle -----------------------------------------------
@@ -196,14 +201,18 @@ export default function SplatViewer(
     teardownScene();
     stage.innerHTML = "";
 
-    const overlay = document.createElement("div");
-    overlay.style.cssText = `
-      position:absolute; inset:0; z-index:1;
-      display:flex; align-items:center; justify-content:center;
-      color:#888; font:12px ui-monospace,monospace; pointer-events:none;
-    `;
-    overlay.textContent = "Loading splat…";
-    stage.appendChild(overlay);
+    const overlay = (
+      <div
+        style={`
+          position:absolute; inset:0; z-index:1;
+          display:flex; align-items:center; justify-content:center;
+          color:#888; font:12px ui-monospace,monospace; pointer-events:none;
+        `}
+      >
+        Loading splat…
+      </div>
+    ) as HTMLDivElement;
+    stage.append(overlay);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 1000);
@@ -313,15 +322,18 @@ export default function SplatViewer(
         console.error(TAG, "initialized rejected:", err);
         if (disposed) return;
         if (overlay.parentNode) overlay.remove();
-        const errDiv = document.createElement("div");
-        errDiv.style.cssText = `
-          position:absolute; inset:0;
-          display:flex; align-items:center; justify-content:center;
-          color:#f87171; font:12px ui-monospace,monospace;
-          padding:12px; text-align:center; pointer-events:none;
-        `;
-        errDiv.textContent = `Failed to load splat: ${(err as Error)?.message || err}`;
-        stage.appendChild(errDiv);
+        stage.append(
+          <div
+            style={`
+              position:absolute; inset:0;
+              display:flex; align-items:center; justify-content:center;
+              color:#f87171; font:12px ui-monospace,monospace;
+              padding:12px; text-align:center; pointer-events:none;
+            `}
+          >
+            {`Failed to load splat: ${(err as Error)?.message || err}`}
+          </div>,
+        );
       });
 
     scene.add(splat);
@@ -381,7 +393,7 @@ export default function SplatViewer(
     // - Otherwise fall back to highest-fidelity wired.
     if (!selectedKey || !splats[selectedKey]?.url) {
       selectedKey = pickHighest(splats);
-      if (selectedKey) selectEl!.value = selectedKey;
+      if (selectedKey) selectEl.value = selectedKey;
       console.info(TAG, `applyState: resolved selectedKey="${selectedKey}"`);
     }
 

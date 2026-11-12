@@ -94,6 +94,8 @@ const SLIDER_THUMB_CSS = `
   }
 `;
 
+const stopPropagation = (e: Event) => e.stopPropagation();
+
 export default function MaskAdjustmentPreview(
   host: HTMLElement,
   props: MaskAdjustmentPreviewProps,
@@ -144,60 +146,31 @@ export default function MaskAdjustmentPreview(
   // Inject scoped slider styles
   const styleId = "mask-preview-slider-styles";
   if (!document.getElementById(styleId)) {
-    const styleEl = document.createElement("style");
-    styleEl.id = styleId;
-    styleEl.textContent = SLIDER_THUMB_CSS;
-    document.head.appendChild(styleEl);
+    document.head.append(<style id={styleId}>{SLIDER_THUMB_CSS}</style>);
   }
 
-  // Create wrapper
-  const wrapper = document.createElement("div");
-  wrapper.className = "mask-adjustment-preview nodrag nowheel";
-  wrapper.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 12px;
-    background: #1a1a1a;
-    border-radius: 8px;
-    min-height: 400px;
-  `;
-
-  // Video preview container with overlay
-  const previewContainer = document.createElement("div");
-  previewContainer.style.cssText = `
-    position: relative;
-    width: 100%;
-    background: #000;
-    border-radius: 4px;
-    overflow: hidden;
-  `;
-
   // Original video element
-  const video = document.createElement("video");
-  video.style.cssText = `
-    width: 100%;
-    display: ${maskOnlyMode ? "none" : "block"};
-  `;
-  video.preload = "auto";
-  video.crossOrigin = "anonymous";
+  const video = (
+    <video
+      style={{ width: "100%", display: maskOnlyMode ? "none" : "block" }}
+      preload="auto"
+      crossOrigin="anonymous"
+    />
+  ) as HTMLVideoElement;
 
   // Mask video element (hidden when original video is present, visible otherwise)
-  const maskVideo = document.createElement("video");
-  maskVideo.style.cssText = maskOnlyMode
-    ? "width: 100%; display: block;"
-    : "display: none;";
-  maskVideo.preload = "auto";
-  maskVideo.crossOrigin = "anonymous";
+  const maskVideo = (
+    <video
+      style={maskOnlyMode ? "width: 100%; display: block;" : "display: none;"}
+      preload="auto"
+      crossOrigin="anonymous"
+    />
+  ) as HTMLVideoElement;
 
   // Canvas for mask overlay — sized to match the video element exactly
-  const canvas = document.createElement("canvas");
-  canvas.style.cssText = `
-    position: absolute;
-    top: 0;
-    left: 0;
-    pointer-events: none;
-  `;
+  const canvas = (
+    <canvas style={{ position: "absolute", top: "0", left: "0", pointerEvents: "none" }} />
+  ) as HTMLCanvasElement;
   const ctx = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D;
 
   // The display video is whichever element is currently visible
@@ -216,83 +189,6 @@ export default function MaskAdjustmentPreview(
     }
   }
 
-  previewContainer.appendChild(video);
-  previewContainer.appendChild(maskVideo);
-  previewContainer.appendChild(canvas);
-
-  // Prevent drag interference
-  previewContainer.addEventListener("pointerdown", (e) => e.stopPropagation());
-  previewContainer.addEventListener("mousedown", (e) => e.stopPropagation());
-
-  // Controls container
-  const controlsContainer = document.createElement("div");
-  controlsContainer.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    padding: 12px;
-    background: #252525;
-    border-radius: 4px;
-  `;
-
-  // Adjustment slider control
-  const adjustmentControl = document.createElement("div");
-  adjustmentControl.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  `;
-
-  const adjustmentLabelText = document.createElement("span");
-  adjustmentLabelText.style.cssText = `
-    font-size: 12px;
-    color: #ccc;
-    flex-shrink: 0;
-  `;
-  adjustmentLabelText.textContent = "Mask Adjustment";
-
-  // Slider + number input row (matches editor layout)
-  const sliderRow = document.createElement("div");
-  sliderRow.style.cssText = `
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-  `;
-
-  const adjustmentSlider = document.createElement("input");
-  adjustmentSlider.type = "range";
-  adjustmentSlider.min = "-25";
-  adjustmentSlider.max = "25";
-  adjustmentSlider.value = String(adjustment);
-  adjustmentSlider.disabled = disabled || adjustmentLocked;
-  adjustmentSlider.style.cssText = SLIDER_STYLE + "flex: 1; min-width: 0;";
-
-  const adjustmentInput = document.createElement("input");
-  adjustmentInput.type = "number";
-  adjustmentInput.min = "-25";
-  adjustmentInput.max = "25";
-  adjustmentInput.step = "1";
-  adjustmentInput.value = String(adjustment);
-  adjustmentInput.disabled = disabled || adjustmentLocked;
-  adjustmentInput.style.cssText = `
-    width: 52px;
-    flex-shrink: 0;
-    background: transparent;
-    border: none;
-    color: #fff;
-    font-size: 12px;
-    text-align: right;
-    outline: none;
-    -moz-appearance: textfield;
-    padding: 2px 0;
-  `;
-
-  adjustmentSlider.addEventListener("pointerdown", (e) => e.stopPropagation());
-  adjustmentSlider.addEventListener("mousedown", (e) => e.stopPropagation());
-  adjustmentInput.addEventListener("pointerdown", (e) => e.stopPropagation());
-  adjustmentInput.addEventListener("mousedown", (e) => e.stopPropagation());
-
   function commitAdjustment(val: number) {
     val = Math.max(-25, Math.min(25, val));
     adjustment = val;
@@ -310,75 +206,89 @@ export default function MaskAdjustmentPreview(
     }
   }
 
-  // Live preview on every drag tick — re-renders from cache, no video re-draw. The node's
-  // adjustment slider follows through onLiveChange; the value is committed on release.
-  adjustmentSlider.addEventListener("input", (e) => {
-    const val = parseInt((e.target as HTMLInputElement).value, 10);
-    adjustment = val;
-    adjustmentInput.value = String(val);
-    scheduleRender();
-    if (typeof onLiveChangeRef === "function") onLiveChangeRef({ adjustment: val });
-  });
+  const adjustmentSlider = (
+    <input
+      type="range"
+      min="-25"
+      max="25"
+      value={String(adjustment)}
+      disabled={disabled || adjustmentLocked}
+      style={SLIDER_STYLE + "flex: 1; min-width: 0;"}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      // Live preview on every drag tick — re-renders from cache, no video re-draw. The node's
+      // adjustment slider follows through onLiveChange; the value is committed on release.
+      onInput={(e: Event) => {
+        const val = parseInt((e.target as HTMLInputElement).value, 10);
+        adjustment = val;
+        adjustmentInput.value = String(val);
+        scheduleRender();
+        if (typeof onLiveChangeRef === "function") onLiveChangeRef({ adjustment: val });
+      }}
+      // Persist only on commit (mouseup / end of drag)
+      onChange={(e: Event) => commitAdjustment(parseInt((e.target as HTMLInputElement).value, 10))}
+    />
+  ) as HTMLInputElement;
 
-  // Persist only on commit (mouseup / end of drag)
-  adjustmentSlider.addEventListener("change", (e) => {
-    commitAdjustment(parseInt((e.target as HTMLInputElement).value, 10));
-  });
+  const adjustmentInput = (
+    <input
+      type="number"
+      min="-25"
+      max="25"
+      step="1"
+      value={String(adjustment)}
+      disabled={disabled || adjustmentLocked}
+      style={`
+        width: 52px;
+        flex-shrink: 0;
+        background: transparent;
+        border: none;
+        color: #fff;
+        font-size: 12px;
+        text-align: right;
+        outline: none;
+        -moz-appearance: textfield;
+        padding: 2px 0;
+      `}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      // Number input commits on blur or Enter
+      onBlur={() => {
+        const val = parseInt(adjustmentInput.value, 10);
+        if (!isNaN(val)) {
+          commitAdjustment(val);
+        } else {
+          adjustmentInput.value = String(adjustment);
+        }
+      }}
+      onKeyDown={(e: KeyboardEvent) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          adjustmentInput.blur();
+        }
+      }}
+    />
+  ) as HTMLInputElement;
 
-  // Number input commits on blur or Enter
-  adjustmentInput.addEventListener("blur", () => {
-    const val = parseInt(adjustmentInput.value, 10);
-    if (!isNaN(val)) {
-      commitAdjustment(val);
-    } else {
-      adjustmentInput.value = String(adjustment);
-    }
-  });
-  adjustmentInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      adjustmentInput.blur();
-    }
-  });
+  const frameDisplay = (<span style={{ fontWeight: "600", color: "#fff" }} />) as HTMLSpanElement;
 
-  sliderRow.appendChild(adjustmentSlider);
-  sliderRow.appendChild(adjustmentInput);
-
-  adjustmentControl.appendChild(adjustmentLabelText);
-  adjustmentControl.appendChild(sliderRow);
-
-  // Timeline scrubber control
-  const timelineControl = document.createElement("div");
-  timelineControl.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  `;
-
-  const timelineLabel = document.createElement("div");
-  timelineLabel.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 12px;
-    color: #ccc;
-  `;
-
-  const timelineLabelText = document.createElement("span");
-  timelineLabelText.textContent = "Frame";
-
-  const frameDisplay = document.createElement("span");
-  frameDisplay.style.cssText = `
-    font-weight: 600;
-    color: #fff;
-  `;
-
-  const timelineSlider = document.createElement("input");
-  timelineSlider.type = "range";
-  timelineSlider.min = "0";
-  timelineSlider.max = "100";
-  timelineSlider.value = "0";
-  timelineSlider.style.cssText = SLIDER_STYLE;
+  const timelineSlider = (
+    <input
+      type="range"
+      min="0"
+      max="100"
+      value="0"
+      style={SLIDER_STYLE}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onInput={(e: Event) => {
+        const frameNum = parseInt((e.target as HTMLInputElement).value, 10);
+        currentFrame = frameNum;
+        updateTimelineDisplay();
+        seekToFrame(frameNum);
+      }}
+    />
+  ) as HTMLInputElement;
 
   function updateTimelineDisplay() {
     const dur = displayVideo().duration;
@@ -387,50 +297,72 @@ export default function MaskAdjustmentPreview(
     timelineSlider.max = String(Math.max(0, frames - 1));
   }
 
-  timelineSlider.addEventListener("pointerdown", (e) => e.stopPropagation());
-  timelineSlider.addEventListener("mousedown", (e) => e.stopPropagation());
+  const infoText = (<span>Waiting for video inputs...</span>) as HTMLSpanElement;
 
-  timelineSlider.addEventListener("input", (e) => {
-    const frameNum = parseInt((e.target as HTMLInputElement).value, 10);
-    currentFrame = frameNum;
-    updateTimelineDisplay();
-    seekToFrame(frameNum);
-  });
+  const wrapper = (
+    <div
+      class="mask-adjustment-preview nodrag nowheel"
+      style={{
+        display: "flex", flexDirection: "column", gap: "12px", padding: "12px",
+        background: "#1a1a1a", borderRadius: "8px", minHeight: "400px",
+      }}
+    >
+      {/* Video preview container with overlay */}
+      <div
+        style={{ position: "relative", width: "100%", background: "#000", borderRadius: "4px", overflow: "hidden" }}
+        // Prevent drag interference
+        onPointerDown={stopPropagation}
+        onMouseDown={stopPropagation}
+      >
+        {video}
+        {maskVideo}
+        {canvas}
+      </div>
 
-  timelineLabel.appendChild(timelineLabelText);
-  timelineLabel.appendChild(frameDisplay);
-  timelineControl.appendChild(timelineLabel);
-  timelineControl.appendChild(timelineSlider);
+      {/* Controls container */}
+      <div
+        style={{
+          display: "flex", flexDirection: "column", gap: "16px", padding: "12px",
+          background: "#252525", borderRadius: "4px",
+        }}
+      >
+        {/* Adjustment slider control */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <span style={{ fontSize: "12px", color: "#ccc", flexShrink: "0" }}>Mask Adjustment</span>
+          {/* Slider + number input row (matches editor layout) */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
+            {adjustmentSlider}
+            {adjustmentInput}
+          </div>
+        </div>
 
-  controlsContainer.appendChild(adjustmentControl);
-  controlsContainer.appendChild(timelineControl);
+        {/* Timeline scrubber control */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div
+            style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              fontSize: "12px", color: "#ccc",
+            }}
+          >
+            <span>Frame</span>
+            {frameDisplay}
+          </div>
+          {timelineSlider}
+        </div>
+      </div>
 
-  // Info text with version number
-  const infoContainer = document.createElement("div");
-  infoContainer.style.cssText = `
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 11px;
-    color: #888;
-    padding: 8px;
-    background: #1f1f1f;
-    border-radius: 4px;
-  `;
-
-  const infoText = document.createElement("span");
-  infoText.textContent = "Waiting for video inputs...";
-
-  const versionText = document.createElement("span");
-  versionText.style.cssText = `
-    font-size: 10px;
-    color: #666;
-    font-family: monospace;
-  `;
-  versionText.textContent = `v${WIDGET_VERSION}`;
-
-  infoContainer.appendChild(infoText);
-  infoContainer.appendChild(versionText);
+      {/* Info text with version number */}
+      <div
+        style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          fontSize: "11px", color: "#888", padding: "8px", background: "#1f1f1f", borderRadius: "4px",
+        }}
+      >
+        {infoText}
+        <span style={{ fontSize: "10px", color: "#666", fontFamily: "monospace" }}>{`v${WIDGET_VERSION}`}</span>
+      </div>
+    </div>
+  ) as HTMLDivElement;
 
   // Helper function to seek to a specific frame
   function seekToFrame(frameNum: number) {
@@ -806,10 +738,6 @@ export default function MaskAdjustmentPreview(
   loadMaskVideo(maskVideoUrl);
   updateTimelineDisplay();
 
-  // Assemble widget
-  wrapper.appendChild(previewContainer);
-  wrapper.appendChild(controlsContainer);
-  wrapper.appendChild(infoContainer);
   container.appendChild(wrapper);
 
   // --- Update function for re-invocations ---

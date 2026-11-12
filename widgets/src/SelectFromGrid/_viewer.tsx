@@ -1,4 +1,4 @@
-// _viewer.ts — Fullscreen viewer for the SelectFromGrid widget.
+// _viewer.tsx — Fullscreen viewer for the SelectFromGrid widget.
 //
 // A modal over the whole page that shows one item at a time at full size.
 //
@@ -17,7 +17,7 @@
 // createViewer(opts) → { open(idx), close(), refresh(), destroy() }
 
 import { CARD_HUES } from './_styles';
-import { mkIcon } from './_icons';
+import { Icon } from './_icons';
 import type { GridItem } from './_types';
 
 const SWIPE_THRESHOLD = 50;
@@ -48,80 +48,78 @@ export function createViewer({
 
   // ── DOM ────────────────────────────────────────────────────────────────────
 
-  const overlay = document.createElement("div");
-  overlay.className = "sfg-viewer";
-  overlay.tabIndex  = -1;
-  overlay.setAttribute("role", "dialog");
-  overlay.setAttribute("aria-modal", "true");
+  const titleEl   = (<div class="sfg-viewer-title" />) as HTMLDivElement;
+  const counterEl = (<span class="sfg-viewer-counter" />) as HTMLSpanElement;
 
-  const header = document.createElement("div");
-  header.className = "sfg-viewer-header";
+  const selectBtn = (
+    <button type="button" class="sfg-viewer-select" onClick={() => toggleCurrent()} />
+  ) as HTMLButtonElement;
 
-  const titleEl = document.createElement("div");
-  titleEl.className = "sfg-viewer-title";
+  const prevBtn = (
+    <button type="button" class="sfg-viewer-nav prev" title="Previous (←)" onClick={() => step(-1)}>
+      <Icon name="chevron-left" size={28} />
+    </button>
+  ) as HTMLButtonElement;
 
-  const counterEl = document.createElement("span");
-  counterEl.className = "sfg-viewer-counter";
+  const nextBtn = (
+    <button type="button" class="sfg-viewer-nav next" title="Next (→)" onClick={() => step(1)}>
+      <Icon name="chevron-right" size={28} />
+    </button>
+  ) as HTMLButtonElement;
 
-  const selectBtn = document.createElement("button");
-  selectBtn.type = "button";
-  selectBtn.className = "sfg-viewer-select";
+  let swipe: { x: number; y: number } | null = null;
+  const stage = (
+    <div
+      class="sfg-viewer-stage"
+      onPointerDown={(e) => {
+        // Leave media controls and text selection / scrolling to the element
+        if ((e.target as Element).closest("video, audio, .sfg-viewer-text, .sfg-viewer-dict")) return;
+        swipe = { x: e.clientX, y: e.clientY };
+      }}
+      onPointerUp={(e) => {
+        if (!swipe) return;
+        const dx = e.clientX - swipe.x;
+        const dy = e.clientY - swipe.y;
+        swipe = null;
+        if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
+      }}
+      onPointerCancel={() => { swipe = null; }}
+    />
+  ) as HTMLDivElement;
 
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "sfg-viewer-icon-btn";
-  closeBtn.title = "Close (Esc)";
-  closeBtn.appendChild(mkIcon("x", 18));
+  const stripHint  = (<div class="sfg-viewer-strip-hint" />) as HTMLDivElement;
+  const stripItems = (<div class="sfg-viewer-strip-items" />) as HTMLDivElement;
 
-  header.append(titleEl, counterEl, selectBtn, closeBtn);
-
-  const body = document.createElement("div");
-  body.className = "sfg-viewer-body";
-
-  const prevBtn = document.createElement("button");
-  prevBtn.type = "button";
-  prevBtn.className = "sfg-viewer-nav prev";
-  prevBtn.title = "Previous (←)";
-  prevBtn.appendChild(mkIcon("chevron-left", 28));
-
-  const nextBtn = document.createElement("button");
-  nextBtn.type = "button";
-  nextBtn.className = "sfg-viewer-nav next";
-  nextBtn.title = "Next (→)";
-  nextBtn.appendChild(mkIcon("chevron-right", 28));
-
-  const stage = document.createElement("div");
-  stage.className = "sfg-viewer-stage";
-
-  body.append(prevBtn, stage, nextBtn);
-
-  const strip = document.createElement("div");
-  strip.className = "sfg-viewer-strip";
-
-  const stripHint = document.createElement("div");
-  stripHint.className = "sfg-viewer-strip-hint";
-
-  const stripItems = document.createElement("div");
-  stripItems.className = "sfg-viewer-strip-items";
-
-  strip.append(stripHint, stripItems);
-
-  overlay.append(header, body, strip);
+  const overlay = (
+    <div class="sfg-viewer" tabIndex={-1} role="dialog" aria-modal="true">
+      <div class="sfg-viewer-header">
+        {titleEl}
+        {counterEl}
+        {selectBtn}
+        <button type="button" class="sfg-viewer-icon-btn" title="Close (Esc)" onClick={() => close()}>
+          <Icon name="x" size={18} />
+        </button>
+      </div>
+      <div class="sfg-viewer-body">
+        {prevBtn}
+        {stage}
+        {nextBtn}
+      </div>
+      <div class="sfg-viewer-strip">
+        {stripHint}
+        {stripItems}
+      </div>
+    </div>
+  ) as HTMLDivElement;
 
   // ── Rendering ──────────────────────────────────────────────────────────────
 
-  function mkTextBlock(className: string, text: string) {
-    const el = document.createElement("div");
-    el.className   = className;
-    el.textContent = text;
-    return el;
+  function TextBlock({ className, text }: { className: string; text: string }) {
+    return <div class={className} textContent={text} />;
   }
 
-  function mkErrorCard() {
-    const card = document.createElement("div");
-    card.className = "sfg-error-card";
-    card.appendChild(mkIcon("alert-circle", 40));
-    return card;
+  function ErrorCard() {
+    return <div class="sfg-error-card"><Icon name="alert-circle" size={40} /></div>;
   }
 
   // Media identity only: a thumbnail or label arriving later shouldn't restart playback
@@ -140,119 +138,114 @@ export function createViewer({
 
     switch (item.type) {
       case "image": {
-        const img = document.createElement("img");
-        img.src = item.full_url || item.url || "";
-        img.alt = item.label || "";
         let triedPreview = !item.full_url || !item.url;
-        img.addEventListener("error", () => {
-          // Fall back to the grid's preview before giving up
-          if (triedPreview) { img.replaceWith(mkErrorCard()); return; }
-          triedPreview = true;
-          img.src = item.url as string;
-        });
+        const img = (
+          <img
+            src={item.full_url || item.url || ""}
+            alt={item.label || ""}
+            onError={() => {
+              // Fall back to the grid's preview before giving up
+              if (triedPreview) { img.replaceWith(<ErrorCard />); return; }
+              triedPreview = true;
+              img.src = item.url as string;
+            }}
+          />
+        ) as HTMLImageElement;
         stage.appendChild(img);
         break;
       }
       case "video": {
-        const vid = document.createElement("video");
-        vid.src         = item.url || "";
-        if (item.thumbnail) vid.poster = item.thumbnail;
-        vid.controls    = true;
-        vid.loop        = true;
-        vid.playsInline = true;
-        vid.addEventListener("error", () => vid.replaceWith(mkErrorCard()));
+        const vid = (
+          <video
+            src={item.url || ""}
+            poster={item.thumbnail || null}
+            controls loop playsInline
+            onError={() => vid.replaceWith(<ErrorCard />)}
+          />
+        ) as HTMLVideoElement;
         stage.appendChild(vid);
         void vid.play().catch(() => {});
         break;
       }
       case "audio": {
-        const card = document.createElement("div");
-        card.className = "sfg-viewer-audio";
-        card.appendChild(mkIcon("music", 72));
-        if (item.url) {
-          const audio = document.createElement("audio");
-          audio.src      = item.url;
-          audio.controls = true;
-          audio.addEventListener("error", () => card.replaceWith(mkErrorCard()));
-          card.appendChild(audio);
-        }
+        const card = (
+          <div class="sfg-viewer-audio">
+            <Icon name="music" size={72} />
+            {item.url ? (
+              <audio src={item.url} controls onError={() => card.replaceWith(<ErrorCard />)} />
+            ) : null}
+          </div>
+        ) as HTMLDivElement;
         stage.appendChild(card);
         break;
       }
       case "dict":
-        stage.appendChild(mkTextBlock("sfg-viewer-dict", (item.value as string) || "{}"));
+        stage.appendChild(<TextBlock className="sfg-viewer-dict" text={(item.value as string) || "{}"} />);
         break;
       default:
-        stage.appendChild(mkTextBlock(
-          "sfg-viewer-text",
-          item.value !== undefined ? String(item.value) : (item.label || ""),
-        ));
+        stage.appendChild(
+          <TextBlock
+            className="sfg-viewer-text"
+            text={item.value !== undefined ? String(item.value) : (item.label || "")}
+          />,
+        );
         break;
     }
   }
 
   function mkThumb(item: GridItem, idx: number) {
-    const thumb = document.createElement("div");
-    thumb.className = "sfg-viewer-thumb" + (idx === current ? " current" : "");
-    thumb.title = item.label || `Item ${idx + 1}`;
-    thumb.dataset.idx = String(idx);
+    const thumb = (
+      <div
+        class={"sfg-viewer-thumb" + (idx === current ? " current" : "")}
+        title={item.label || `Item ${idx + 1}`}
+        data-idx={String(idx)}
+        onClick={() => show(idx)}
+      />
+    ) as HTMLDivElement;
 
     switch (item.type) {
-      case "image": {
-        const img = document.createElement("img");
-        img.src = item.url || "";
-        img.alt = "";
-        img.decoding = "async";
-        thumb.appendChild(img);
+      case "image":
+        thumb.appendChild(<img src={item.url || ""} alt="" decoding="async" />);
         break;
-      }
       case "video": {
-        const mkFrame = () => {
-          const vid = document.createElement("video");
-          vid.src = item.url ? `${item.url}#t=0.1` : "";
-          vid.muted = true;
-          vid.preload = "metadata";
-          return vid;
-        };
+        const Frame = () => (
+          <video src={item.url ? `${item.url}#t=0.1` : ""} muted preload="metadata" />
+        );
         if (item.thumbnail) {
-          const img = document.createElement("img");
-          img.src = item.thumbnail;
-          img.alt = "";
-          img.addEventListener("error", () => img.replaceWith(mkFrame()), { once: true });
+          const img = (<img src={item.thumbnail} alt="" />) as HTMLImageElement;
+          img.addEventListener("error", () => img.replaceWith(<Frame />), { once: true });
           thumb.appendChild(img);
         } else {
-          thumb.appendChild(mkFrame());
+          thumb.appendChild(<Frame />);
         }
         break;
       }
       case "audio":
         thumb.classList.add("sfg-viewer-thumb-icon");
-        thumb.appendChild(mkIcon("music", 22));
+        thumb.appendChild(<Icon name="music" size={22} />);
         break;
       default: {
         const text = item.type === "dict"
           ? ((item.value as string) || "{}")
           : (item.value !== undefined ? String(item.value) : (item.label || ""));
-        const snippet = mkTextBlock("sfg-viewer-thumb-text", text);
         thumb.style.background = `hsla(${CARD_HUES[idx % CARD_HUES.length]}, 22%, 50%, 0.18)`;
-        thumb.appendChild(snippet);
+        thumb.appendChild(<TextBlock className="sfg-viewer-thumb-text" text={text} />);
         break;
       }
     }
 
-    thumb.addEventListener("click", () => show(idx));
-
     if (!isDisabled()) {
-      const rm = document.createElement("button");
-      rm.type = "button";
-      rm.className = "sfg-viewer-thumb-remove";
-      rm.title = "Remove from selection";
-      rm.appendChild(mkIcon("x", 12));
-      rm.addEventListener("click", (e) => {
-        e.stopPropagation();
-        onRemove(idx);
-      });
-      thumb.appendChild(rm);
+      thumb.appendChild(
+        <button
+          type="button" class="sfg-viewer-thumb-remove" title="Remove from selection"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(idx);
+          }}
+        >
+          <Icon name="x" size={12} />
+        </button>,
+      );
     }
 
     return thumb;
@@ -273,7 +266,7 @@ export function createViewer({
     selectBtn.disabled = isDisabled();
     selectBtn.classList.toggle("active", isSel);
     selectBtn.replaceChildren();
-    if (isSel) selectBtn.appendChild(mkIcon("check", 14));
+    if (isSel) selectBtn.appendChild(<Icon name="check" size={14} />);
     let label: string;
     if (isSel)                            label = "Selected";
     else if (!multi && selected.length)   label = "Replace selection";
@@ -328,11 +321,6 @@ export function createViewer({
 
   // ── Events ─────────────────────────────────────────────────────────────────
 
-  prevBtn.addEventListener("click", () => step(-1));
-  nextBtn.addEventListener("click", () => step(1));
-  closeBtn.addEventListener("click", () => close());
-  selectBtn.addEventListener("click", () => toggleCurrent());
-
   // Keys are taken in the capture phase on window so the editor's own shortcuts
   // (delete node, undo, …) don't fire underneath the modal.
   function onKeyDown(e: KeyboardEvent) {
@@ -345,21 +333,6 @@ export function createViewer({
       case "Escape":     e.preventDefault(); close();         break;
     }
   }
-
-  let swipe: { x: number; y: number } | null = null;
-  stage.addEventListener("pointerdown", (e) => {
-    // Leave media controls and text selection / scrolling to the element
-    if ((e.target as Element).closest("video, audio, .sfg-viewer-text, .sfg-viewer-dict")) return;
-    swipe = { x: e.clientX, y: e.clientY };
-  });
-  stage.addEventListener("pointerup", (e) => {
-    if (!swipe) return;
-    const dx = e.clientX - swipe.x;
-    const dy = e.clientY - swipe.y;
-    swipe = null;
-    if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
-  });
-  stage.addEventListener("pointercancel", () => { swipe = null; });
 
   // ── API ────────────────────────────────────────────────────────────────────
 

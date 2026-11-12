@@ -13,17 +13,13 @@ export const ICON_PATHS = {
 
 export type IconName = keyof typeof ICON_PATHS;
 
-export function mkIcon(name: IconName, size = 14): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", String(size));
-  svg.setAttribute("height", String(size));
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.style.cssText = "display:block;flex-shrink:0;pointer-events:none;";
-  svg.innerHTML = ICON_PATHS[name] || "";
-  return svg;
+export function Icon({ name, size = 14 }: { name: IconName; size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24" width={size} height={size}
+      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+      style="display:block;flex-shrink:0;pointer-events:none;"
+      innerHTML={ICON_PATHS[name] || ""}
+    />
+  );
 }

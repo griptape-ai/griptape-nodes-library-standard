@@ -1,6 +1,6 @@
 // Preset sidebar for CropImageEditor — aspect ratio, resolution, and position shortcuts.
 
-import { type IconName, mkIcon } from './_icons';
+import { type IconName, Icon } from './_icons';
 import type { CropRect } from './_types';
 
 interface RatioPreset { label: string; rw: number; rh: number }
@@ -106,105 +106,97 @@ function calcPositionRect(
   return { left: Math.max(0, l), top: Math.max(0, t), width: w, height: h };
 }
 
-export function createSidebar({ getImgSize, getCropRect, onApply }: SidebarOptions): Sidebar {
-  const el = document.createElement("div");
-  el.className = "nodrag nowheel";
-  el.style.cssText = [
-    "display:flex", "flex-direction:column", "gap:3px",
-    "width:108px", "flex-shrink:0",
-    "background:var(--muted)", "border-radius:6px", "padding:4px",
-    "overflow-y:auto", "box-sizing:border-box",
-  ].join(";");
+const stopPropagation = (e: Event) => e.stopPropagation();
 
+function Divider() {
+  return <div style="height:1px;background:var(--border);margin:2px 0;flex-shrink:0;" />;
+}
+
+function Label({ text }: { text: string }) {
+  return <div style="font-size:9px;color:var(--muted-foreground);text-align:center;padding:2px 0;">{text}</div>;
+}
+
+export function createSidebar({ getImgSize, getCropRect, onApply }: SidebarOptions): Sidebar {
   const allBtns: HTMLButtonElement[] = [];
 
   function makeBtn({ label, icon, title, onClick }: {
     label?: string; icon?: IconName; title: string; onClick: () => void;
   }): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.title = title;
-    btn.style.cssText = [
-      "width:100%", "padding:4px 2px", "border-radius:4px",
-      "border:1px solid var(--border)",
-      "background:var(--background)", "color:var(--foreground)", "cursor:pointer",
-      "font-size:10px", "font-weight:500", "line-height:1.3",
-      "white-space:nowrap", "box-sizing:border-box",
-      "display:flex", "align-items:center", "justify-content:center", "gap:3px",
-    ].join(";");
-    if (icon) btn.appendChild(mkIcon(icon, 12));
-    if (label) btn.append(label);
-    btn.addEventListener("mouseenter", () => { if (!btn.disabled) btn.style.background = "var(--accent)"; });
-    btn.addEventListener("mouseleave", () => { btn.style.background = "var(--background)"; });
-    for (const ev of ["mousedown", "pointerdown"]) btn.addEventListener(ev, (e) => e.stopPropagation());
-    btn.addEventListener("click", (e) => { e.stopPropagation(); if (!btn.disabled) onClick(); });
+    const btn = (
+      <button
+        title={title}
+        style={{
+          width: "100%", padding: "4px 2px", borderRadius: "4px",
+          border: "1px solid var(--border)",
+          background: "var(--background)", color: "var(--foreground)", cursor: "pointer",
+          fontSize: "10px", fontWeight: "500", lineHeight: "1.3",
+          whiteSpace: "nowrap", boxSizing: "border-box",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: "3px",
+        }}
+        onMouseEnter={() => { if (!btn.disabled) btn.style.background = "var(--accent)"; }}
+        onMouseLeave={() => { btn.style.background = "var(--background)"; }}
+        onMouseDown={stopPropagation}
+        onPointerDown={stopPropagation}
+        onClick={(e) => { e.stopPropagation(); if (!btn.disabled) onClick(); }}
+      >
+        {icon && <Icon name={icon} size={12} />}
+        {label}
+      </button>
+    ) as HTMLButtonElement;
     allBtns.push(btn);
     return btn;
   }
 
-  function makeDivider(): HTMLDivElement {
-    const hr = document.createElement("div");
-    hr.style.cssText = "height:1px;background:var(--border);margin:2px 0;flex-shrink:0;";
-    return hr;
-  }
+  const el = (
+    <div
+      class="nodrag nowheel"
+      style={{
+        display: "flex", flexDirection: "column", gap: "3px",
+        width: "108px", flexShrink: "0",
+        background: "var(--muted)", borderRadius: "6px", padding: "4px",
+        overflowY: "auto", boxSizing: "border-box",
+      }}
+    >
+      {/* ── Reset ── */}
+      {makeBtn({ icon: "rotate-ccw", label: "Reset", title: "Reset crop to full image", onClick: () => {
+        const { imgNatW, imgNatH } = getImgSize();
+        onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH, zoom: 100, rotate: 0 });
+      }})}
 
-  function makeLabel(text: string): HTMLDivElement {
-    const lbl = document.createElement("div");
-    lbl.textContent = text;
-    lbl.style.cssText = "font-size:9px;color:var(--muted-foreground);text-align:center;padding:2px 0;";
-    return lbl;
-  }
+      {/* ── Aspect ratios ── */}
+      <Divider />
+      <Label text="Ratio" />
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px;">
+        {RATIO_PRESETS.map(({ label, rw, rh }) => makeBtn({ label, title: label, onClick: () => {
+          const { imgNatW, imgNatH } = getImgSize();
+          const { l, t, w, h } = getCropRect();
+          onApply(calcRatioRect(rw, rh, imgNatW, imgNatH, l, t, w, h));
+        }}))}
+      </div>
 
-  // ── Reset ────────────────────────────────────────────────────────────────────
-  el.appendChild(makeBtn({ icon: "rotate-ccw", label: "Reset", title: "Reset crop to full image", onClick: () => {
-    const { imgNatW, imgNatH } = getImgSize();
-    onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH, zoom: 100, rotate: 0 });
-  }}));
+      {/* ── Resolutions ── */}
+      <Divider />
+      <Label text="Res" />
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px;">
+        {RESOLUTION_PRESETS.map(({ label, w: pw, h: ph }) => makeBtn({ label, title: `${pw}×${ph}`, onClick: () => {
+          const { imgNatW, imgNatH } = getImgSize();
+          const { l, t, w, h } = getCropRect();
+          onApply(calcResolutionRect(pw, ph, imgNatW, imgNatH, l, t, w, h));
+        }}))}
+      </div>
 
-  // ── Aspect ratios ─────────────────────────────────────────────────────────────
-  el.appendChild(makeDivider());
-  el.appendChild(makeLabel("Ratio"));
-  const ratioGrid = document.createElement("div");
-  ratioGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,1fr);gap:2px;";
-  for (const { label, rw, rh } of RATIO_PRESETS) {
-    const btn = makeBtn({ label, title: label, onClick: () => {
-      const { imgNatW, imgNatH } = getImgSize();
-      const { l, t, w, h } = getCropRect();
-      onApply(calcRatioRect(rw, rh, imgNatW, imgNatH, l, t, w, h));
-    }});
-    ratioGrid.appendChild(btn);
-  }
-  el.appendChild(ratioGrid);
-
-  // ── Resolutions ───────────────────────────────────────────────────────────────
-  el.appendChild(makeDivider());
-  el.appendChild(makeLabel("Res"));
-  const resGrid = document.createElement("div");
-  resGrid.style.cssText = "display:grid;grid-template-columns:repeat(2,1fr);gap:2px;";
-  for (const { label, w: pw, h: ph } of RESOLUTION_PRESETS) {
-    const btn = makeBtn({ label, title: `${pw}×${ph}`, onClick: () => {
-      const { imgNatW, imgNatH } = getImgSize();
-      const { l, t, w, h } = getCropRect();
-      onApply(calcResolutionRect(pw, ph, imgNatW, imgNatH, l, t, w, h));
-    }});
-    resGrid.appendChild(btn);
-  }
-  el.appendChild(resGrid);
-
-  // ── Positions ─────────────────────────────────────────────────────────────────
-  el.appendChild(makeDivider());
-  el.appendChild(makeLabel("Pos"));
-  const posGrid = document.createElement("div");
-  posGrid.style.cssText = "display:grid;grid-template-columns:repeat(3,1fr);gap:2px;";
-  for (const { label, title, pos } of POSITION_PRESETS) {
-    const btn = makeBtn({ label, title, onClick: () => {
-      const { imgNatW, imgNatH } = getImgSize();
-      const { l, t, w, h } = getCropRect();
-      onApply(calcPositionRect(pos, imgNatW, imgNatH, l, t, w, h));
-    }});
-    btn.style.width = "100%";
-    posGrid.appendChild(btn);
-  }
-  el.appendChild(posGrid);
+      {/* ── Positions ── */}
+      <Divider />
+      <Label text="Pos" />
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;">
+        {POSITION_PRESETS.map(({ label, title, pos }) => makeBtn({ label, title, onClick: () => {
+          const { imgNatW, imgNatH } = getImgSize();
+          const { l, t, w, h } = getCropRect();
+          onApply(calcPositionRect(pos, imgNatW, imgNatH, l, t, w, h));
+        }}))}
+      </div>
+    </div>
+  ) as HTMLDivElement;
 
   function syncDisabled(lockedParams: readonly string[], disabled: boolean): void {
     const coordLocked = ["left", "top", "width", "height"].some(f => lockedParams.includes(f));

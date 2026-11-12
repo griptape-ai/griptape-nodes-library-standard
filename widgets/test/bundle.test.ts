@@ -7,8 +7,9 @@ import { ENTRIES, WIDGETS_ROOT } from "../scripts/build.mjs";
 import { buildIntoScratch, importMount, removeDir, scratchDir } from "./support/bundle";
 
 // Module syntax that would make the browser fetch something besides the bundle itself.
-const STATIC_IMPORT = /^\s*import\s*(?:[\w*{}\s,$]+from\s*)?["']/m;
-const RE_EXPORT = /^\s*export\s*(?:\*|\{[^}]*\})\s*from\s*["']/m;
+// Bundles are minified, so a statement starts a line or follows a `;` or `}`.
+const STATIC_IMPORT = /(?:^|[;}])\s*import\s*(?:[\w*{}\s,$]+from\s*)?["']/m;
+const RE_EXPORT = /(?:^|[;}])\s*export\s*(?:\*|\{[^}]*\})\s*from\s*["']/m;
 const DYNAMIC_IMPORT = /\bimport\s*\(/;
 
 // These build into a scratch directory, so they pass with or without a built widgets/dist.
@@ -32,7 +33,6 @@ describe("built bundle", () => {
   it("imports as an ES module whose default export is the mount function", async () => {
     const mount = await importMount(join(outDir, "CropImageEditor.js"));
     expect(typeof mount).toBe("function");
-    expect(mount.name).toBe("CropImageEditor");
   });
 
   it("has no imports, re-exports, or dynamic imports, and only a default export", async () => {
@@ -40,8 +40,13 @@ describe("built bundle", () => {
     expect(text).not.toMatch(STATIC_IMPORT);
     expect(text).not.toMatch(RE_EXPORT);
     expect(text).not.toMatch(DYNAMIC_IMPORT);
-    expect(text.match(/^\s*export\b/gm)).toHaveLength(1);
-    expect(text).toMatch(/^export\s*\{\s*CropImageEditor as default\s*\};\s*$/m);
+    expect(text.match(/(?:^|[;}])\s*export\b/gm)).toHaveLength(1);
+    expect(text).toMatch(/[;}]export\s*\{\s*[\w$]+ as default\s*\};?\s*$/);
+  });
+
+  it("is minified", async () => {
+    const text = await readFile(join(outDir, "CropImageEditor.js"), "utf8");
+    expect(text).not.toMatch(/\bfunction CropImageEditor\b/);
   });
 
   it("carries no machine paths or timestamps", async () => {

@@ -1,6 +1,6 @@
 // Frame scrubber and status bar for CropVideoEditor.
 
-import { mkIcon } from './_icons';
+import { Icon } from './_icons';
 
 export interface FooterOptions {
   isDisabled: () => boolean;
@@ -25,65 +25,71 @@ export interface Footer {
   updateStatus: (status: FooterStatus) => void;
 }
 
+const stopPropagation = (e: Event) => e.stopPropagation();
+
 export function createFooter({ isDisabled, onSeek, version }: FooterOptions): Footer {
-  const controls = document.createElement("div");
-  controls.className = "nodrag nowheel";
-  controls.style.cssText = [
-    "background:var(--muted)", "border-radius:4px", "padding:6px 8px",
-    "display:flex", "flex-direction:column", "gap:5px",
-  ].join(";");
+  const scrubSlider = (
+    <input
+      type="range" min="0" max="0" step="1" value="0"
+      style="flex:1;accent-color:#2563eb;"
+      onMouseDown={stopPropagation}
+      onPointerDown={stopPropagation}
+      onInput={(e) => {
+        if (isDisabled()) return;
+        e.stopPropagation();
+        const frame = parseInt((e.target as HTMLInputElement).value, 10);
+        const total = parseInt(scrubSlider.max, 10);
+        frameDisplay.textContent = `${frame} / ${total}`;
+        onSeek(frame);
+      }}
+    />
+  ) as HTMLInputElement;
+
+  const frameDisplay = (
+    <span style="font-size:11px;color:var(--foreground);min-width:52px;text-align:right;font-family:monospace;">
+      0 / 0
+    </span>
+  ) as HTMLSpanElement;
 
   // ── Frame scrubber row ──────────────────────────────────────────────────────
-  const scrubRow = document.createElement("div");
-  scrubRow.style.cssText = "display:flex;align-items:center;gap:8px;";
+  const scrubRow = (
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="color:var(--muted-foreground);display:flex;align-items:center;flex-shrink:0;">
+        <Icon name="film" size={13} />
+      </span>
+      {scrubSlider}
+      {frameDisplay}
+    </div>
+  ) as HTMLDivElement;
 
-  const filmIcon = document.createElement("span");
-  filmIcon.style.cssText = "color:var(--muted-foreground);display:flex;align-items:center;flex-shrink:0;";
-  filmIcon.appendChild(mkIcon("film", 13));
-
-  const scrubSlider = document.createElement("input");
-  scrubSlider.type = "range";
-  scrubSlider.min = "0";
-  scrubSlider.max = "0";
-  scrubSlider.step = "1";
-  scrubSlider.value = "0";
-  scrubSlider.style.cssText = "flex:1;accent-color:#2563eb;";
-
-  const frameDisplay = document.createElement("span");
-  frameDisplay.textContent = "0 / 0";
-  frameDisplay.style.cssText = "font-size:11px;color:var(--foreground);min-width:52px;text-align:right;font-family:monospace;";
-
-  for (const ev of ["mousedown", "pointerdown"]) {
-    scrubSlider.addEventListener(ev, (e) => e.stopPropagation());
-  }
-
-  scrubSlider.addEventListener("input", (e) => {
-    if (isDisabled()) return;
-    e.stopPropagation();
-    const frame = parseInt((e.target as HTMLInputElement).value, 10);
-    const total = parseInt(scrubSlider.max, 10);
-    frameDisplay.textContent = `${frame} / ${total}`;
-    onSeek(frame);
-  });
-
-  scrubRow.appendChild(filmIcon);
-  scrubRow.appendChild(scrubSlider);
-  scrubRow.appendChild(frameDisplay);
-  controls.appendChild(scrubRow);
+  const controls = (
+    <div
+      class="nodrag nowheel"
+      style={{
+        background: "var(--muted)", borderRadius: "4px", padding: "6px 8px",
+        display: "flex", flexDirection: "column", gap: "5px",
+      }}
+    >
+      {scrubRow}
+    </div>
+  ) as HTMLDivElement;
 
   // ── Status bar ─────────────────────────────────────────────────────────────
-  const statusBar = document.createElement("div");
-  statusBar.style.cssText = [
-    "font-size:11px", "color:var(--muted-foreground)", "padding:4px 8px",
-    "background:var(--muted)", "border-radius:4px",
-    "display:flex", "justify-content:space-between", "align-items:center",
-  ].join(";");
-  const statusL = document.createElement("span");
-  const statusR = document.createElement("span");
-  statusR.style.cssText = "font-family:monospace;font-size:10px;color:var(--muted-foreground);opacity:0.6;";
-  statusR.textContent = `v${version}`;
-  statusBar.appendChild(statusL);
-  statusBar.appendChild(statusR);
+  const statusL = (<span />) as HTMLSpanElement;
+  const statusBar = (
+    <div
+      style={{
+        fontSize: "11px", color: "var(--muted-foreground)", padding: "4px 8px",
+        background: "var(--muted)", borderRadius: "4px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+      }}
+    >
+      {statusL}
+      <span style="font-family:monospace;font-size:10px;color:var(--muted-foreground);opacity:0.6;">
+        {`v${version}`}
+      </span>
+    </div>
+  ) as HTMLDivElement;
 
   function sync(totalFrames: number, disabled: boolean): void {
     scrubSlider.disabled = disabled || totalFrames === 0;

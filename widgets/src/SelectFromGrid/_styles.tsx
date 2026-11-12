@@ -600,8 +600,7 @@ export function injectStyles(): void {
   let el = document.getElementById("sfg-widget-styles");
   if (el?.dataset.version === WIDGET_VERSION) return;
   if (!el) {
-    el = document.createElement("style");
-    el.id = "sfg-widget-styles";
+    el = (<style id="sfg-widget-styles" />) as HTMLStyleElement;
     document.head.appendChild(el);
   }
   el.dataset.version = WIDGET_VERSION;

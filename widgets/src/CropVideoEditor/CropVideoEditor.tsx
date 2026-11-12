@@ -136,38 +136,42 @@ export default function CropVideoEditor(
   const hitR = HANDLE_R + 5;
 
   // ── DOM structure ──────────────────────────────────────────────────────────
-  const wrapper = document.createElement("div");
-  wrapper.className = "nodrag nowheel";
-  wrapper.style.cssText = "display:flex;flex-direction:column;height:100%;gap:6px;";
-
-  // Canvas row: video + canvas | sidebar
-  const canvasRow = document.createElement("div");
-  canvasRow.style.cssText = "display:flex;flex-direction:row;flex:1 1 0;min-height:180px;gap:6px;";
-
-  const canvasWrap = document.createElement("div");
-  canvasWrap.style.cssText = [
-    "flex:1 1 0", "min-height:0", "position:relative",
-    "background:#111", "border-radius:6px", "overflow:hidden",
-  ].join(";");
-
   // Video element (background)
-  const video = document.createElement("video");
-  video.muted = true;
-  video.preload = "metadata";
-  video.crossOrigin = "anonymous";
-  video.style.cssText = [
-    "position:absolute", "inset:0", "width:100%", "height:100%",
-    "object-fit:contain", "pointer-events:none",
-  ].join(";");
+  const video = (
+    <video
+      muted preload="metadata" crossOrigin="anonymous"
+      style={{
+        position: "absolute", inset: "0", width: "100%", height: "100%",
+        objectFit: "contain", pointerEvents: "none",
+      }}
+      onLoadedMetadata={onVideoLoadedMetadata}
+      onSeeked={() => render()}
+    />
+  ) as HTMLVideoElement;
 
   // Canvas overlay (transparent bg — draws crop overlay + handles only)
-  const canvas = document.createElement("canvas");
-  canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;";
+  const canvas = (
+    <canvas
+      style="position:absolute;inset:0;width:100%;height:100%;"
+      onPointerDown={onCanvasPointerDown}
+      onPointerMove={onCanvasPointerMove}
+      onPointerUp={onCanvasPointerUp}
+    />
+  ) as HTMLCanvasElement;
   // Every browser the editor supports provides a 2D context for a fresh canvas.
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 
-  canvasWrap.appendChild(video);
-  canvasWrap.appendChild(canvas);
+  const canvasWrap = (
+    <div
+      style={{
+        flex: "1 1 0", minHeight: "0", position: "relative",
+        background: "#111", borderRadius: "6px", overflow: "hidden",
+      }}
+    >
+      {video}
+      {canvas}
+    </div>
+  ) as HTMLDivElement;
 
   // Sidebar
   const sidebarInst = createSidebar({
@@ -181,9 +185,6 @@ export default function CropVideoEditor(
     },
   });
 
-  canvasRow.appendChild(canvasWrap);
-  canvasRow.appendChild(sidebarInst.el);
-
   // Footer (frame scrubber + status bar)
   const footerInst = createFooter({
     isDisabled: () => isDisabled,
@@ -191,10 +192,18 @@ export default function CropVideoEditor(
     version: WIDGET_VERSION,
   });
 
-  wrapper.appendChild(canvasRow);
-  wrapper.appendChild(footerInst.controls);
-  wrapper.appendChild(footerInst.statusBar);
-  container.appendChild(wrapper);
+  const wrapper = (
+    <div class="nodrag nowheel" style="display:flex;flex-direction:column;height:100%;gap:6px;">
+      {/* Canvas row: video + canvas | sidebar */}
+      <div style="display:flex;flex-direction:row;flex:1 1 0;min-height:180px;gap:6px;">
+        {canvasWrap}
+        {sidebarInst.el}
+      </div>
+      {footerInst.controls}
+      {footerInst.statusBar}
+    </div>
+  ) as HTMLDivElement;
+  container.append(wrapper);
 
   // ── Video loading ──────────────────────────────────────────────────────────
   // Compare by pathname only so token refreshes in signed URLs don't cause reloads.
@@ -212,7 +221,7 @@ export default function CropVideoEditor(
     video.load();
   }
 
-  video.addEventListener("loadedmetadata", () => {
+  function onVideoLoadedMetadata() {
     videoLoaded = true;
     // Fill in dims from the video element if Python couldn't probe them
     if (!vidNatW) vidNatW = video.videoWidth;
@@ -229,9 +238,7 @@ export default function CropVideoEditor(
     }
     syncUI();
     render();
-  });
-
-  video.addEventListener("seeked", () => render());
+  }
 
   // ── Canvas sizing ──────────────────────────────────────────────────────────
   function syncCanvasSize() {
@@ -360,7 +367,7 @@ export default function CropVideoEditor(
 
   function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
-  canvas.addEventListener("pointerdown", (e) => {
+  function onCanvasPointerDown(e: PointerEvent) {
     e.stopPropagation();
     if (isDisabled) return;
     const { x, y } = canvasXY(e);
@@ -392,9 +399,9 @@ export default function CropVideoEditor(
       dragStart = { x: x / scale, y: y / scale };
       canvas.setPointerCapture(e.pointerId);
     }
-  });
+  }
 
-  canvas.addEventListener("pointermove", (e) => {
+  function onCanvasPointerMove(e: PointerEvent) {
     e.stopPropagation();
     const { x, y } = canvasXY(e);
 
@@ -449,16 +456,16 @@ export default function CropVideoEditor(
       render();
       emitLive();
     }
-  });
+  }
 
-  canvas.addEventListener("pointerup", (e) => {
+  function onCanvasPointerUp(e: PointerEvent) {
     e.stopPropagation();
     if (mode !== "idle") {
       mode = "idle";
       render();
       emitAll();
     }
-  });
+  }
 
 
   // ── Emit ───────────────────────────────────────────────────────────────────

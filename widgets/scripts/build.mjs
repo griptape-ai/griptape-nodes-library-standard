@@ -17,26 +17,28 @@ export const WIDGETS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..
 
 /** Output name (without `.js`) to entry module, relative to the package root. */
 export const ENTRIES = {
-  CropImageEditor: "src/CropImageEditor/CropImageEditor.ts",
-  CropVideoEditor: "src/CropVideoEditor/CropVideoEditor.ts",
-  ImageProcessorPreview: "src/ImageProcessorPreview/ImageProcessorPreview.ts",
-  KlingMultiShotEditor: "src/KlingMultiShotEditor/KlingMultiShotEditor.ts",
-  MaskAdjustmentPreview: "src/MaskAdjustmentPreview/MaskAdjustmentPreview.ts",
-  SelectFromGrid: "src/SelectFromGrid/SelectFromGrid.ts",
-  SplatViewer: "src/SplatViewer/SplatViewer.ts",
-  VideoCapture: "src/VideoCapture/VideoCapture.ts",
-  WebcamCapture: "src/WebcamCapture/WebcamCapture.ts",
+  CropImageEditor: "src/CropImageEditor/CropImageEditor.tsx",
+  CropVideoEditor: "src/CropVideoEditor/CropVideoEditor.tsx",
+  ImageProcessorPreview: "src/ImageProcessorPreview/ImageProcessorPreview.tsx",
+  KlingMultiShotEditor: "src/KlingMultiShotEditor/KlingMultiShotEditor.tsx",
+  MaskAdjustmentPreview: "src/MaskAdjustmentPreview/MaskAdjustmentPreview.tsx",
+  SelectFromGrid: "src/SelectFromGrid/SelectFromGrid.tsx",
+  SplatViewer: "src/SplatViewer/SplatViewer.tsx",
+  VideoCapture: "src/VideoCapture/VideoCapture.tsx",
+  WebcamCapture: "src/WebcamCapture/WebcamCapture.tsx",
 };
 
 const STAGING_DIR = ".build-tmp";
 
-// Module syntax that would make the browser fetch something besides the bundle itself.
+// Module syntax that would make the browser fetch something besides the bundle itself. Bundles are
+// minified, so a statement starts a line or follows a `;` or `}`.
 const FORBIDDEN_SYNTAX = [
-  { pattern: /^\s*import\s*(?:[\w*{}\s,$]+from\s*)?["']/m, what: "an import statement" },
-  { pattern: /^\s*export\s*(?:\*|\{[^}]*\})\s*from\s*["']/m, what: "a re-export" },
+  { pattern: /(?:^|[;}])\s*import\s*(?:[\w*{}\s,$]+from\s*)?["']/m, what: "an import statement" },
+  { pattern: /(?:^|[;}])\s*export\s*(?:\*|\{[^}]*\})\s*from\s*["']/m, what: "a re-export" },
   { pattern: /\bimport\s*\(/, what: "a dynamic import" },
 ];
-const DEFAULT_EXPORT = /^export\s*\{\s*[\w$]+ as default\s*\};\s*$/m;
+const EXPORT_STATEMENT = /(?:^|[;}])\s*export\b/gm;
+const DEFAULT_EXPORT = /(?:^|[;}])\s*export\s*\{\s*[\w$]+ as default\s*\};?\s*$/;
 
 /**
  * @param {string} root
@@ -54,7 +56,9 @@ export function buildOptions(root, entries, outdir) {
     splitting: false,
     platform: "browser",
     target: "es2020",
-    minify: false,
+    jsx: "automatic",
+    jsxImportSource: "@griptape-ai/nodes-widget-api",
+    minify: true,
     sourcemap: false,
     legalComments: "inline",
     charset: "utf8",
@@ -82,8 +86,8 @@ export function verifyBundle(name, text, meta) {
   for (const { pattern, what } of FORBIDDEN_SYNTAX) {
     if (pattern.test(text)) problems.push(`contains ${what}`);
   }
-  const exportLines = text.match(/^\s*export\b/gm) ?? [];
-  if (exportLines.length !== 1 || !DEFAULT_EXPORT.test(text)) {
+  const exportStatements = text.match(EXPORT_STATEMENT) ?? [];
+  if (exportStatements.length !== 1 || !DEFAULT_EXPORT.test(text)) {
     problems.push("does not end in a single `export { … as default }`");
   }
   if (problems.length > 0) {

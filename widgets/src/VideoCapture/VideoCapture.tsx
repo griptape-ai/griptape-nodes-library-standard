@@ -1,7 +1,8 @@
-import { mkIcon } from './_icons';
+import { Icon } from './_icons';
 import type { IconName } from './_icons';
 import type { VideoCaptureLiveValues, VideoCaptureValue } from './_types';
 import type { WidgetHandle, WidgetProps } from '@griptape-ai/nodes-widget-api';
+import type { StyleProp } from '@griptape-ai/nodes-widget-api/jsx-runtime';
 
 export type {
   VideoCaptureAccepted, VideoCaptureError, VideoCaptureIdle, VideoCaptureLiveValues, VideoCaptureProcessed,
@@ -42,22 +43,24 @@ function fmtTime(s: number): string {
 
 function injectStyles(): void {
   if (document.getElementById("vc-styles")) return;
-  const style = document.createElement("style");
-  style.id = "vc-styles";
-  style.textContent = "@keyframes vc-spin{to{transform:rotate(360deg)}}";
-  document.head.appendChild(style);
+  document.head.append(<style id="vc-styles">{"@keyframes vc-spin{to{transform:rotate(360deg)}}"}</style>);
 }
 
-function mkSelect(): HTMLSelectElement {
-  const sel = document.createElement("select");
-  sel.style.cssText = [
-    "flex:1", "min-width:0", "padding:4px 6px", "border-radius:5px",
-    "border:1px solid var(--border)", "background:var(--background)",
-    "color:var(--foreground)", "font-size:12px", "cursor:pointer",
-  ].join(";");
-  sel.addEventListener("pointerdown", (e) => e.stopPropagation());
-  sel.addEventListener("mousedown",   (e) => e.stopPropagation());
-  return sel;
+const stopPropagation = (e: Event) => e.stopPropagation();
+
+function DeviceSelect({ onChange }: { onChange: () => void }) {
+  return (
+    <select
+      style={{
+        flex: "1", minWidth: "0", padding: "4px 6px", borderRadius: "5px",
+        border: "1px solid var(--border)", background: "var(--background)",
+        color: "var(--foreground)", fontSize: "12px", cursor: "pointer",
+      }}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onChange={onChange}
+    />
+  );
 }
 
 function cameraErrorMessage(err: unknown): string {
@@ -77,19 +80,29 @@ function cameraErrorMessage(err: unknown): string {
   }
 }
 
-function mkOverlayBtn(iconName: IconName, label: string): HTMLButtonElement {
-  const btn = document.createElement("button");
-  btn.style.cssText = [
-    "display:flex", "align-items:center", "gap:6px",
-    "padding:6px 14px", "border-radius:6px", "border:none",
-    "cursor:pointer", "font-size:13px", "font-weight:500",
-    "background:rgba(0,0,0,0.6);color:white;backdrop-filter:blur(4px);",
-  ].join(";");
-  btn.appendChild(mkIcon(iconName, 14));
-  btn.appendChild(Object.assign(document.createElement("span"), { textContent: label }));
-  btn.addEventListener("pointerdown", (e) => e.stopPropagation());
-  btn.addEventListener("mousedown",   (e) => e.stopPropagation());
-  return btn;
+function OverlayButton({ icon, label, style, onClick }: {
+  icon: IconName;
+  label: string;
+  style?: Exclude<StyleProp, string>;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      style={{
+        display: "flex", alignItems: "center", gap: "6px",
+        padding: "6px 14px", borderRadius: "6px", border: "none",
+        cursor: "pointer", fontSize: "13px", fontWeight: "500",
+        background: "rgba(0,0,0,0.6)", color: "white", backdropFilter: "blur(4px)",
+        ...style,
+      }}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onClick={onClick}
+    >
+      <Icon name={icon} size={14} />
+      <span>{label}</span>
+    </button>
+  );
 }
 
 export default function VideoCapture(
@@ -125,108 +138,156 @@ export default function VideoCapture(
 
   // ── DOM ──────────────────────────────────────────────────────────────────
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "nodrag nowheel";
-  wrapper.style.cssText = "display:flex;flex-direction:column;height:100%;padding:8px;box-sizing:border-box;";
+  const releaseRecordBtn = () => { recordBtn.style.transform = "translateX(-50%)"; };
 
-  const videoWrap = document.createElement("div");
-  videoWrap.style.cssText = [
-    "position:relative", "background:#111", "border-radius:8px",
-    "flex:1 1 0", "min-height:180px", "overflow:hidden",
-    "display:flex", "align-items:center", "justify-content:center",
-  ].join(";");
+  const video = (
+    <video
+      style="width:100%;height:100%;object-fit:contain;display:block;"
+      autoplay muted playsInline
+      onPlay={syncPlayPauseBtn}
+      onPause={syncPlayPauseBtn}
+      onEnded={syncPlayPauseBtn}
+    />
+  ) as HTMLVideoElement;
 
-  const video = document.createElement("video");
-  video.style.cssText = "width:100%;height:100%;object-fit:contain;display:block;";
-  video.autoplay = true;
-  video.muted = true;
-  video.playsInline = true;
-
-  const placeholder = document.createElement("div");
-  placeholder.style.cssText = "position:absolute;color:var(--muted-foreground);font-size:13px;text-align:center;padding:24px;user-select:none;";
-  placeholder.textContent = "Starting camera…";
+  const placeholder = (
+    <div style="position:absolute;color:var(--muted-foreground);font-size:13px;text-align:center;padding:24px;user-select:none;">
+      Starting camera…
+    </div>
+  ) as HTMLDivElement;
 
   // REC badge
-  const recBadge = document.createElement("div");
-  recBadge.style.cssText = [
-    "position:absolute", "top:10px", "left:10px",
-    "background:rgba(200,0,0,0.85)", "color:#fff",
-    "font-size:11px", "font-weight:700", "padding:2px 8px",
-    "border-radius:4px", "font-family:monospace", "pointer-events:none",
-  ].join(";");
-  recBadge.hidden = true;
+  const recBadge = (
+    <div
+      style={{
+        position: "absolute", top: "10px", left: "10px",
+        background: "rgba(200,0,0,0.85)", color: "#fff",
+        fontSize: "11px", fontWeight: "700", padding: "2px 8px",
+        borderRadius: "4px", fontFamily: "monospace", pointerEvents: "none",
+      }}
+      hidden
+    />
+  ) as HTMLDivElement;
 
   // Shown when the camera streams but the microphone could not be opened; click to retry the mic
-  const micBadge = document.createElement("button");
-  micBadge.style.cssText = [
-    "position:absolute", "top:10px", "right:10px",
-    "background:rgba(0,0,0,0.6)", "color:#fff",
-    "font-size:11px", "padding:2px 8px",
-    "border-radius:4px", "border:none", "cursor:pointer",
-  ].join(";");
-  micBadge.textContent = "No microphone — recording video only (retry)";
-  micBadge.hidden = true;
-  micBadge.addEventListener("pointerdown", (e) => e.stopPropagation());
-  micBadge.addEventListener("mousedown",   (e) => e.stopPropagation());
+  const micBadge = (
+    <button
+      style={{
+        position: "absolute", top: "10px", right: "10px",
+        background: "rgba(0,0,0,0.6)", color: "#fff",
+        fontSize: "11px", padding: "2px 8px",
+        borderRadius: "4px", border: "none", cursor: "pointer",
+      }}
+      hidden
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onClick={() => switchDevices({ defaultMic: true })}
+    >
+      No microphone — recording video only (retry)
+    </button>
+  ) as HTMLButtonElement;
 
-  const retryBtn = mkOverlayBtn("rotate-ccw", "Retry");
-  retryBtn.style.position = "absolute";
-  retryBtn.style.bottom = "12px";
-  retryBtn.style.left = "50%";
-  retryBtn.style.transform = "translateX(-50%)";
+  const retryBtn = (
+    <OverlayButton
+      icon="rotate-ccw" label="Retry"
+      style={{ position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)" }}
+      onClick={retryCamera}
+    />
+  ) as HTMLButtonElement;
 
   // Encoding overlay
-  const encodingOverlay = document.createElement("div");
-  encodingOverlay.style.cssText = [
-    "position:absolute", "inset:0", "z-index:10",
-    "background:rgba(0,0,0,0.75)",
-    "display:flex", "flex-direction:column",
-    "align-items:center", "justify-content:center", "gap:10px",
-    "color:white", "font-size:13px", "font-weight:500",
-    "border-radius:8px",
-  ].join(";");
-  const spinner = document.createElement("div");
-  spinner.style.cssText = "width:28px;height:28px;border:3px solid rgba(255,255,255,0.25);border-top-color:white;border-radius:50%;animation:vc-spin 0.75s linear infinite;";
-  encodingOverlay.appendChild(spinner);
-  encodingOverlay.appendChild(Object.assign(document.createElement("span"), { textContent: "Processing…" }));
-  encodingOverlay.hidden = true;
+  const spinner = (
+    <div style="width:28px;height:28px;border:3px solid rgba(255,255,255,0.25);border-top-color:white;border-radius:50%;animation:vc-spin 0.75s linear infinite;" />
+  ) as HTMLDivElement;
+  const encodingOverlay = (
+    <div
+      style={{
+        position: "absolute", inset: "0", zIndex: "10",
+        background: "rgba(0,0,0,0.75)",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: "10px",
+        color: "white", fontSize: "13px", fontWeight: "500",
+        borderRadius: "8px",
+      }}
+      hidden
+    >
+      {spinner}
+      <span>Processing…</span>
+    </div>
+  ) as HTMLDivElement;
 
   // Circular record button — red dot morphs to stop square when recording
-  const recordBtn = document.createElement("button");
-  recordBtn.style.cssText = [
-    "position:absolute", "bottom:12px", "left:50%", "transform:translateX(-50%)",
-    "width:52px", "height:52px", "border-radius:50%",
-    "border:3px solid rgba(255,255,255,0.85)", "background:rgba(20,20,20,0.55)",
-    "cursor:pointer", "display:flex", "align-items:center", "justify-content:center",
-    "backdrop-filter:blur(4px)", "transition:transform 0.1s,opacity 0.15s",
-  ].join(";");
-  const innerDot = document.createElement("div");
-  innerDot.style.cssText = "width:20px;height:20px;border-radius:50%;background:#e53e3e;transition:border-radius 0.2s,width 0.2s,height 0.2s;";
-  recordBtn.appendChild(innerDot);
-  recordBtn.addEventListener("pointerdown", (e) => { e.stopPropagation(); recordBtn.style.transform = "translateX(-50%) scale(0.88)"; });
-  recordBtn.addEventListener("pointerup",   ()  => { recordBtn.style.transform = "translateX(-50%)"; });
-  recordBtn.addEventListener("pointerleave",()  => { recordBtn.style.transform = "translateX(-50%)"; });
-  recordBtn.addEventListener("mousedown",   (e) => e.stopPropagation());
+  const innerDot = (
+    <div style="width:20px;height:20px;border-radius:50%;background:#e53e3e;transition:border-radius 0.2s,width 0.2s,height 0.2s;" />
+  ) as HTMLDivElement;
+  const recordBtn = (
+    <button
+      style={{
+        position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)",
+        width: "52px", height: "52px", borderRadius: "50%",
+        border: "3px solid rgba(255,255,255,0.85)", background: "rgba(20,20,20,0.55)",
+        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+        backdropFilter: "blur(4px)", transition: "transform 0.1s,opacity 0.15s",
+      }}
+      onPointerDown={(e) => { e.stopPropagation(); recordBtn.style.transform = "translateX(-50%) scale(0.88)"; }}
+      onPointerUp={releaseRecordBtn}
+      onPointerLeave={releaseRecordBtn}
+      onMouseDown={stopPropagation}
+      onClick={toggleRecord}
+    >
+      {innerDot}
+    </button>
+  ) as HTMLButtonElement;
 
   // Review controls (shown after recording stops)
-  const playPauseBtn = mkOverlayBtn("play",      "Play");
-  const acceptBtn    = mkOverlayBtn("check",     "Accept");
-  const discardBtn   = mkOverlayBtn("rotate-ccw","Re-record");
+  const playPauseBtn = (<OverlayButton icon="play"       label="Play"      onClick={togglePlayPause} />) as HTMLButtonElement;
+  const acceptBtn    = (<OverlayButton icon="check"      label="Accept"    onClick={accept} />) as HTMLButtonElement;
+  const discardBtn   = (<OverlayButton icon="rotate-ccw" label="Re-record" onClick={discard} />) as HTMLButtonElement;
 
-  const reviewOverlay = document.createElement("div");
-  reviewOverlay.style.cssText = "position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;";
-  reviewOverlay.append(playPauseBtn, acceptBtn, discardBtn);
-
-  videoWrap.append(placeholder, video, recBadge, micBadge, encodingOverlay, recordBtn, reviewOverlay, retryBtn);
+  const reviewOverlay = (
+    <div style="position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
+      {playPauseBtn}
+      {acceptBtn}
+      {discardBtn}
+    </div>
+  ) as HTMLDivElement;
 
   // Device selector row
-  const videoSel = mkSelect();
-  const audioSel = mkSelect();
-  const deviceRow = document.createElement("div");
-  deviceRow.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:6px;transition:opacity 0.15s;color:var(--muted-foreground);";
-  deviceRow.append(mkIcon("camera", 15), videoSel, mkIcon("mic", 15), audioSel);
+  const videoSel = (<DeviceSelect onChange={() => switchDevices()} />) as HTMLSelectElement;
+  const audioSel = (<DeviceSelect onChange={() => switchDevices()} />) as HTMLSelectElement;
+  const deviceRow = (
+    <div style="display:flex;align-items:center;gap:6px;margin-top:6px;transition:opacity 0.15s;color:var(--muted-foreground);">
+      <Icon name="camera" size={15} />
+      {videoSel}
+      <Icon name="mic" size={15} />
+      {audioSel}
+    </div>
+  ) as HTMLDivElement;
 
-  wrapper.append(videoWrap, deviceRow);
+  const wrapper = (
+    <div
+      class="nodrag nowheel"
+      style="display:flex;flex-direction:column;height:100%;padding:8px;box-sizing:border-box;"
+    >
+      <div
+        style={{
+          position: "relative", background: "#111", borderRadius: "8px",
+          flex: "1 1 0", minHeight: "180px", overflow: "hidden",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        {placeholder}
+        {video}
+        {recBadge}
+        {micBadge}
+        {encodingOverlay}
+        {recordBtn}
+        {reviewOverlay}
+        {retryBtn}
+      </div>
+      {deviceRow}
+    </div>
+  ) as HTMLDivElement;
   container.append(wrapper);
 
   // ── Play/pause button sync ────────────────────────────────────────────────
@@ -234,13 +295,9 @@ export default function VideoCapture(
   function syncPlayPauseBtn() {
     const isPaused = video.paused || video.ended;
     playPauseBtn.removeChild(playPauseBtn.firstChild!);
-    playPauseBtn.insertBefore(mkIcon(isPaused ? "play" : "pause", 14), playPauseBtn.firstChild);
+    playPauseBtn.insertBefore(<Icon name={isPaused ? "play" : "pause"} size={14} />, playPauseBtn.firstChild);
     playPauseBtn.querySelector("span")!.textContent = isPaused ? "Play" : "Pause";
   }
-
-  video.addEventListener("play",  syncPlayPauseBtn);
-  video.addEventListener("pause", syncPlayPauseBtn);
-  video.addEventListener("ended", syncPlayPauseBtn);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -271,12 +328,7 @@ export default function VideoCapture(
       function repopulate(sel: HTMLSelectElement, list: MediaDeviceInfo[]) {
         const current = sel.value;
         sel.innerHTML = "";
-        list.forEach((d, i) => {
-          const opt = document.createElement("option");
-          opt.value = d.deviceId;
-          opt.textContent = d.label || `Device ${i + 1}`;
-          sel.appendChild(opt);
-        });
+        sel.append(...list.map((d, i) => <option value={d.deviceId}>{d.label || `Device ${i + 1}`}</option>));
         if (current && [...sel.options].some((o) => o.value === current)) sel.value = current;
       }
       repopulate(videoSel, devices.filter((d) => d.kind === "videoinput"));
@@ -486,14 +538,6 @@ export default function VideoCapture(
 
   // ── Wire up & init ────────────────────────────────────────────────────────
 
-  recordBtn.addEventListener("click",    toggleRecord);
-  playPauseBtn.addEventListener("click", togglePlayPause);
-  acceptBtn.addEventListener("click",    accept);
-  discardBtn.addEventListener("click",   discard);
-  retryBtn.addEventListener("click",     retryCamera);
-  micBadge.addEventListener("click",     () => switchDevices({ defaultMic: true }));
-  videoSel.addEventListener("change",    () => switchDevices());
-  audioSel.addEventListener("change",    () => switchDevices());
   navigator.mediaDevices.addEventListener("devicechange", populateDevices);
 
   container._vcInst = { handleUpdate, cleanup, wrapper };

@@ -4,6 +4,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@griptape-ai/nodes-widget-api",
     "types": ["node"],
     "strict": true,
     "noEmit": true,

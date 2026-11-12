@@ -34,6 +34,8 @@ const WIDGET_VERSION = "1.2.0";
 const CHECKER = 10;
 const SCRUB_STEPS = 1000;
 
+const stopPropagation = (e: Event) => e.stopPropagation();
+
 export default function ImageProcessorPreview(
   host: HTMLElement,
   props: ImageProcessorPreviewProps,
@@ -52,53 +54,65 @@ export default function ImageProcessorPreview(
   let sourcePixels: ImageData | null = null;
   let pixelsBlocked = false;
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "image-processor-preview nodrag nowheel";
-  wrapper.style.cssText = "display:flex;flex-direction:column;gap:6px;height:100%;user-select:none;-webkit-user-select:none;";
-
-  const canvasWrap = document.createElement("div");
-  canvasWrap.style.cssText = [
-    "position:relative", "background:#111", "border-radius:6px", "overflow:hidden",
-    "flex:1 1 0", "min-height:180px",
-    "display:flex", "align-items:center", "justify-content:center",
-  ].join(";");
-
-  const canvas = document.createElement("canvas");
-  canvas.style.cssText = "display:block;";
+  const canvas = (<canvas style="display:block;" />) as HTMLCanvasElement;
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
-  canvasWrap.appendChild(canvas);
+
+  const canvasWrap = (
+    <div
+      style={{
+        position: "relative", background: "#111", borderRadius: "6px", overflow: "hidden",
+        flex: "1 1 0", minHeight: "180px",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      {canvas}
+    </div>
+  ) as HTMLDivElement;
 
   // Scrubber for video sources: picks the frame the preview is drawn on.
-  const scrubRow = document.createElement("div");
-  scrubRow.style.cssText = "display:none;align-items:center;gap:8px;padding:0 2px;";
-  const scrub = document.createElement("input");
-  scrub.type = "range";
-  scrub.min = "0";
-  scrub.max = String(SCRUB_STEPS);
-  scrub.value = "0";
-  scrub.style.cssText = "flex:1;min-width:0;";
-  const scrubTime = document.createElement("span");
-  scrubTime.style.cssText = "font-size:10px;font-family:monospace;color:var(--muted-foreground);white-space:nowrap;";
-  for (const type of ["pointerdown", "mousedown"]) scrub.addEventListener(type, (e) => e.stopPropagation());
-  scrubRow.appendChild(scrub);
-  scrubRow.appendChild(scrubTime);
+  const scrub = (
+    <input
+      type="range"
+      min="0"
+      max={String(SCRUB_STEPS)}
+      value="0"
+      style="flex:1;min-width:0;"
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onInput={() => { if (isVideo) seekTo(Number(scrub.value) / SCRUB_STEPS); }}
+    />
+  ) as HTMLInputElement;
+  const scrubTime = (
+    <span style="font-size:10px;font-family:monospace;color:var(--muted-foreground);white-space:nowrap;" />
+  ) as HTMLSpanElement;
+  const scrubRow = (
+    <div style="display:none;align-items:center;gap:8px;padding:0 2px;">
+      {scrub}
+      {scrubTime}
+    </div>
+  ) as HTMLDivElement;
 
-  const statusBar = document.createElement("div");
-  statusBar.style.cssText = [
-    "font-size:11px", "color:var(--muted-foreground)", "padding:4px 8px",
-    "background:var(--muted)", "border-radius:4px",
-    "display:flex", "justify-content:space-between", "align-items:center",
-  ].join(";");
-  const statusL = document.createElement("span");
-  const statusR = document.createElement("span");
-  statusR.style.cssText = "font-family:monospace;font-size:10px;opacity:0.6;";
-  statusR.textContent = `v${WIDGET_VERSION}`;
-  statusBar.appendChild(statusL);
-  statusBar.appendChild(statusR);
+  const statusL = (<span />) as HTMLSpanElement;
 
-  wrapper.appendChild(canvasWrap);
-  wrapper.appendChild(scrubRow);
-  wrapper.appendChild(statusBar);
+  const wrapper = (
+    <div
+      class="image-processor-preview nodrag nowheel"
+      style="display:flex;flex-direction:column;gap:6px;height:100%;user-select:none;-webkit-user-select:none;"
+    >
+      {canvasWrap}
+      {scrubRow}
+      <div
+        style={{
+          fontSize: "11px", color: "var(--muted-foreground)", padding: "4px 8px",
+          background: "var(--muted)", borderRadius: "4px",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}
+      >
+        {statusL}
+        <span style="font-family:monospace;font-size:10px;opacity:0.6;">{`v${WIDGET_VERSION}`}</span>
+      </div>
+    </div>
+  ) as HTMLDivElement;
   container.appendChild(wrapper);
 
   const img = new Image();
@@ -106,14 +120,17 @@ export default function ImageProcessorPreview(
   img.onload = () => { sourceReady = true; sourcePixels = null; pixelsBlocked = false; render(); };
   img.onerror = () => { sourceReady = false; render(); };
 
-  const video = document.createElement("video");
-  video.crossOrigin = "anonymous";
-  video.muted = true;
-  video.playsInline = true;
-  video.preload = "auto";
-  video.addEventListener("loadeddata", () => { seekTo(Number(scrub.value) / SCRUB_STEPS); });
-  video.addEventListener("seeked", () => { sourceReady = true; sourcePixels = null; pixelsBlocked = false; render(); });
-  video.addEventListener("error", () => { sourceReady = false; render(); });
+  const video = (
+    <video
+      crossOrigin="anonymous"
+      muted
+      playsInline
+      preload="auto"
+      onLoadedData={() => { seekTo(Number(scrub.value) / SCRUB_STEPS); }}
+      onSeeked={() => { sourceReady = true; sourcePixels = null; pixelsBlocked = false; render(); }}
+      onError={() => { sourceReady = false; render(); }}
+    />
+  ) as HTMLVideoElement;
 
   // The font the node draws text with, loaded from the URL it sends. Text falls back to sans-serif until
   // it arrives.
@@ -237,8 +254,6 @@ export default function ImageProcessorPreview(
     video.currentTime = Math.max(0, Math.min(duration - 0.001, fraction * duration));
     scrubTime.textContent = `${formatTime(video.currentTime)} / ${formatTime(duration)}`;
   }
-
-  scrub.addEventListener("input", () => { if (isVideo) seekTo(Number(scrub.value) / SCRUB_STEPS); });
 
   function drawChecker(w: number, h: number) {
     ctx.fillStyle = "#3a3a3a";

@@ -30,6 +30,8 @@ interface CropEditorInstance {
 }
 type CropEditorContainer = HTMLElement & { _cropEditor?: CropEditorInstance };
 
+const stopPropagation = (e: Event) => e.stopPropagation();
+
 export default function CropImageEditor(
   host: HTMLElement,
   props: CropImageEditorProps,
@@ -85,32 +87,33 @@ export default function CropImageEditor(
   let hoveredHandle: HandleId | null = null;
 
   // ── DOM ────────────────────────────────────────────────────────────────────
-  const wrapper = document.createElement("div");
-  wrapper.className = "crop-image-editor nodrag nowheel";
-  wrapper.style.cssText = [
-    "display:flex", "flex-direction:column", "gap:6px",
-    "height:100%",
-    "user-select:none", "-webkit-user-select:none",
-  ].join(";");
-
-  // Canvas row: canvas on left, sidebar on right
-  const canvasRow = document.createElement("div");
-  canvasRow.style.cssText = [
-    "display:flex", "flex-direction:row", "gap:6px",
-    "flex:1 1 0", "min-height:180px",
-  ].join(";");
-
-  const canvasWrap = document.createElement("div");
-  canvasWrap.style.cssText = [
-    "position:relative", "background:#111", "border-radius:6px",
-    "overflow:hidden", "flex:1 1 0", "min-height:0",
-    "display:flex", "align-items:center", "justify-content:center",
-  ].join(";");
-
-  const canvas = document.createElement("canvas");
-  canvas.style.cssText = "display:block;cursor:crosshair;";
+  const canvas = (
+    <canvas
+      style="display:block;cursor:crosshair;"
+      onPointerDown={onCanvasPointerDown}
+      onPointerMove={onCanvasPointerMove}
+      onPointerUp={onCanvasPointerUp}
+      onPointerCancel={onCanvasPointerCancel}
+      onMouseDown={stopPropagation}
+      onKeyDown={stopPropagation}
+    />
+  ) as HTMLCanvasElement;
   // Every browser the editor supports provides a 2D context for a fresh canvas.
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+
+  const canvasWrap = (
+    <div
+      style={{
+        position: "relative", background: "#111", borderRadius: "6px",
+        overflow: "hidden", flex: "1 1 0", minHeight: "0",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+    >
+      {canvas}
+    </div>
+  ) as HTMLDivElement;
 
   // ── Sidebar ────────────────────────────────────────────────────────────────
   const sidebarInst = createSidebar({
@@ -140,12 +143,25 @@ export default function CropImageEditor(
     version:    WIDGET_VERSION,
   });
 
-  canvasWrap.appendChild(canvas);
-  canvasRow.appendChild(canvasWrap);
-  canvasRow.appendChild(sidebarInst.el);
-  wrapper.appendChild(canvasRow);
-  wrapper.appendChild(footerInst.controls);
-  wrapper.appendChild(footerInst.statusBar);
+  const wrapper = (
+    <div
+      class="crop-image-editor nodrag nowheel"
+      style="display:flex;flex-direction:column;gap:6px;height:100%;user-select:none;-webkit-user-select:none;"
+    >
+      {/* Canvas row: canvas on left, sidebar on right */}
+      <div
+        style={{
+          display: "flex", flexDirection: "row", gap: "6px",
+          flex: "1 1 0", minHeight: "180px",
+        }}
+      >
+        {canvasWrap}
+        {sidebarInst.el}
+      </div>
+      {footerInst.controls}
+      {footerInst.statusBar}
+    </div>
+  ) as HTMLDivElement;
   container.appendChild(wrapper);
 
   function syncUI() {
@@ -366,7 +382,7 @@ export default function CropImageEditor(
   }
 
   // ── Pointer events ─────────────────────────────────────────────────────────
-  canvas.addEventListener("pointerdown", (e) => {
+  function onCanvasPointerDown(e: PointerEvent) {
     if (isDisabled || !imageLoaded) return;
     e.stopPropagation();
     const [px, py] = canvasPos(e);
@@ -389,9 +405,9 @@ export default function CropImageEditor(
       dragStart = { ix: six, iy: siy };
       cropL = six; cropT = siy; cropW = 0; cropH = 0;
     }
-  });
+  }
 
-  canvas.addEventListener("pointermove", (e) => {
+  function onCanvasPointerMove(e: PointerEvent) {
     if (!imageLoaded) return;
     e.stopPropagation();
     const [px, py] = canvasPos(e);
@@ -460,23 +476,18 @@ export default function CropImageEditor(
     }
     render();
     emitLive();
-  });
+  }
 
-  canvas.addEventListener("pointerup", (e) => {
+  function onCanvasPointerUp(e: PointerEvent) {
     if (!imageLoaded || mode === "idle") return;
     e.stopPropagation();
     mode = "idle"; hoveredHandle = null; canvas.style.cursor = "crosshair";
     commit();
-  });
+  }
 
-  canvas.addEventListener("pointercancel", () => {
+  function onCanvasPointerCancel() {
     mode = "idle"; hoveredHandle = null; canvas.style.cursor = "crosshair"; render();
-  });
-
-  canvas.addEventListener("mousedown", (e) => e.stopPropagation());
-  canvas.addEventListener("keydown",   (e) => e.stopPropagation());
-  canvasWrap.addEventListener("pointerdown", (e) => e.stopPropagation());
-  canvasWrap.addEventListener("mousedown",   (e) => e.stopPropagation());
+  }
 
   // ── ResizeObserver ─────────────────────────────────────────────────────────
   const ro = new ResizeObserver(() => { if (imageLoaded) resizeCanvas(); });
