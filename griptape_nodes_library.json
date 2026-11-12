@@ -6706,6 +6706,20 @@
       }
     },
     {
+      "class_name": "FolderConfiguration",
+      "file_path": "griptape_nodes_library/publish_workflow/folder_configuration.py",
+      "metadata": {
+        "category": "workflows",
+        "description": "Remembers where this workflow was last published to a folder. Added by Publish to Folder.",
+        "display_name": "Folder Configuration",
+        "hidden_from_library": true,
+        "tags": [
+          "workflow",
+          "publish"
+        ]
+      }
+    },
+    {
       "class_name": "Reroute",
       "file_path": "griptape_nodes_library/execution/reroute.py",
       "metadata": {
