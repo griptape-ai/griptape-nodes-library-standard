@@ -222,7 +222,6 @@ class FileOutputSettings(BaseNode):
             name="filename",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             tooltip="Filename with extension (supports macros like {workflow_name}_output.png)",
-            allow_variable_substitution=False,
             traits={
                 FileSystemPicker(
                     allow_files=True,
