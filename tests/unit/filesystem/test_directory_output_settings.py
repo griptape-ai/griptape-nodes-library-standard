@@ -30,6 +30,14 @@ def test_macro_and_policy_default_from_the_save_output_directory_situation(node:
     assert node.get_parameter_value("auto_create_path") is True
 
 
+def test_changing_the_situation_reloads_its_macro(node: DirectoryOutputSettings) -> None:
+    node.set_parameter_value("macro", "{outputs}/custom")
+
+    node.set_parameter_value("situation", "save_output_directory")
+
+    assert node.get_parameter_value("macro") == _DEFAULT_MACRO
+
+
 def test_empty_dirname_has_no_destination(node: DirectoryOutputSettings) -> None:
     assert node.directory_destination is None
 

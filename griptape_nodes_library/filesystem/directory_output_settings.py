@@ -26,6 +26,8 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 
+from griptape_nodes_library.utils.situation_utils import build_situation_data, fetch_situations
+
 logger = logging.getLogger("griptape_nodes")
 
 _IF_DIR_EXISTS_CHOICES = [
@@ -118,6 +120,23 @@ class DirectoryOutputSettings(BaseNode):
 
     def _create_parameters(self) -> None:
         """Create all parameters for the node."""
+        situation_names, situation_descriptions = fetch_situations()
+        self.situation = ParameterString(
+            name="situation",
+            default_value=BuiltInSituation.SAVE_OUTPUT_DIRECTORY,
+            allowed_modes={ParameterMode.PROPERTY},
+            tooltip="Select the situation template to use for folder path resolution",
+            traits={Options(choices=situation_names)},
+            settable=True,
+        )
+        self.add_parameter(self.situation)
+        self.situation.update_ui_options(
+            {
+                "data": build_situation_data(situation_names, situation_descriptions),
+                "dropdown_row_subtitles": True,
+            }
+        )
+
         self.dirname = ParameterString(
             name="dirname",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
@@ -172,8 +191,8 @@ class DirectoryOutputSettings(BaseNode):
         self.add_parameter(self.directory_destination_parameter)
 
     def _load_situation_defaults(self) -> None:
-        """Load the default macro template and policy from the save_output_directory situation."""
-        situation_name = BuiltInSituation.SAVE_OUTPUT_DIRECTORY
+        """Load the macro template and policy from the selected situation."""
+        situation_name = self.get_parameter_value(self.situation.name)
         result = GriptapeNodes.handle_request(GetSituationRequest(situation_name=situation_name))
 
         if isinstance(result, GetSituationResultSuccess):
@@ -260,6 +279,12 @@ class DirectoryOutputSettings(BaseNode):
     def after_value_set(self, parameter: Parameter, value: Any, *, initial_setup: bool = False) -> None:  # noqa: ARG002
         """React to parameter changes by re-resolving the preview."""
         if initial_setup:
+            return
+        if parameter.name == self.situation.name:
+            self._load_situation_defaults()
+            for name in (self.macro.name, self.if_dir_exists.name, self.auto_create_path.name):
+                self.publish_update_to_parameter(name, self.get_parameter_value(name))
+            self._refresh_preview()
             return
         if parameter.name in (
             self.dirname.name,

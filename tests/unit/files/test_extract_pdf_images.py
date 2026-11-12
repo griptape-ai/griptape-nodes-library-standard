@@ -8,10 +8,15 @@ from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest
+from griptape_nodes.retained_mode.events.connection_events import (
+    CreateConnectionRequest,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
 from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
@@ -393,3 +398,21 @@ def test_a_file_settings_node_connected_to_directory_raises(real_graph: ExtractP
 
     with pytest.raises(NodeError, match="names a file, not a folder"):
         reject_connected_file_destination(real_graph)
+
+
+def test_the_gear_button_connects_a_directory_settings_node_that_names_the_folder(
+    real_graph: ExtractPdfImages, tmp_path: Path
+) -> None:
+    result = real_graph._directory_param._on_configure_button_clicked(
+        Button(), ButtonDetailsMessagePayload(label="", variant="secondary", size="icon", state="normal")
+    )
+    assert result.success, result.details
+    connections = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=real_graph.name))
+    assert isinstance(connections, ListConnectionsForNodeResultSuccess)
+    (connection,) = [c for c in connections.incoming_connections if c.target_parameter_name == "directory"]
+
+    settings = GriptapeNodes.ObjectManager().attempt_get_object_by_name(connection.source_node_name)
+    assert settings is not None
+    assert type(settings).__name__ == "DirectoryOutputSettings"
+    assert settings.get_parameter_value("dirname") == "extracted"
+    assert real_graph._directory_param.build_directory().create().resolve() == tmp_path / "outputs" / "extracted_v001"

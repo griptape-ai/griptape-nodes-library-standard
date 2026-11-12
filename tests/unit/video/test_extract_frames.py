@@ -10,11 +10,16 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
-from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest
+from griptape_nodes.retained_mode.events.connection_events import (
+    CreateConnectionRequest,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
 from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
 from griptape_nodes.retained_mode.events.parameter_events import SetParameterValueRequest
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
 from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 from griptape_nodes_library.video.extract_frames import ExtractFrames
@@ -73,6 +78,18 @@ def _get_extract_frames(name: str = "ef") -> ExtractFrames:
     assert found is not None
     assert type(found).__name__ == "ExtractFrames"
     return found
+
+
+def _click_directory_gear(node: ExtractFrames) -> str:
+    """Click the 'directory' gear button and return the name of the settings node it connected."""
+    result = node._directory_param._on_configure_button_clicked(
+        Button(), ButtonDetailsMessagePayload(label="", variant="secondary", size="icon", state="normal")
+    )
+    assert result.success, result.details
+    connections = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=node.name))
+    assert isinstance(connections, ListConnectionsForNodeResultSuccess)
+    (connection,) = [c for c in connections.incoming_connections if c.target_parameter_name == "directory"]
+    return connection.source_node_name
 
 
 @pytest.fixture
@@ -216,6 +233,18 @@ class TestOutputDirectory:
 
 class TestOutputDirectoryFromSettings:
     """A settings node wired to 'directory' is read by request, so a worker run honors it too."""
+
+    def test_the_gear_button_connects_a_directory_settings_node_that_names_the_folder(
+        self, real_graph: ExtractFrames, tmp_path: Path
+    ) -> None:
+        settings_name = _click_directory_gear(real_graph)
+
+        settings = GriptapeNodes.ObjectManager().attempt_get_object_by_name(settings_name)
+        assert settings is not None
+        assert type(settings).__name__ == "DirectoryOutputSettings"
+        assert settings.get_parameter_value("situation") == "save_output_directory"
+        assert settings.get_parameter_value("dirname") == "frames"
+        assert _resolve_output_dir(real_graph) == tmp_path / "outputs" / "frames_v001"
 
     def test_directory_settings_with_a_plain_name_creates_a_versioned_folder(
         self, real_graph: ExtractFrames, tmp_path: Path
