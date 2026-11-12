@@ -52,5 +52,7 @@ class GriptapeNodesLibraryAdvanced(AdvancedNodeLibrary):
                 display_name="Publish to Folder",
                 description="Package the workflow as a self-contained project written to a local folder.",
                 icon="folder",
+                configuration_node_type="FolderConfiguration",
+                configuration_node_library_name=library_data.name,
             ),
         )

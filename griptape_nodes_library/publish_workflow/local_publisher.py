@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry
-from griptape_nodes.retained_mode.events.flow_events import GetTopLevelFlowRequest, GetTopLevelFlowResultSuccess
 from griptape_nodes.retained_mode.events.os_events import WriteFileRequest, WriteFileResultSuccess
 from griptape_nodes.retained_mode.events.workflow_events import (
     PublishWorkflowResultFailure,
@@ -79,36 +78,20 @@ class LocalPublisher:
             self._packager.emit_progress(4.0, "Writing README...")
             self._write_readme(destination)
 
-            self._save_publish_config(destination_path)
-
             self._packager.emit_progress(8.0, "Successfully published workflow!")
 
+            # The engine keeps this on the workflow's Folder Configuration node, so the next publish
+            # dialog opens on the same folder.
             return PublishWorkflowResultSuccess(
                 published_workflow_file_path=str(dest_workflow_path),
                 skip_published_workflow_registration=True,
+                configuration={PUBLISH_OUTPUT_DIRECTORY_FIELD: destination_path},
                 result_details=f"Workflow '{self._workflow_name}' published successfully to '{destination}'.",
             )
         except Exception as e:
             details = f"Failed to publish workflow '{self._workflow_name}'. Error: {e}"
             logger.error(details)
             return PublishWorkflowResultFailure(result_details=details, exception=e)
-
-    def _save_publish_config(self, destination_path: str) -> None:
-        """Persist the chosen publishing config.
-
-        Persist the chosen output directory on the StartFlow node so the dialog
-        pre-populates with the same value on the next publish.
-        """
-        result = GriptapeNodes.handle_request(GetTopLevelFlowRequest())
-        if not isinstance(result, GetTopLevelFlowResultSuccess) or result.flow_name is None:
-            return
-        control_flow = GriptapeNodes.FlowManager().get_flow_by_name(result.flow_name)
-        for node in control_flow.nodes.values():
-            if node.__class__.__name__ == "StartFlow":
-                node.metadata["publish_config"] = {
-                    PUBLISH_OUTPUT_DIRECTORY_FIELD: destination_path,
-                }
-                return
 
     def _write_entrypoint(self, destination: Path, workflow_file_name: str) -> None:
         content = f"""\
