@@ -18,6 +18,14 @@ export const WIDGETS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..
 /** Output name (without `.js`) to entry module, relative to the package root. */
 export const ENTRIES = {
   CropImageEditor: "src/CropImageEditor/CropImageEditor.ts",
+  CropVideoEditor: "src/CropVideoEditor/CropVideoEditor.ts",
+  ImageProcessorPreview: "src/ImageProcessorPreview/ImageProcessorPreview.ts",
+  KlingMultiShotEditor: "src/KlingMultiShotEditor/KlingMultiShotEditor.ts",
+  MaskAdjustmentPreview: "src/MaskAdjustmentPreview/MaskAdjustmentPreview.ts",
+  SelectFromGrid: "src/SelectFromGrid/SelectFromGrid.ts",
+  SplatViewer: "src/SplatViewer/SplatViewer.ts",
+  VideoCapture: "src/VideoCapture/VideoCapture.ts",
+  WebcamCapture: "src/WebcamCapture/WebcamCapture.ts",
 };
 
 const STAGING_DIR = ".build-tmp";

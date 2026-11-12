@@ -7,13 +7,11 @@ import {
 import { createSidebar } from './_sidebar';
 import { createFooter }  from './_footer';
 import type { CommittedCropValue, CropValue, LiveCropValue } from './_types';
-import type { WidgetHandle, WidgetProps } from '../types/widget';
+import type { WidgetHandle, WidgetProps } from '@griptape-ai/nodes-widget-api';
 
 export type { CommittedCropValue, CropRect, CropValue, LiveCropValue } from './_types';
 
-export type CropImageEditorProps = WidgetProps<CropValue, LiveCropValue> & {
-  onChange?: (value: CommittedCropValue) => void;
-};
+export type CropImageEditorProps = WidgetProps<CropValue, LiveCropValue>;
 
 type CropParam = "left" | "top" | "width" | "height" | "zoom" | "rotate";
 type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";

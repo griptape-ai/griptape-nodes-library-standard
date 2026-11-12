@@ -1,0 +1,1 @@
+- The Splat Viewer ships with its 3D libraries instead of downloading them from a CDN when it opens, so it works offline and always uses the same versions.

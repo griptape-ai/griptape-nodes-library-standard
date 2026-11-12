@@ -80,7 +80,7 @@ WITH_SOURCE = [node_class for node_class in PREVIEWED if node_class.PREVIEW_IMAG
 
 WITH_MODE = [InvertImage, InvertMask, DisplayMask, DisplayChannel, GaussianEdgeFade]
 
-OPERATIONS_JS = Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" / "_operations.js"
+OPERATIONS_TS = Path(__file__).parents[3] / "widgets" / "src" / "ImageProcessorPreview" / "_operations.ts"
 
 
 @pytest.fixture(autouse=True)
@@ -117,7 +117,7 @@ def test_preview_syncs_the_nodes_own_settings(node_class: type[ImagePreviewMixin
 
 @pytest.mark.parametrize("node_class", PREVIEWED)
 def test_widget_knows_the_operation(node_class: type[ImagePreviewMixin]) -> None:
-    exported = re.search(r"export const OPERATIONS = \{(.*?)\};", OPERATIONS_JS.read_text(), re.DOTALL)
+    exported = re.search(r"export const OPERATIONS = \{(.*?)\};", OPERATIONS_TS.read_text(), re.DOTALL)
     assert exported is not None
     keys = {line.strip().split(":")[0].rstrip(",") for line in exported.group(1).splitlines() if line.strip()}
 

@@ -67,8 +67,8 @@ describe("rebuilding after a helper change", () => {
 
   it("is deterministic, and changing a helper module changes the entry bundle bytes", async () => {
     // Given a copy of the sources that builds to the same bytes as the original
-    const original = await buildIntoScratch(WIDGETS_ROOT);
-    const unchanged = await buildIntoScratch(copyRoot);
+    const original = await buildIntoScratch(WIDGETS_ROOT, ["CropImageEditor"]);
+    const unchanged = await buildIntoScratch(copyRoot, ["CropImageEditor"]);
     const originalBytes = await readFile(join(original.outDir, "CropImageEditor.js"));
     const unchangedBytes = await readFile(join(unchanged.outDir, "CropImageEditor.js"));
     expect(unchangedBytes.equals(originalBytes)).toBe(true);
@@ -78,7 +78,7 @@ describe("rebuilding after a helper change", () => {
     const styles = await readFile(stylesPath, "utf8");
     expect(styles).toContain('"#1bb0f4"');
     await writeFile(stylesPath, styles.replace('"#1bb0f4"', '"#ff00ff"'));
-    const changed = await buildIntoScratch(copyRoot);
+    const changed = await buildIntoScratch(copyRoot, ["CropImageEditor"]);
     const changedBytes = await readFile(join(changed.outDir, "CropImageEditor.js"));
 
     // Then the single entry bundle carries the change

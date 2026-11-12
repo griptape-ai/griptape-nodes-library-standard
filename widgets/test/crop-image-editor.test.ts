@@ -3,11 +3,13 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CropImageEditorProps, CropValue, LiveCropValue } from "../src/CropImageEditor/CropImageEditor";
-import type { WidgetHandle, WidgetMount } from "../src/types/widget";
+import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
 import { type DomFakes, installDomFakes, pointer } from "./support/dom";
+import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<CropImageEditorProps>;
+type Props = Partial<CropImageEditorProps>;
 
 // Each behaviour runs against the TypeScript source and against the bundle the build emits,
 // so the bundle is held to the same contract the editor relies on.
@@ -19,7 +21,7 @@ const implementations: Array<[string, () => Promise<Mount>]> = [
   [
     "bundle",
     async () => {
-      const { outDir } = await buildIntoScratch();
+      const { outDir } = await buildIntoScratch(undefined, ["CropImageEditor"]);
       bundleDirs.push(outDir);
       return importMount<CropImageEditorProps>(join(outDir, "CropImageEditor.js"));
     },
@@ -59,7 +61,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
   let CropImageEditor: Mount;
   let fakes: DomFakes;
   let container: HTMLElement;
-  let handles: WidgetHandle<CropImageEditorProps>[];
+  let handles: MountedWidget<CropImageEditorProps>[];
 
   beforeAll(async () => {
     CropImageEditor = await load();
@@ -79,8 +81,10 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
     vi.restoreAllMocks();
   });
 
-  function mount(props: CropImageEditorProps): WidgetHandle<CropImageEditorProps> {
-    const handle = CropImageEditor(container, props);
+  // Mounts with the editor's props filled in around the ones a test cares about.
+  function mount(props: Props) {
+    const mounted = mountWidget(CropImageEditor, container, widgetProps(props));
+    const handle = { ...mounted, update: (next: Props) => mounted.update(widgetProps(next)) };
     handles.push(handle);
     return handle;
   }
@@ -172,8 +176,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       expect(editors()).toHaveLength(1);
       expect(fakes.contexts.length).toBe(contextsBefore);
       expect(statusText()).toBe("x: 10  y: 5  →  100 × 50 px");
-      expect(second.cleanup).toBe(first.handle.cleanup);
-      expect(second.update).toBe(first.handle.update);
+      expect(second.result).toEqual(first.handle.result);
 
       // And the new callback receives commits, the old one does not
       sidebarButton("Reset crop to full image").click();

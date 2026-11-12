@@ -1,17 +1,38 @@
 # Widgets
 
-Custom parameter widgets for the standard library. `CropImageEditor` is authored in TypeScript
-in this package and built into one self-contained browser module; the other widgets are plain
-JavaScript files the editor loads as they are.
+Custom parameter widgets for the standard library. Each widget is authored in TypeScript in this
+package and built into one self-contained browser module.
 
 ```
 widgets/
-  src/CropImageEditor/   widget sources (entry: CropImageEditor.ts)
-  src/types/widget.ts    the editor's widget props/handle contract
-  scripts/build.mjs      the build: esbuild, staged, verified, then promoted
-  test/                  vitest tests (happy-dom)
+  src/<Name>/            widget sources (entry: <Name>.ts, value shapes in _types.ts)
+  scripts/build.mjs      the build: esbuild, staged, verified, then promoted; ENTRIES lists the widgets
+  test/                  vitest tests (happy-dom), one file per widget plus the build's own
   dist/                  built bundles, committed
 ```
+
+| Widget | Node |
+| --- | --- |
+| CropImageEditor | Crop Image |
+| CropVideoEditor | Crop Video |
+| ImageProcessorPreview | the image and video processor nodes' live preview |
+| KlingMultiShotEditor | Kling video generation, multi-shot mode |
+| MaskAdjustmentPreview | Adjust Mask Size |
+| SelectFromGrid | Select From Grid |
+| SplatViewer | the Gaussian splat nodes' viewer |
+| VideoCapture | Video Capture |
+| WebcamCapture | Webcam |
+
+## The editor's widget contract
+
+The props a widget is mounted with, the handle it returns, and the module shape the editor loads
+are typed by `@griptape-ai/nodes-widget-api`, which the Griptape Nodes editor publishes from its
+widget loader. Widgets import it with `import type`, so nothing from it reaches a bundle.
+
+For now the package is published only to a local registry, which `.npmrc` points the
+`@griptape-ai` scope at (`http://localhost:4873/`). Start that registry and publish the package
+from a checkout of the editor (`npm run registry:local`, then `npm run publish:widget-api:local`)
+before `make widgets/install`. Without it, `npm ci` fails to fetch the package.
 
 ## Authoring
 
@@ -38,6 +59,10 @@ Commit `dist/` with the sources that produced it. CI rebuilds and runs `make wid
 which fails if a bundle in `dist/` is changed, added, or removed by the build, and the release
 workflow runs the same check before tagging.
 
+Third-party packages a widget imports at runtime are bundled into it at the exact versions in
+`package-lock.json`. `SplatViewer` bundles three.js and Spark this way, which makes it by far the
+largest bundle.
+
 ### What the build guarantees
 
 - One ES module per entry, `dist/<Name>.js`, whose only export is the default mount function.
@@ -58,7 +83,7 @@ committing.
 "widget_build": { "mode": "prebuilt", "root": "widgets" }
 ```
 
-and points the `CropImageEditor` widget at `widgets/dist/CropImageEditor.js`. In prebuilt mode
+and points each widget at its bundle in `widgets/dist/`. In prebuilt mode
 the engine serves the committed bundle as is. Users need no Node.js, npm, or beta settings, and
 the engine runs nothing from this package.
 

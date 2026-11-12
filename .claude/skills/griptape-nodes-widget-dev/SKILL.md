@@ -1,22 +1,24 @@
 ---
 name: griptape-nodes-widget-dev
-description: Building and debugging custom parameter widgets for Griptape Nodes Library. Use when creating, fixing, or debugging JS widgets that display in node parameters — including widget lifecycle issues, value update flow, syncing a widget with node parameters (synced_parameters), video/media display, URL resolution for the static file server, and the Python ↔ JS data bridge.
+description: Building and debugging custom parameter widgets for Griptape Nodes Library. Use when creating, fixing, or debugging TypeScript widgets that display in node parameters — including widget lifecycle issues, value update flow, syncing a widget with node parameters (synced_parameters), video/media display, URL resolution for the static file server, and the Python ↔ JS data bridge.
 ---
 
 # Griptape Nodes Custom Widget Development
 
 ## Quick Setup
 
-### 1. Register in `griptape_nodes_library.json`
+Widgets are TypeScript sources in `widgets/src/<Name>/`, built into one self-contained bundle each in `widgets/dist/`, which is committed. `widgets/README.md` covers the toolchain (`make widgets/install`, `widgets/watch`, `widgets/test`, `widgets/build`, `widgets/check-dist`).
+
+### 1. Register in `griptape_nodes_library.json` and the build
 ```json
 {
   "name": "My Library",
   "widgets": [
-    { "name": "MyWidget", "path": "widgets/MyWidget.js" }
+    { "name": "MyWidget", "path": "widgets/dist/MyWidget.js" }
   ]
 }
 ```
-The `name` here must match what you pass to `Widget(name=..., library=...)` in Python.
+The `name` here must match what you pass to `Widget(name=..., library=...)` in Python. Add the entry to `ENTRIES` in `widgets/scripts/build.mjs` too: `MyWidget: "src/MyWidget/MyWidget.ts"`.
 
 ### 2. Attach to a Python parameter
 ```python
@@ -34,10 +36,19 @@ self.add_parameter(
 )
 ```
 
-### 3. Write `widgets/MyWidget.js`
-```js
-export default function MyWidget(container, props) {
-  const { value, onChange, disabled } = props;
+### 3. Write `widgets/src/MyWidget/MyWidget.ts`
+The editor's contract types come from `@griptape-ai/nodes-widget-api` (see `widgets/.npmrc` for where it's installed from). Import them with `import type`; the package has no runtime code.
+
+```ts
+import type { WidgetHandle, WidgetProps } from "@griptape-ai/nodes-widget-api";
+
+interface MyValue { adjustment?: number; url?: string }
+type MyWidgetProps = WidgetProps<MyValue>;
+type MyContainer = HTMLElement & { _instance?: { handleUpdate: (p: MyWidgetProps) => void; cleanup: () => void; wrapper: HTMLElement } };
+
+export default function MyWidget(host: HTMLElement, props: MyWidgetProps): WidgetHandle<MyWidgetProps> {
+  const container = host as MyContainer;
+  const { value, onChange } = props;
 
   const wrapper = document.createElement("div");
   wrapper.className = "nodrag nowheel";
@@ -53,7 +64,7 @@ export default function MyWidget(container, props) {
   container.appendChild(wrapper);
 
   function cleanup() { wrapper.remove(); }
-  function handleUpdate(newProps) {
+  function handleUpdate(newProps: MyWidgetProps) {
     btn.textContent = `Value: ${newProps.value?.adjustment ?? 0}`;
   }
 
@@ -170,7 +181,7 @@ export default function CropEditor(container, props) {
 }
 ```
 
-If a synced parameter's name differs from what the widget calls it internally, the widget maps names; the editor routes by parameter name. Examples: `image/crop_image.py` with `widgets/src/CropImageEditor/`, `video/crop_video.py` with `widgets/CropVideoEditor/` (presets plus custom fields), `video/adjust_mask_size.py` with `widgets/MaskAdjustmentPreview.js`.
+If a synced parameter's name differs from what the widget calls it internally, the widget maps names; the editor routes by parameter name. Examples: `image/crop_image.py` with `widgets/src/CropImageEditor/`, `video/crop_video.py` with `widgets/src/CropVideoEditor/` (presets plus custom fields), `video/adjust_mask_size.py` with `widgets/src/MaskAdjustmentPreview/`.
 
 **Migrating an old widget:** add `synced_parameters`, drop the parameter copies from the widget dict's default and from every push, delete the `_syncing_*` flags, the dict-to-parameter and parameter-to-dict sync methods, `_get_locked_params` and the connection hooks that only refreshed `locked`, and have the JS read `props.locked`. A saved workflow may still hold the old copies in the widget dict; that's harmless because the parameters win.
 
@@ -251,34 +262,30 @@ ro.observe(canvasWrap);
 
 ---
 
-## Multi-file widget organization (subdirectory pattern)
+## Multi-file widget organization
 
-For complex widgets, split into a subdirectory so the main file stays readable:
+Every widget has its own directory; split a complex one into helper modules so the entry stays readable:
 
 ```
-widgets/MyWidget/
-  MyWidget.js     ← main entry point (registered in library JSON)
-  _styles.js      ← visual constants (colors, sizes)
-  _sidebar.js     ← preset controls, toolbars
-  _footer.js      ← sliders, status bar
+widgets/src/MyWidget/
+  MyWidget.ts     ← entry point (listed in ENTRIES in scripts/build.mjs)
+  _types.ts       ← the value shapes it exchanges with the node
+  _styles.ts      ← visual constants (colors, sizes)
+  _sidebar.ts     ← preset controls, toolbars
+  _footer.ts      ← sliders, status bar
 ```
 
-Update the library JSON path:
-```json
-{ "name": "MyWidget", "path": "widgets/MyWidget/MyWidget.js" }
-```
-
-Import from siblings with relative paths — these are standard ES module imports:
-```js
-import { HANDLE_R, HANDLE_FILL } from './_styles.js';
-import { createSidebar } from './_sidebar.js';
-import { createFooter }  from './_footer.js';
+Import siblings with relative paths and no extension. The build bundles them, and any npm package the widget imports, into `widgets/dist/MyWidget.js`, so the editor fetches one file:
+```ts
+import { HANDLE_R, HANDLE_FILL } from './_styles';
+import { createSidebar } from './_sidebar';
+import { createFooter }  from './_footer';
 ```
 
 Each sub-module exports a factory function that returns DOM elements and a `sync` method:
-```js
-// _sidebar.js
-export function createSidebar({ getState, onAction }) {
+```ts
+// _sidebar.ts
+export function createSidebar({ getState, onAction }: SidebarOptions) {
   const el = document.createElement("div");
   // ... build DOM ...
   function syncDisabled(locked, disabled) { /* update button states */ }
@@ -288,25 +295,25 @@ export function createSidebar({ getState, onAction }) {
 
 ---
 
-## Icons: use Lucide SVGs via a `_icons.js` file
+## Icons: use Lucide SVGs via a `_icons.ts` file
 
-Widgets use Lucide icons (MIT licensed). Store only the inner SVG path markup in a shared `_icons.js` — not the full `<svg>` tag — and wrap it with a `mkIcon` factory that applies the standard Lucide attributes.
+Widgets use Lucide icons (MIT licensed). Store only the inner SVG path markup in the widget's `_icons.ts` — not the full `<svg>` tag — and wrap it with a `mkIcon` factory that applies the standard Lucide attributes.
 
-**`_icons.js`**
-```js
+**`_icons.ts`**
+```ts
 // Lucide SVG icon paths (MIT licensed)
 
-export const ICON_PATHS = {
+export const ICON_PATHS: Record<string, string> = {
   "rotate-ccw": `<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>`,
   trash:        `<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`,
   // add more as needed...
 };
 
-export function mkIcon(name, size = 15) {
+export function mkIcon(name: string, size = 15): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", size);
-  svg.setAttribute("height", size);
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
   svg.setAttribute("fill", "none");
   svg.setAttribute("stroke", "currentColor");
   svg.setAttribute("stroke-width", "2");
@@ -319,8 +326,8 @@ export function mkIcon(name, size = 15) {
 ```
 
 **Usage:**
-```js
-import { mkIcon } from './_icons.js';
+```ts
+import { mkIcon } from './_icons';
 
 const btn = document.createElement("button");
 btn.appendChild(mkIcon("rotate-ccw", 14));

@@ -14,9 +14,13 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@griptape-ai/nodes-widget-api": "0.1.1",
+    "@sparkjsdev/spark": "2.4.0",
     "@types/node": "22.20.5",
+    "@types/three": "0.180.0",
     "esbuild": "0.28.2",
     "happy-dom": "21.0.4",
+    "three": "0.180.0",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   }

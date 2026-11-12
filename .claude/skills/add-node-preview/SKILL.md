@@ -1,13 +1,13 @@
 ---
 name: add-node-preview
-description: Add an interactive preview to an image or video node — the ImageProcessorPreview widget drawing the node's result in the browser as its settings change, via ImagePreviewMixin. Covers the Python side, writing the JS operation, checking it against Pillow or FFmpeg, and testing.
+description: Add an interactive preview to an image or video node — the ImageProcessorPreview widget drawing the node's result in the browser as its settings change, via ImagePreviewMixin. Covers the Python side, writing the TS operation, checking it against Pillow or FFmpeg, and testing.
 argument-hint: <node-class> [operation-name]
 allowed-tools: Read Edit Write Grep Glob Bash
 ---
 
 # Add an interactive preview to a node
 
-An interactive preview shows a node's result above its settings and redraws in the browser while the user drags them. The node still processes the real media when it runs; the preview never writes outputs. One shared widget, `widgets/ImageProcessorPreview/`, draws every preview. Each node names an operation, and each operation is a small JS entry that mirrors the node's processing.
+An interactive preview shows a node's result above its settings and redraws in the browser while the user drags them. The node still processes the real media when it runs; the preview never writes outputs. One shared widget, `widgets/src/ImageProcessorPreview/` (TypeScript, built into `widgets/dist/ImageProcessorPreview.js`), draws every preview. Each node names an operation, and each operation is a small TS entry that mirrors the node's processing.
 
 The settings reach the widget as `synced_parameters` (see the `griptape-nodes-widget-dev` skill), so the node only sends what isn't a parameter: media URLs and anything it works out, such as an image's mode. Requires engine 0.107.0+ and the matching editor.
 
@@ -19,7 +19,7 @@ Add `ImagePreviewMixin` (`image/image_preview.py`) first in the bases, name the 
 class FlipImage(BaseImageProcessor):
     """Flip image horizontally or vertically."""          # docstring FIRST, then the attributes
 
-    PREVIEW_OPERATION = "flip"                           # key in _operations.js
+    PREVIEW_OPERATION = "flip"                           # key in _operations.ts
     PREVIEW_PARAMETERS: ClassVar[list[str]] = ["direction"]
 ```
 
@@ -40,7 +40,7 @@ Class attributes and hooks:
 
 | Name | Use |
 |---|---|
-| `PREVIEW_OPERATION` | The operation key in `_operations.js`. `None` means no preview. |
+| `PREVIEW_OPERATION` | The operation key in `_operations.ts`. `None` means no preview. |
 | `PREVIEW_PARAMETERS` | Settings the operation reads. They become `synced_parameters`, so they arrive in the widget's `value` live. |
 | `PREVIEW_IMAGES` | Media parameters, mapped to `image_url` or `video_url`. Default `{"input_image": "image_url"}`; `BaseVideoProcessor` uses `{"video": "video_url"}`; `{}` for generated output (Color Bars, Create Text Image). |
 | `PREVIEW_PARAMETER_NAME` | Defaults to `"preview"`. Override when the node already has a parameter by that name (Image Grid Splitter uses `"grid_preview"`). |
@@ -54,9 +54,9 @@ Also:
 - **The media input row is hidden** (`hide_property`), which also hides its file browser. Media then arrives by connection. That's the agreed behaviour; a value picked before is kept and still previews.
 - **Changelog:** the library has "Added interactive previews for some image and video nodes." Add to it only for a behaviour change users will notice, such as an output no longer updating before a run.
 
-## 2. JS: write the operation
+## 2. TS: write the operation
 
-Add an entry to `OPERATIONS` in `widgets/ImageProcessorPreview/_operations.js` (list the key explicitly; a test parses that object). Larger groups live in their own module (`_video_operations.js`, `_pixel_nodes.js`, `_color_bars.js`, `_text.js`) and are imported. One of these shapes:
+Add an entry to `OPERATIONS` in `widgets/src/ImageProcessorPreview/_operations.ts` (list the key explicitly; a test parses that object). Larger groups live in their own module (`_video_operations.ts`, `_pixel_nodes.ts`, `_color_bars.ts`, `_text.ts`) and are imported. Each shape is typed in `_types.ts` (`PixelsOperation`, `DrawOperation`, …); annotate the operation with one. One of these shapes:
 
 ```js
 {
@@ -71,14 +71,14 @@ Add an entry to `OPERATIONS` in `widgets/ImageProcessorPreview/_operations.js` (
 
 `v` holds the synced settings and extras; read every setting with the node's default as fallback (`num(v.radius, 5)`). `view` is `{ width, height, scale, sourceWidth, sourceHeight, outputWidth, outputHeight }`: preview pixels, preview pixels per source pixel, and sizes in source pixels. Scale distances that are in source pixels (blur radius, shifts, margins) by `view.scale`. Video operations run on the frame picked with the scrubber; the shell handles that.
 
-Port the node's processing line by line, including its quirks; the preview should match the output, not an idealised version. Shared helpers: `_pixels.js` has Pillow's luma, `Image.blend` byte maths, LUT application and its three-pass box blur; `_video_operations.js` has BT.601 limited-range YUV conversion.
+Port the node's processing line by line, including its quirks; the preview should match the output, not an idealised version. Shared helpers: `_pixels.ts` has Pillow's luma, `Image.blend` byte maths, LUT application and its three-pass box blur; `_video_operations.ts` has BT.601 limited-range YUV conversion.
 
 ## 3. Check it against the node
 
-Run the node's own code (or the FFmpeg filter it builds) and the JS on the same pixels, and compare. This has caught real bugs every time. Pattern:
+Run the node's own code (or the FFmpeg filter it builds) and the TS on the same pixels, and compare. This has caught real bugs every time. Pattern:
 
 1. A Python script builds a small test image (random pixels for colour ops, smooth gradients for YUV filters), runs the node's real helper or filter, and writes inputs and expected outputs to JSON. Run it with the engine under test: `uv run --with-editable ../../griptape-nodes-engine python -I script.py`.
-2. A Node script imports the operation (copy the JS files to `.mjs` and rewrite the import paths) and compares byte by byte: count of differing bytes and the largest difference.
+2. A Node script imports the operation (bundle the `.ts` to an `.mjs` with `npx esbuild --bundle --format=esm` from `widgets/`) and compares byte by byte: count of differing bytes and the largest difference.
 3. Put scratch files in `/tmp`, not the repo, and delete them.
 
 What "matching" has meant so far: exact for LUT and geometry operations (levels, grayscale, curves, flip, crop, extend canvas, color bars); within one or two levels for anything that blurs or converts colour (Pillow and FFmpeg round per pass).
@@ -95,11 +95,11 @@ Traps found this way:
 
 ## 4. Test
 
-- Add the node to `PREVIEWED` in `tests/unit/image/test_image_processor_preview.py`. That checks the synced settings exist, the operation key exists in the JS, a source reaches the preview, and a source loaded with `initial_setup=True` reaches it too.
+- Add the node to `PREVIEWED` in `tests/unit/image/test_image_processor_preview.py`. That checks the synced settings exist, the operation key exists in `_operations.ts`, a source reaches the preview, and a source loaded with `initial_setup=True` reaches it too.
 - Keep tests off the network: the file's `no_downloads` fixture stubs image loading; extend it for new loaders.
 - Run against the engine under test: `uv run --with-editable ../../griptape-nodes-engine pytest tests/unit/image tests/unit/video`. Against the released engine, the `synced_parameters` tests fail until the engine ships.
 - A new test must fail without the change. Swap in the previous file (`git show HEAD:path > path`), run it, put it back. A test that passes on the old code (for example because a network fetch fails silently and leaves the same empty value) proves nothing.
-- Syntax-check the JS: copy to `.mjs`, fix the import paths, and run `node --check`.
+- Check the widget: in `widgets/`, `npx tsc --noEmit`, `npx vitest run test/image-processor-preview.test.ts`, then `make widgets/build` and commit `dist/`.
 
 ## Gotchas
 

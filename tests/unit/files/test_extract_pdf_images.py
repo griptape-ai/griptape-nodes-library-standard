@@ -239,7 +239,9 @@ def test_loading_a_saved_path_builds_the_preview(
 
 
 def test_the_preview_knows_every_rotation_the_node_offers() -> None:
-    operations = (Path(__file__).parents[3] / "widgets" / "ImageProcessorPreview" / "_operations.js").read_text()
+    operations = (
+        Path(__file__).parents[3] / "widgets" / "src" / "ImageProcessorPreview" / "_operations.ts"
+    ).read_text()
     table = re.search(r"const QUARTER_TURNS = \{(.*?)\};", operations, re.DOTALL)
     assert table is not None
     for rotation in Rotation:
