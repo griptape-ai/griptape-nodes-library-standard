@@ -69,6 +69,10 @@ class AddOverlay(BaseVideoProcessor):
         {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
     )
 
+    # Resolved location of the base input when it arrived as an image artifact. An image URL need not
+    # have an image extension, so the artifact type is the reliable signal and the extension is the fallback.
+    _still_base_url: str | None = None
+
     # Edge cleanup limits
     MIN_CHOKE = 0
     MAX_CHOKE = 10
@@ -219,8 +223,8 @@ class AddOverlay(BaseVideoProcessor):
         _, (base_width, base_height), base_duration = self._detect_video_properties(input_url, ffprobe_path)
 
         base_input_options: list[str] = []
-        if self._is_still_image(input_url):
-            if self._is_still_image(overlay_url):
+        if input_url == self._still_base_url or self._is_still_image(input_url):
+            if self._is_still_input(overlay_video, overlay_url):
                 msg = "At least one of the base and the overlay must be a video, so the result has a length."
                 raise ValueError(msg)
             # A still base has no length of its own, so it takes the overlay video's length and frame rate.
@@ -368,10 +372,21 @@ class AddOverlay(BaseVideoProcessor):
             return location.startswith("data:image/")
         return PurePosixPath(urlparse(location).path).suffix.lower() in self.STILL_IMAGE_EXTENSIONS
 
+    @staticmethod
+    def _holds_still_image(value: Any) -> bool:
+        """Whether an input value is an image artifact, or the serialized dict of one."""
+        if isinstance(value, ImageUrlArtifact | ImageArtifact):
+            return True
+        return isinstance(value, dict) and value.get("type") in {"ImageUrlArtifact", "ImageArtifact"}
+
+    def _is_still_input(self, value: Any, location: str) -> bool:
+        """Whether an input is a still image: by its artifact type, else by its location's extension."""
+        return self._holds_still_image(value) or self._is_still_image(location)
+
     def _validate_video_input(self) -> list[Exception] | None:
         """Accept an image as well as a video for the base input."""
         base = self.parameter_values.get("video")
-        if isinstance(base, ImageUrlArtifact | ImageArtifact) and base.value:
+        if isinstance(base, ImageUrlArtifact | ImageArtifact) and isinstance(base.value, str) and base.value:
             return None
         return super()._validate_video_input()
 
@@ -379,17 +394,41 @@ class AddOverlay(BaseVideoProcessor):
         """Resolve the base input; a still image still produces an mp4."""
         base = self.parameter_values.get("video")
         if isinstance(base, ImageUrlArtifact | ImageArtifact) and isinstance(base.value, str):
-            return File(base.value).resolve(), "mp4"
+            self._still_base_url = File(base.value).resolve()
+            return self._still_base_url, "mp4"
+        self._still_base_url = None
         input_url, detected_format = super()._get_video_input_data()
         if self._is_still_image(input_url):
             detected_format = "mp4"
         return input_url, detected_format
 
     def _check_read_codec_permission(self, input_url: str) -> None:
-        """Skip the video codec permission check for a still image base."""
-        if self._is_still_image(input_url):
+        """Skip the video codec permission check for a still image."""
+        if input_url == self._still_base_url or self._is_still_image(input_url):
             return
         super()._check_read_codec_permission(input_url)
+
+    def _check_extra_input_permissions(self, **kwargs: Any) -> None:
+        """Ask the engine whether reading the overlay and matte videos is permitted.
+
+        The base class only checks the base input, but FFmpeg also decodes these two.
+        """
+        for parameter_name in ("overlay_video", "matte_video"):
+            value = kwargs.get(parameter_name)
+            if not value:
+                continue
+            location = self._resolve_overlay_location(value, parameter_name=parameter_name)
+            if not self._is_still_input(value, location):
+                self._check_read_codec_permission(location)
+
+    def _process_video(self, input_url: str, output_path: str, **kwargs) -> None:
+        """Check the overlay and matte reads before the base class checks the base and runs FFmpeg."""
+        try:
+            self._check_extra_input_permissions(**kwargs)
+        except Exception as e:
+            self.append_value_to_parameter("logs", f"ERROR: Error during video processing: {e!s}\n")
+            raise
+        super()._process_video(input_url, output_path, **kwargs)
 
     def _get_sizing_filter(self, sizing: str, width: int, height: int) -> str:
         """Return an FFmpeg filter that sizes the overlay to exactly width x height."""

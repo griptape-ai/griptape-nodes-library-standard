@@ -214,14 +214,19 @@ def test_blend_modes_render_when_overlay_and_base_differ_in_size(tmp_path: Path,
 SIZE = "64x64"
 
 
+def _artifact_for(path: Path) -> ImageUrlArtifact | VideoUrlArtifact:
+    """The artifact type an upstream node would hand over for this file."""
+    if path.suffix in AddOverlay.STILL_IMAGE_EXTENSIONS:
+        return ImageUrlArtifact(str(path))
+    return VideoUrlArtifact(str(path))
+
+
 def _build(node: AddOverlay, base: Path, output: Path, overlay: Path, **kwargs: Any) -> list[str]:
     params: dict[str, Any] = {"blend_mode": "overlay", "amount": 1.0, "sizing": "Scale to fit"}
     params.update(kwargs)
     if "matte_video" in params:
-        params["matte_video"] = ImageUrlArtifact(str(params["matte_video"]))
-    return node._build_ffmpeg_command(
-        str(base), str(output), 10.0, overlay_video=ImageUrlArtifact(str(overlay)), **params
-    )
+        params["matte_video"] = _artifact_for(params["matte_video"])
+    return node._build_ffmpeg_command(str(base), str(output), 10.0, overlay_video=_artifact_for(overlay), **params)
 
 
 def _render_pixel(cmd: list[str], output: Path, tmp_path: Path, xy: tuple[int, int] = (32, 32)) -> tuple[int, int, int]:
@@ -525,3 +530,137 @@ def test_image_base_does_not_loop_a_video_base(node: AddOverlay, captured_paths:
 
 def test_amount_defaults_to_full_strength() -> None:
     assert AddOverlay(name="Add Overlay").get_parameter_value("amount") == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Review findings: still-ness from the artifact type, codec checks on every video read, bad image values
+# ---------------------------------------------------------------------------
+
+
+def _frame_count_and_rate(node: AddOverlay, video: Path) -> tuple[int, str]:
+    probe = subprocess.run(  # noqa: S603
+        [
+            node._get_ffmpeg_paths()[1],
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames,r_frame_rate",
+            "-of",
+            "csv=p=0",
+            str(video),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    frame_rate, frame_count = probe.stdout.strip().split(",")
+    return int(frame_count), frame_rate
+
+
+def test_image_base_without_an_extension_is_still_detected_from_its_artifact_type(tmp_path: Path) -> None:
+    png = _make_input(tmp_path / "base.png", f"color=c=blue:s={SIZE}", frames=1)
+    extensionless = tmp_path / "base_image"
+    extensionless.write_bytes(png.read_bytes())
+    overlay = _make_input(tmp_path / "overlay.mp4", f"color=c=red:s={SIZE}:duration=2:rate=10")
+    output = tmp_path / "out.mp4"
+
+    node = AddOverlay(name="Add Overlay")
+    node.parameter_values["video"] = ImageUrlArtifact(str(extensionless))
+    base_url, detected_format = node._get_video_input_data()
+    cmd = node._build_ffmpeg_command(
+        base_url,
+        str(output),
+        25.0,
+        overlay_video=VideoUrlArtifact(str(overlay)),
+        blend_mode="overlay",
+        amount=1.0,
+        sizing="Scale to fit",
+    )
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)  # noqa: S603
+
+    assert detected_format == "mp4"
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert _frame_count_and_rate(node, output) == (20, "10/1")
+
+
+def test_codec_permission_check_is_skipped_for_an_image_base_by_artifact_type(
+    node: AddOverlay, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    node.parameter_values["video"] = ImageUrlArtifact("/base_image")
+    monkeypatch.setattr(file_module.File, "resolve", lambda _self: "/resolved/base_image")
+    asked: list[str] = []
+    monkeypatch.setattr(
+        "griptape_nodes_library.video.base_video_processor.BaseVideoProcessor._check_read_codec_permission",
+        lambda _self, url: asked.append(url),
+    )
+
+    base_url, _ = node._get_video_input_data()
+    node._check_read_codec_permission(base_url)
+
+    assert asked == []
+
+
+def test_overlay_and_matte_videos_are_checked_for_read_permission(
+    node: AddOverlay, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    overlay = tmp_path / "overlay.mov"
+    matte = tmp_path / "matte.mp4"
+    asked: list[str] = []
+    monkeypatch.setattr(node, "_check_read_codec_permission", asked.append)
+
+    node._check_extra_input_permissions(
+        overlay_video=VideoUrlArtifact(str(overlay)), matte_video=VideoUrlArtifact(str(matte))
+    )
+
+    assert asked == [str(overlay), str(matte)]
+
+
+def test_still_overlay_and_matte_are_not_checked_for_read_permission(
+    node: AddOverlay, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    asked: list[str] = []
+    monkeypatch.setattr(node, "_check_read_codec_permission", asked.append)
+
+    node._check_extra_input_permissions(
+        overlay_video=ImageUrlArtifact(str(tmp_path / "logo_without_extension")),
+        matte_video=ImageUrlArtifact(str(tmp_path / "matte.png")),
+    )
+
+    assert asked == []
+
+
+def test_a_denied_matte_stops_the_run_before_ffmpeg(node: AddOverlay, monkeypatch: pytest.MonkeyPatch) -> None:
+    def deny(url: str) -> None:
+        if url.endswith("matte.mp4"):
+            msg = "Cannot load 'matte.mp4': codec not permitted"
+            raise ValueError(msg)
+
+    monkeypatch.setattr(node, "_check_read_codec_permission", deny)
+    ffmpeg_ran: list[bool] = []
+    monkeypatch.setattr(
+        "griptape_nodes_library.video.base_video_processor.BaseVideoProcessor._process_video",
+        lambda *_args, **_kwargs: ffmpeg_ran.append(True),
+    )
+
+    with pytest.raises(ValueError, match="codec not permitted"):
+        node._process_video(
+            "/base.mp4",
+            "/out.mp4",
+            overlay_video=VideoUrlArtifact("/overlay.mp4"),
+            matte_video=VideoUrlArtifact("/matte.mp4"),
+        )
+
+    assert ffmpeg_ran == []
+
+
+def test_a_raw_image_artifact_base_is_rejected_with_a_clear_message(node: AddOverlay) -> None:
+    node.parameter_values["video"] = ImageArtifact(b"\x89PNG", format="png", width=1, height=1)
+
+    errors = node._validate_video_input()
+
+    assert errors
+    assert "must be a video" in str(errors[0])
