@@ -18,6 +18,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
 
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
+from griptape_nodes_library.video import kling_4
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -85,6 +86,18 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
     # Model capability definitions
     # modes: [] means no mode selection (model has a single fixed quality tier)
     MODEL_CAPABILITIES: ClassVar[dict[str, Any]] = {
+        kling_4.KLING_4_0: {
+            "modes": [],
+            "durations": kling_4.KLING_4_CAPABILITIES[kling_4.KLING_4_0].durations,
+            "aspect_ratios": kling_4.GENERATED_ASPECT_RATIOS,
+            "supports_sound": False,
+        },
+        kling_4.KLING_4_0_FLASH: {
+            "modes": [],
+            "durations": kling_4.KLING_4_CAPABILITIES[kling_4.KLING_4_0_FLASH].durations,
+            "aspect_ratios": kling_4.GENERATED_ASPECT_RATIOS,
+            "supports_sound": False,
+        },
         "kling-v3": {
             "modes": V3_MODE_CHOICES,
             "durations": list(range(3, 16)),
@@ -122,6 +135,8 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             node=self,
             parameter=model_name_param,
             model_choices=[
+                kling_4.KLING_4_0,
+                kling_4.KLING_4_0_FLASH,
                 "kling-v3",
                 "kling-v2-6",
                 "kling-v2-5-turbo",
@@ -236,9 +251,9 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             ParameterString(
                 name="aspect_ratio",
                 default_value="16:9",
-                tooltip="Aspect ratio of the generated video frame (width:height)",
+                tooltip="Aspect ratio of the generated video frame (width:height). 21:9 is Kling 4.0 only.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=["16:9", "9:16", "1:1"])},
+                traits={Options(choices=kling_4.GENERATED_ASPECT_RATIOS)},
             )
 
             ParameterInt(
@@ -247,6 +262,15 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
                 tooltip="Video length in seconds. Range varies by model.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=list(range(3, 16)))},
+            )
+
+            ParameterString(
+                name="resolution",
+                default_value=kling_4.RESOLUTION_1080P,
+                tooltip="Output resolution (Kling 4.0 models). Kling 4.0 Flash is 720p only.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P])},
+                ui_options={"hide": True},
             )
 
             ParameterString(
@@ -336,6 +360,18 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         modes = capabilities.get("modes", BASE_MODE_CHOICES)
 
         self.show_parameter_by_name("duration")
+        self._update_aspect_ratio_choices(capabilities.get("aspect_ratios", ["16:9", "9:16", "1:1"]))
+
+        if kling_4.is_kling_4(model_id):
+            # Kling 4.0 has no mode, cfg scale or negative prompt; it is priced by resolution.
+            self.hide_parameter_by_name(["mode", "cfg_scale", "negative_prompt", "sound"])
+            self._update_resolution_choices(model_id)
+            self._hide_multi_shot_inputs()
+            self.show_parameter_by_name("prompt")
+            return
+
+        self.hide_parameter_by_name("resolution")
+        self.show_parameter_by_name(["cfg_scale", "negative_prompt"])
 
         if not modes:
             # No mode selection for this model — hide selector, keep value as pro
@@ -369,6 +405,23 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             for shot_index in range(1, MAX_MULTI_PROMPT_COUNT + 1):
                 self.hide_parameter_by_name([f"shot_{shot_index}_prompt", f"shot_{shot_index}_duration"])
             self.show_parameter_by_name("prompt")
+
+    def _update_aspect_ratio_choices(self, aspect_ratios: list[str]) -> None:
+        current = self.get_parameter_value("aspect_ratio")
+        self._update_option_choices("aspect_ratio", aspect_ratios, current if current in aspect_ratios else "16:9")
+
+    def _update_resolution_choices(self, model_id: str) -> None:
+        capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
+        current = self.get_parameter_value("resolution")
+        self._update_option_choices(
+            "resolution", capabilities.resolutions, kling_4.resolution_choice(model_id, current)
+        )
+        self.show_parameter_by_name("resolution")
+
+    def _hide_multi_shot_inputs(self) -> None:
+        self.hide_parameter_by_name(["multi_shot", "shot_type", "shot_count", "shots"])
+        for shot_index in range(1, MAX_MULTI_PROMPT_COUNT + 1):
+            self.hide_parameter_by_name([f"shot_{shot_index}_prompt", f"shot_{shot_index}_duration"])
 
     def _update_mode_choices(self, supported_modes: list[str]) -> None:
         """Keep the mode dropdown aligned with the selected model."""
@@ -626,6 +679,17 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         shot_type = self.get_parameter_value("shot_type") or "customize"
         shot_count = self.get_parameter_value("shot_count") or 1
 
+        if kling_4.is_kling_4(model_id):
+            return {
+                "prompt": prompt.strip(),
+                "settings": kling_4.build_settings(
+                    resolution=self.get_parameter_value("resolution")
+                    or kling_4.KLING_4_CAPABILITIES[model_id].default_resolution,
+                    duration=int(duration),
+                    aspect_ratio=aspect_ratio,
+                ),
+            }
+
         payload: dict[str, Any] = {
             "model_name": model_id,
             "duration": int(duration),
@@ -668,10 +732,9 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
 
-        Kling reports the id under {"data": {"task_result": {"videos": [{"id": "..."}]}}}.
+        Kling 4.0 reports the id in `data[].outputs[]`; v1-v3 in `data.task_result.videos[]`.
         """
-        videos = result_json.get("data", {}).get("task_result", {}).get("videos", [])
-        video_id = videos[0].get("id") if videos and isinstance(videos[0], dict) else None
+        video_id = kling_4.kling_video_id(result_json)
         if video_id:
             self.parameter_output_values["kling_video_id"] = video_id
             logger.info("Video ID: %s", video_id)
@@ -699,6 +762,15 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         multi_shot = bool(self.get_parameter_value("multi_shot"))
         shot_type = self.get_parameter_value("shot_type") or "customize"
         shot_count = self.get_parameter_value("shot_count") or 1
+
+        if kling_4.is_kling_4(model_id):
+            exceptions += kling_4.validate_common(
+                model_id,
+                prompt=prompt,
+                resolution=self.get_parameter_value("resolution"),
+                duration=self.get_parameter_value("duration"),
+            )
+            return exceptions or None
 
         requires_prompt = model_id != V3_MODEL_ID or (not multi_shot) or shot_type == "intelligence"
         if requires_prompt and not prompt.strip():

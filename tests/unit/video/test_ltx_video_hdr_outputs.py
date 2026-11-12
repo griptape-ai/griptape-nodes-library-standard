@@ -38,6 +38,16 @@ def _is_hidden(node: LTXVideoToVideoHDR) -> bool:
     return bool(_param(node, COLOURSPACE).ui_options.get("hide"))
 
 
+# --- project path ------------------------------------------------------------------------------
+
+
+def test_project_path_explains_itself_before_a_run() -> None:
+    param = _param(_node(), "project_path")
+
+    assert param.ui_options.get("placeholder_text")
+    assert "output_file" in param.tooltip
+
+
 # --- model dropdown ---------------------------------------------------------------------------
 
 

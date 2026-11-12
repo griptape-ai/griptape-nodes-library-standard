@@ -72,14 +72,17 @@ dev = [
 ]
 
 [tool.pyright]
+# .venv-dev, not .venv: the dev group lives there, while .venv holds only the runtime
+# dependencies the engine installs from the manifest. See CONTRIBUTING.md for why.
 venvPath = "."
-venv = ".venv"
+venv = ".venv-dev"
 include = ["."]
 exclude = [
   "**/templates/*",
   "tests/unit/compat/fixtures",
   "tests/integration/*",
   ".venv",
+  ".venv-dev",
   "**/node_modules",
   "**/__pycache__",
   "**/.*",
