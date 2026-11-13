@@ -36,7 +36,6 @@ class ImageDetails(DataNode):
                 name="image",
                 default_value=value,
                 tooltip="The image to analyze",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
