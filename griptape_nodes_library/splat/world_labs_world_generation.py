@@ -3,22 +3,26 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from functools import partial
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from griptape.artifacts import ImageUrlArtifact
+from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_three_d import Parameter3D
+from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File, FileDestination, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.traits.options import Options
+from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 from PIL import Image
 
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -140,9 +144,8 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         # Image input (visible when input_type == "Image")
         self.add_parameter(
-            Parameter(
+            ParameterImage(
                 name="image",
-                input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
                 tooltip="Input image for image-to-world generation",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Image Input"},
@@ -164,6 +167,9 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterList(
                 name="images",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
                 input_types=[
                     "ImageArtifact",
                     "ImageUrlArtifact",
@@ -203,9 +209,8 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
 
         # Video input (visible when input_type == "Video")
         self.add_parameter(
-            Parameter(
+            ParameterVideo(
                 name="video",
-                input_types=["VideoUrlArtifact", "VideoArtifact", "str"],
                 tooltip="Input video for video-to-world generation (max 100MB)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Video Input"},
@@ -631,13 +636,6 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         # Plain string input: treat as URL / macro path / file path.
         if isinstance(media_input, str):
             return await self._string_to_bytes(media_input)
-
-        # A value set inline in the editor arrives as a serialized artifact dict.
-        if isinstance(media_input, dict):
-            value = media_input.get("value")
-            if isinstance(value, str) and value:
-                return await self._string_to_bytes(value)
-            return None
 
         # Artifact-like with a string ``.value`` (URL / macro path / file path).
         value = getattr(media_input, "value", None)
