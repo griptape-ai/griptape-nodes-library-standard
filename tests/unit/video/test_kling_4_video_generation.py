@@ -546,3 +546,75 @@ def test_omni_deletes_every_uploaded_video_after_the_run(*, run_fails: bool) -> 
 
     for delete in deletes:
         delete.assert_awaited_once()
+
+
+def test_omni_sends_middle_frames_between_the_reference_images_and_the_last_frame() -> None:
+    node = _omni_with_references("kling-4.0")
+    node.set_parameter_value("video_refer_type", "feature")
+    node.set_parameter_value("middle_frames", [_image(), _image()])
+
+    payload = asyncio.run(node._build_payload())
+
+    assert [(item["type"], item.get("id")) for item in payload["contents"][:6]] == [
+        ("prompt", None),
+        ("first_frame", "first_frame"),
+        ("refer_image", "image_1"),
+        ("middle_frame", "middle_frame_1"),
+        ("middle_frame", "middle_frame_2"),
+        ("last_frame", "last_frame"),
+    ]
+    assert "middle_frames" not in _hidden(node)
+
+
+def test_omni_counts_middle_frames_toward_the_image_limit() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("first_frame_image", _image())
+    node.set_parameter_value("reference_images", [_image()] * 4)
+    node.set_parameter_value("middle_frames", [_image()] * 5)
+
+    assert not [message for message in _validation_messages(node) if "accepts up to 10 images" in message]
+
+    node.set_parameter_value("end_frame_image", _image())
+
+    assert "Kling 4.0 accepts up to 10 images (got 11)." in _validation_messages(node)
+
+
+def test_omni_flash_keeps_populated_middle_frames_visible_and_rejected() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("middle_frames", [_image()])
+
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+
+    assert "middle_frames" not in _hidden(node)
+    assert _validation_messages(node) == [
+        "kling-4.0-flash does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+    ]
+    assert "middle_frame" not in [item["type"] for item in asyncio.run(node._build_payload())["contents"]]
+
+    node.set_parameter_value("middle_frames", [])
+
+    assert "middle_frames" in _hidden(node)
+
+
+def test_omni_v3_keeps_populated_middle_frames_visible_and_rejected() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    assert "middle_frames" in _hidden(node)
+
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("middle_frames", [_image()])
+    node.set_parameter_value("model_name", "kling-v3-omni")
+
+    assert "middle_frames" not in _hidden(node)
+    assert (
+        "kling-v3-omni does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+        in _validation_messages(node)
+    )
+
+    node.set_parameter_value("middle_frames", [])
+
+    assert "middle_frames" in _hidden(node)

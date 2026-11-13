@@ -102,6 +102,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         - reference_images (list[ImageArtifact]): Reference images for generation (optional)
         - first_frame_image (ImageArtifact|ImageUrlArtifact|str): First frame image (optional)
         - end_frame_image (ImageArtifact|ImageUrlArtifact|str): End frame image (optional)
+        - middle_frames (list[ImageArtifact]): Keyframes between the first and end frame (Kling 4.0 only)
         - element_ids (str): Comma-separated element IDs (optional)
         - reference_video (VideoUrlArtifact): Reference video for editing or style reference (optional)
         - reference_video_2..reference_video_5 (VideoUrlArtifact): More feature reference videos (Kling 4.0 only)
@@ -202,6 +203,29 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "first frame"},
+            )
+        )
+        self.add_parameter(
+            ParameterList(
+                name="middle_frames",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
+                input_types=[
+                    "ImageArtifact",
+                    "ImageUrlArtifact",
+                    "str",
+                    "list[ImageArtifact]",
+                    "list[ImageUrlArtifact]",
+                    "list[str]",
+                ],
+                default_value=[],
+                tooltip=(
+                    "Keyframes between the first and end frame, in the order they appear (Kling 4.0 only). "
+                    "Referenced in the prompt as @middle_frame_1, @middle_frame_2 and so on."
+                ),
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"expander": True, "display_name": "middle frames", "hide_property": True, "hide": True},
             )
         )
         self.add_parameter(
@@ -442,6 +466,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         elif parameter.name in {
             "voice_ids",
             "end_frame_image",
+            "middle_frames",
             "audio",
             "reference_video",
             *ADDITIONAL_VIDEO_PARAMETERS,
@@ -476,6 +501,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             for name, populated in (
                 ("voice_ids", bool(kling_4.parse_id_list(self.get_parameter_value("voice_ids")))),
                 ("audio", self._wants_original_audio()),
+                ("middle_frames", bool(self._middle_frame_inputs())),
             ):
                 if populated:
                     self.show_parameter_by_name(name)
@@ -504,10 +530,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             self.show_parameter_by_name("voice_ids")
         else:
             self.hide_parameter_by_name("voice_ids")
-        if capabilities.supports_keyframes or self.get_parameter_value("end_frame_image"):
-            self.show_parameter_by_name("end_frame_image")
-        else:
-            self.hide_parameter_by_name("end_frame_image")
+        for name, populated in (
+            ("end_frame_image", bool(self.get_parameter_value("end_frame_image"))),
+            ("middle_frames", bool(self._middle_frame_inputs())),
+        ):
+            if capabilities.supports_keyframes or populated:
+                self.show_parameter_by_name(name)
+            else:
+                self.hide_parameter_by_name(name)
         # Reveal one empty video input past the last one in use.
         for video_number in range(2, kling_4.MAX_VIDEOS + 1):
             if any(
@@ -784,8 +814,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             images = [images]
         return [image for image in images if image]
 
+    def _middle_frame_inputs(self) -> list[Any]:
+        frames = self.get_parameter_value("middle_frames") or []
+        if not isinstance(frames, list):
+            frames = [frames]
+        return [frame for frame in frames if frame]
+
     async def _build_kling_4_payload(self, model_id: str) -> dict[str, Any]:
-        """Kling 4.0 `contents[]`: first frame first, last frame last, reference images between.
+        """Kling 4.0 `contents[]`: first frame first, last frame last, reference images and middle frames between.
 
         Each reference gets an id the prompt can use: @image_1.., @video_1.., @element_1.., @voice_1..
         """
@@ -804,6 +840,11 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         for index, reference_image in enumerate(self._reference_image_inputs(), start=1):
             image = await kling_4.prepare_image(reference_image, label="reference images", node_name=self.name)
             contents.append(kling_4.image_item("refer_image", image, f"image_{index}"))
+
+        if capabilities.supports_keyframes:
+            for index, middle_frame in enumerate(self._middle_frame_inputs(), start=1):
+                image = await kling_4.prepare_image(middle_frame, label="middle frames", node_name=self.name)
+                contents.append(kling_4.image_item("middle_frame", image, f"middle_frame_{index}"))
 
         if capabilities.supports_keyframes and self.get_parameter_value("end_frame_image"):
             last_frame = await kling_4.prepare_image(
@@ -850,14 +891,21 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         )
 
         has_end_frame = bool(self.get_parameter_value("end_frame_image"))
+        middle_frame_count = len(self._middle_frame_inputs())
         if has_end_frame and not capabilities.supports_keyframes:
             exceptions.append(
                 ValueError(f"{model_id} does not take an end frame. Clear 'end frame', or select Kling 4.0 to use it.")
             )
+        if middle_frame_count and not capabilities.supports_keyframes:
+            exceptions.append(
+                ValueError(
+                    f"{model_id} does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+                )
+            )
         image_count = (
             len(self._reference_image_inputs())
             + (1 if self.get_parameter_value("first_frame_image") else 0)
-            + (1 if has_end_frame and capabilities.supports_keyframes else 0)
+            + ((int(has_end_frame) + middle_frame_count) if capabilities.supports_keyframes else 0)
         )
         if image_count > kling_4.MAX_IMAGES:
             exceptions.append(ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_IMAGES} images (got {image_count})."))
@@ -944,8 +992,15 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         if kling_4.is_kling_4(self._selected_model()):
             return self._validate_kling_4(exceptions, self._selected_model()) or None
 
-        # The v1-v3 payload has no voices, audio mode or second video; running without them would drop them silently.
+        # The v1-v3 payload has no voices, audio mode, middle frames or second video; running without them would drop
+        # them silently.
         model_id = self._selected_model()
+        if self._middle_frame_inputs():
+            exceptions.append(
+                ValueError(
+                    f"{model_id} does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+                )
+            )
         extra_videos = [name for name in ADDITIONAL_VIDEO_PARAMETERS if self.get_parameter_value(name)]
         if extra_videos:
             exceptions.append(
