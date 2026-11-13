@@ -212,6 +212,12 @@
                 "provider_model_id": "gemini-3-pro-image",
                 "key_support": "REQUIRES_GRIPTAPE_KEY"
               },
+              "gtc_gemini_nano_banana_2_1": {
+                "display_name": "Nano Banana 2.1",
+                "family": "Gemini Image",
+                "provider_model_id": "gemini-nano-banana-2.1",
+                "key_support": "REQUIRES_GRIPTAPE_KEY"
+              },
               "gtc_gemini_3_1_flash_image": {
                 "display_name": "Nano Banana 2",
                 "family": "Gemini Image",
@@ -5887,6 +5893,7 @@
             "type": "model_usage",
             "model_ids": [
               "gtc_gemini_3_pro_image",
+              "gtc_gemini_nano_banana_2_1",
               "gtc_gemini_3_1_flash_image"
             ]
           }
