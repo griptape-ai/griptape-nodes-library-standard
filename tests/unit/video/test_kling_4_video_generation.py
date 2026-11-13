@@ -449,3 +449,172 @@ def test_omni_switching_to_v3_keeps_populated_kling_4_inputs_visible_and_rejecte
 
     assert {"voice_ids", "audio"} <= _hidden(node)
     assert _validation_messages(node) == []
+
+
+def _omni_with_videos(model_id: str, count: int) -> KlingOmniVideoGeneration:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", model_id)
+    node.set_parameter_value("prompt", "move like @video_1, framed like @video_2")
+    helpers = [node._public_video_url_parameter, *node._additional_video_url_parameters]
+    for number, helper in enumerate(helpers[:count], start=1):
+        name = "reference_video" if number == 1 else f"reference_video_{number}"
+        node.set_parameter_value(name, f"https://example.com/v{number}.mp4")
+        helper.aget_public_url_for_parameter = AsyncMock(  # type: ignore[method-assign]
+            return_value=f"https://public/v{number}.mp4"
+        )
+    return node
+
+
+@pytest.mark.parametrize("model_id", ["kling-4.0", "kling-4.0-flash"])
+def test_omni_sends_up_to_five_videos_with_one_base(model_id: str) -> None:
+    node = _omni_with_videos(model_id, 5)
+    node.set_parameter_value("video_refer_type", "base")
+
+    payload = asyncio.run(node._build_payload())
+
+    videos = [item for item in payload["contents"] if item["type"].endswith("_video")]
+    assert [(item["type"], item["id"], item["url"]) for item in videos] == [
+        ("base_video", "video_1", "https://public/v1.mp4"),
+        *[("feature_video", f"video_{n}", f"https://public/v{n}.mp4") for n in range(2, 6)],
+    ]
+    assert _validation_messages(node) == []
+
+
+def test_omni_reveals_one_empty_video_input_past_the_last_used() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    assert {f"reference_video_{n}" for n in range(2, 6)} <= _hidden(node)
+
+    node.set_parameter_value("reference_video", "https://example.com/v1.mp4")
+    assert "reference_video_2" not in _hidden(node)
+    assert {"reference_video_3", "reference_video_4", "reference_video_5"} <= _hidden(node)
+
+    node.set_parameter_value("reference_video_2", "https://example.com/v2.mp4")
+    assert "reference_video_3" not in _hidden(node)
+    assert {"reference_video_4", "reference_video_5"} <= _hidden(node)
+
+
+def test_omni_counts_every_video_toward_the_reference_total() -> None:
+    node = _omni_with_videos("kling-4.0", 5)
+    node.set_parameter_value("element_ids", "1,2,3,4,5,6,7")
+    node.set_parameter_value("voice_ids", "1,2,3")
+    assert _validation_messages(node) == []
+
+    node.set_parameter_value("reference_images", [_image()])
+    assert _validation_messages(node) == [
+        "Kling 4.0 accepts up to 15 images, videos, elements and voices combined (got 16)."
+    ]
+
+
+def test_omni_rejects_a_video_after_an_empty_input() -> None:
+    node = _omni_with_videos("kling-4.0", 3)
+    node.set_parameter_value("reference_video_2", None)
+
+    assert _validation_messages(node) == ["'reference_video_3' needs 'reference_video_2' to be set."]
+
+
+def test_omni_v3_rejects_extra_videos_and_keeps_them_visible() -> None:
+    node = _omni_with_videos("kling-4.0", 2)
+    node.set_parameter_value("video_refer_type", "feature")
+    node.set_parameter_value("model_name", "kling-v3-omni")
+
+    assert "reference_video_2" not in _hidden(node)
+    assert "kling-v3-omni takes one reference video. Clear 'reference_video_2', or select Kling 4.0 to use more." in (
+        _validation_messages(node)
+    )
+
+    node.set_parameter_value("reference_video_2", None)
+    assert "reference_video_2" in _hidden(node)
+
+
+@pytest.mark.parametrize("run_fails", [False, True])
+def test_omni_deletes_every_uploaded_video_after_the_run(*, run_fails: bool) -> None:
+    node = _omni_with_videos("kling-4.0", 2)
+    helpers = [node._public_video_url_parameter, *node._additional_video_url_parameters]
+    deletes = [AsyncMock() for _ in helpers]
+    for helper, delete in zip(helpers, deletes, strict=True):
+        helper.adelete_uploaded_artifact = delete  # type: ignore[method-assign]
+    node._process_generation = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError("upload of video 2 failed") if run_fails else None
+    )
+
+    if run_fails:
+        with pytest.raises(RuntimeError, match="upload of video 2 failed"):
+            asyncio.run(node.aprocess())
+    else:
+        asyncio.run(node.aprocess())
+
+    for delete in deletes:
+        delete.assert_awaited_once()
+
+
+def test_omni_sends_middle_frames_between_the_reference_images_and_the_last_frame() -> None:
+    node = _omni_with_references("kling-4.0")
+    node.set_parameter_value("video_refer_type", "feature")
+    node.set_parameter_value("middle_frames", [_image(), _image()])
+
+    payload = asyncio.run(node._build_payload())
+
+    assert [(item["type"], item.get("id")) for item in payload["contents"][:6]] == [
+        ("prompt", None),
+        ("first_frame", "first_frame"),
+        ("refer_image", "image_1"),
+        ("middle_frame", "middle_frame_1"),
+        ("middle_frame", "middle_frame_2"),
+        ("last_frame", "last_frame"),
+    ]
+    assert "middle_frames" not in _hidden(node)
+
+
+def test_omni_counts_middle_frames_toward_the_image_limit() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("first_frame_image", _image())
+    node.set_parameter_value("reference_images", [_image()] * 4)
+    node.set_parameter_value("middle_frames", [_image()] * 5)
+
+    assert not [message for message in _validation_messages(node) if "accepts up to 10 images" in message]
+
+    node.set_parameter_value("end_frame_image", _image())
+
+    assert "Kling 4.0 accepts up to 10 images (got 11)." in _validation_messages(node)
+
+
+def test_omni_flash_keeps_populated_middle_frames_visible_and_rejected() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("middle_frames", [_image()])
+
+    node.set_parameter_value("model_name", "kling-4.0-flash")
+
+    assert "middle_frames" not in _hidden(node)
+    assert _validation_messages(node) == [
+        "kling-4.0-flash does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+    ]
+    assert "middle_frame" not in [item["type"] for item in asyncio.run(node._build_payload())["contents"]]
+
+    node.set_parameter_value("middle_frames", [])
+
+    assert "middle_frames" in _hidden(node)
+
+
+def test_omni_v3_keeps_populated_middle_frames_visible_and_rejected() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    assert "middle_frames" in _hidden(node)
+
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("prompt", "x")
+    node.set_parameter_value("middle_frames", [_image()])
+    node.set_parameter_value("model_name", "kling-v3-omni")
+
+    assert "middle_frames" not in _hidden(node)
+    assert (
+        "kling-v3-omni does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+        in _validation_messages(node)
+    )
+
+    node.set_parameter_value("middle_frames", [])
+
+    assert "middle_frames" in _hidden(node)

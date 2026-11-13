@@ -23,6 +23,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.media import prepare_media_data_uri
+from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.video import kling_4
 
@@ -77,6 +78,14 @@ MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
 }
 
 
+def _video_parameter_name(video_number: int) -> str:
+    """The input holding @video_<n>: `reference_video` for the first, `reference_video_<n>` after it."""
+    return "reference_video" if video_number == 1 else f"reference_video_{video_number}"
+
+
+ADDITIONAL_VIDEO_PARAMETERS = [_video_parameter_name(number) for number in range(2, kling_4.MAX_VIDEOS + 1)]
+
+
 class KlingOmniVideoGeneration(GriptapeProxyNode):
     """Generate a video using Kling Omni AI via Griptape Cloud model proxy.
 
@@ -93,8 +102,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         - reference_images (list[ImageArtifact]): Reference images for generation (optional)
         - first_frame_image (ImageArtifact|ImageUrlArtifact|str): First frame image (optional)
         - end_frame_image (ImageArtifact|ImageUrlArtifact|str): End frame image (optional)
+        - middle_frames (list[ImageArtifact]): Keyframes between the first and end frame (Kling 4.0 only)
         - element_ids (str): Comma-separated element IDs (optional)
-        - reference_video (VideoUrlArtifact): Reference video for editing or style reference (optional, max 1)
+        - reference_video (VideoUrlArtifact): Reference video for editing or style reference (optional)
+        - reference_video_2..reference_video_5 (VideoUrlArtifact): More feature reference videos (Kling 4.0 only)
         - video_refer_type (str): Video reference type (base: edit video, feature: use as feature reference)
         - video_keep_sound (bool): Keep original video sound (default: False)
         - mode (str): Video generation mode (std: Standard, pro: Professional)
@@ -195,6 +206,29 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             )
         )
         self.add_parameter(
+            ParameterList(
+                name="middle_frames",
+                item_converters=[
+                    partial(normalize_artifact_input, artifact_type=ImageUrlArtifact, accepted_types=(ImageArtifact,))
+                ],
+                input_types=[
+                    "ImageArtifact",
+                    "ImageUrlArtifact",
+                    "str",
+                    "list[ImageArtifact]",
+                    "list[ImageUrlArtifact]",
+                    "list[str]",
+                ],
+                default_value=[],
+                tooltip=(
+                    "Keyframes between the first and end frame, in the order they appear (Kling 4.0 only). "
+                    "Referenced in the prompt as @middle_frame_1, @middle_frame_2 and so on."
+                ),
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"expander": True, "display_name": "middle frames", "hide_property": True, "hide": True},
+            )
+        )
+        self.add_parameter(
             ParameterImage(
                 name="end_frame_image",
                 tooltip="End frame image (optional). Requires first frame to be set.",
@@ -254,7 +288,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             node=self,
             artifact_url_parameter=ParameterVideo(
                 name="reference_video",
-                tooltip="Reference video for editing or style reference (optional, max 1)",
+                tooltip=(
+                    "Reference video for editing or style reference (optional). Referenced in the prompt as "
+                    "<<<video_1>>>, or @video_1 with Kling 4.0 models."
+                ),
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"placeholder_text": "https://example.com/video.mp4"},
                 hide_property=True,
@@ -262,6 +299,27 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             disclaimer_message="The Kling Omni service utilizes this URL to access the video for generation.",
         )
         self._public_video_url_parameter.add_input_parameters()
+
+        # Kling 4.0 takes up to 5 videos but only one base video, so the rest are feature references.
+        self._additional_video_url_parameters: list[PublicArtifactUrlParameter] = []
+        for video_number in range(2, kling_4.MAX_VIDEOS + 1):
+            helper = PublicArtifactUrlParameter(
+                node=self,
+                artifact_url_parameter=ParameterVideo(
+                    name=_video_parameter_name(video_number),
+                    tooltip=(
+                        f"Another feature reference video (Kling 4.0 models only), referenced in the prompt as "
+                        f"@video_{video_number}. Needs {_video_parameter_name(video_number - 1)} to be set."
+                    ),
+                    allowed_modes={ParameterMode.INPUT},
+                    ui_options={"placeholder_text": "https://example.com/video.mp4"},
+                    hide_property=True,
+                    hide=True,
+                ),
+                disclaimer_message="The Kling Omni service utilizes this URL to access the video for generation.",
+            )
+            helper.add_input_parameters()
+            self._additional_video_url_parameters.append(helper)
 
         # Generation Settings Group
         with ParameterGroup(name="Generation Settings") as gen_settings_group:
@@ -405,7 +463,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         if parameter.name == "model_name":
             self._update_kling_4_visibility(entering_kling_4=self._entering_kling_4)
-        elif parameter.name in {"voice_ids", "end_frame_image", "audio"}:
+        elif parameter.name in {
+            "voice_ids",
+            "end_frame_image",
+            "middle_frames",
+            "audio",
+            "reference_video",
+            *ADDITIONAL_VIDEO_PARAMETERS,
+        }:
             # Clearing a value an unsupported model can't use hides its input again.
             self._update_kling_4_visibility()
 
@@ -436,8 +501,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             for name, populated in (
                 ("voice_ids", bool(kling_4.parse_id_list(self.get_parameter_value("voice_ids")))),
                 ("audio", self._wants_original_audio()),
+                ("middle_frames", bool(self._middle_frame_inputs())),
             ):
                 if populated:
+                    self.show_parameter_by_name(name)
+                else:
+                    self.hide_parameter_by_name(name)
+            for name in ADDITIONAL_VIDEO_PARAMETERS:
+                if self.get_parameter_value(name):
                     self.show_parameter_by_name(name)
                 else:
                     self.hide_parameter_by_name(name)
@@ -459,10 +530,21 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             self.show_parameter_by_name("voice_ids")
         else:
             self.hide_parameter_by_name("voice_ids")
-        if capabilities.supports_keyframes or self.get_parameter_value("end_frame_image"):
-            self.show_parameter_by_name("end_frame_image")
-        else:
-            self.hide_parameter_by_name("end_frame_image")
+        for name, populated in (
+            ("end_frame_image", bool(self.get_parameter_value("end_frame_image"))),
+            ("middle_frames", bool(self._middle_frame_inputs())),
+        ):
+            if capabilities.supports_keyframes or populated:
+                self.show_parameter_by_name(name)
+            else:
+                self.hide_parameter_by_name(name)
+        # Reveal one empty video input past the last one in use.
+        last_in_use = max(self._video_numbers_in_use(), default=0)
+        for video_number in range(2, kling_4.MAX_VIDEOS + 1):
+            if video_number <= last_in_use + 1:
+                self.show_parameter_by_name(_video_parameter_name(video_number))
+            else:
+                self.hide_parameter_by_name(_video_parameter_name(video_number))
 
         self._update_option_choices(
             "resolution",
@@ -534,8 +616,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         try:
             await super().aprocess()
         finally:
-            # Always cleanup uploaded video artifact
-            await self._public_video_url_parameter.adelete_uploaded_artifact()
+            await adelete_uploaded_artifacts(
+                [self._public_video_url_parameter, *self._additional_video_url_parameters], node_name=self.name
+            )
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -729,10 +812,16 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             images = [images]
         return [image for image in images if image]
 
-    async def _build_kling_4_payload(self, model_id: str) -> dict[str, Any]:
-        """Kling 4.0 `contents[]`: first frame first, last frame last, reference images between.
+    def _middle_frame_inputs(self) -> list[Any]:
+        frames = self.get_parameter_value("middle_frames") or []
+        if not isinstance(frames, list):
+            frames = [frames]
+        return [frame for frame in frames if frame]
 
-        Each reference gets an id the prompt can use: @image_1.., @video_1, @element_1.., @voice_1..
+    async def _build_kling_4_payload(self, model_id: str) -> dict[str, Any]:
+        """Kling 4.0 `contents[]`: first frame first, last frame last, reference images and middle frames between.
+
+        Each reference gets an id the prompt can use: @image_1.., @video_1.., @element_1.., @voice_1..
         """
         capabilities = kling_4.KLING_4_CAPABILITIES[model_id]
         contents: list[dict[str, Any]] = [
@@ -750,18 +839,28 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             image = await kling_4.prepare_image(reference_image, label="reference images", node_name=self.name)
             contents.append(kling_4.image_item("refer_image", image, f"image_{index}"))
 
+        if capabilities.supports_keyframes:
+            for index, middle_frame in enumerate(self._middle_frame_inputs(), start=1):
+                image = await kling_4.prepare_image(middle_frame, label="middle frames", node_name=self.name)
+                contents.append(kling_4.image_item("middle_frame", image, f"middle_frame_{index}"))
+
         if capabilities.supports_keyframes and self.get_parameter_value("end_frame_image"):
             last_frame = await kling_4.prepare_image(
                 self.get_parameter_value("end_frame_image"), label="end frame", node_name=self.name
             )
             contents.append(kling_4.image_item("last_frame", last_frame, "last_frame"))
 
-        if self.get_parameter_value("reference_video"):
-            video_url = await self._public_video_url_parameter.aget_public_url_for_parameter()
-            video_type = (
-                "base_video" if (self.get_parameter_value("video_refer_type") or "base") == "base" else "feature_video"
-            )
-            contents.append({"type": video_type, "url": video_url, "id": "video_1"})
+        video_numbers = self._video_numbers_in_use()
+        helpers = [self._public_video_url_parameter, *self._additional_video_url_parameters]
+        video_urls = await gather_limited(
+            [helpers[number - 1].aget_public_url_for_parameter() for number in video_numbers]
+        )
+        first_video_type = (
+            "base_video" if (self.get_parameter_value("video_refer_type") or "base") == "base" else "feature_video"
+        )
+        for number, video_url in zip(video_numbers, video_urls, strict=True):
+            video_type = first_video_type if number == 1 else "feature_video"
+            contents.append({"type": video_type, "url": video_url, "id": f"video_{number}"})
 
         for index, element_id in enumerate(kling_4.parse_id_list(self.get_parameter_value("element_ids")), start=1):
             contents.append({"type": "element", "element_id": element_id, "id": f"element_{index}"})
@@ -790,14 +889,21 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         )
 
         has_end_frame = bool(self.get_parameter_value("end_frame_image"))
+        middle_frame_count = len(self._middle_frame_inputs())
         if has_end_frame and not capabilities.supports_keyframes:
             exceptions.append(
                 ValueError(f"{model_id} does not take an end frame. Clear 'end frame', or select Kling 4.0 to use it.")
             )
+        if middle_frame_count and not capabilities.supports_keyframes:
+            exceptions.append(
+                ValueError(
+                    f"{model_id} does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+                )
+            )
         image_count = (
             len(self._reference_image_inputs())
             + (1 if self.get_parameter_value("first_frame_image") else 0)
-            + (1 if has_end_frame and capabilities.supports_keyframes else 0)
+            + ((int(has_end_frame) + middle_frame_count) if capabilities.supports_keyframes else 0)
         )
         if image_count > kling_4.MAX_IMAGES:
             exceptions.append(ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_IMAGES} images (got {image_count})."))
@@ -819,8 +925,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_VOICES} voices (got {len(voice_ids)}).")
             )
 
-        has_video = bool(self.get_parameter_value("reference_video"))
-        total = image_count + len(element_ids) + len(voice_ids) + (1 if has_video else 0)
+        video_count = len(self._video_numbers_in_use())
+        has_video = video_count > 0
+        exceptions += self._video_gap_errors()
+        total = image_count + len(element_ids) + len(voice_ids) + video_count
         if total > kling_4.MAX_REFERENCES:
             exceptions.append(
                 ValueError(
@@ -836,6 +944,22 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 exceptions.append(ValueError("Audio 'original' cannot be combined with voice IDs."))
 
         return exceptions
+
+    def _video_numbers_in_use(self) -> list[int]:
+        return [
+            number
+            for number in range(1, kling_4.MAX_VIDEOS + 1)
+            if self.get_parameter_value(_video_parameter_name(number))
+        ]
+
+    def _video_gap_errors(self) -> list[ValueError]:
+        """A video after an empty input would be sent with an id the prompt doesn't expect."""
+        in_use = self._video_numbers_in_use()
+        return [
+            ValueError(f"'{_video_parameter_name(number)}' needs '{_video_parameter_name(number - 1)}' to be set.")
+            for number in in_use
+            if number > 1 and number - 1 not in in_use
+        ]
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
@@ -866,8 +990,23 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         if kling_4.is_kling_4(self._selected_model()):
             return self._validate_kling_4(exceptions, self._selected_model()) or None
 
-        # The v1-v3 payload has no voices or audio mode; running without them would drop them silently.
+        # The v1-v3 payload has no voices, audio mode, middle frames or second video; running without them would drop
+        # them silently.
         model_id = self._selected_model()
+        if self._middle_frame_inputs():
+            exceptions.append(
+                ValueError(
+                    f"{model_id} does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
+                )
+            )
+        extra_videos = [name for name in ADDITIONAL_VIDEO_PARAMETERS if self.get_parameter_value(name)]
+        if extra_videos:
+            exceptions.append(
+                ValueError(
+                    f"{model_id} takes one reference video. Clear {', '.join(repr(n) for n in extra_videos)}, "
+                    "or select Kling 4.0 to use more."
+                )
+            )
         if kling_4.parse_id_list(self.get_parameter_value("voice_ids")):
             exceptions.append(
                 ValueError(f"{model_id} does not take voice IDs. Clear 'voice_ids', or select Kling 4.0 to use them.")
