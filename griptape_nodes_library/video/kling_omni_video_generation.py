@@ -539,11 +539,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             else:
                 self.hide_parameter_by_name(name)
         # Reveal one empty video input past the last one in use.
+        last_in_use = max(self._video_numbers_in_use(), default=0)
         for video_number in range(2, kling_4.MAX_VIDEOS + 1):
-            if any(
-                self.get_parameter_value(_video_parameter_name(number))
-                for number in range(video_number - 1, kling_4.MAX_VIDEOS + 1)
-            ):
+            if video_number <= last_in_use + 1:
                 self.show_parameter_by_name(_video_parameter_name(video_number))
             else:
                 self.hide_parameter_by_name(_video_parameter_name(video_number))
