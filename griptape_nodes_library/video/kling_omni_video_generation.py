@@ -550,13 +550,15 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         the validation error that blocks the run points at something the user can clear.
         """
         model_id = self._selected_model()
-        self.get_parameter_by_name("prompt").update_ui_options(
-            {
-                "placeholder_text": KLING_4_PROMPT_PLACEHOLDER
-                if kling_4.is_kling_4(model_id)
-                else LEGACY_PROMPT_PLACEHOLDER
-            }
-        )
+        prompt = self.get_parameter_by_name("prompt")
+        if prompt is not None:
+            prompt.update_ui_options(
+                {
+                    "placeholder_text": KLING_4_PROMPT_PLACEHOLDER
+                    if kling_4.is_kling_4(model_id)
+                    else LEGACY_PROMPT_PLACEHOLDER
+                }
+            )
         aspect_ratios = list(kling_4.GENERATED_ASPECT_RATIOS)
         if not kling_4.is_kling_4(model_id):
             self.hide_parameter_by_name("resolution")

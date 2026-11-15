@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from griptape.artifacts import ImageArtifact
+from griptape_nodes.exe_types.core_types import ParameterList
 
 from griptape_nodes_library.media.public_urls import PublicListItemUrl
 from griptape_nodes_library.video import kling_4
@@ -503,7 +504,9 @@ def test_omni_additional_videos_are_a_capped_list_beside_reference_video() -> No
     assert names.index("reference_video") < names.index("additional_reference_videos")
     assert names.index("additional_reference_videos") < names.index("element_ids")
     assert names.index("reference_images") < names.index("reference_video")
-    assert node.get_parameter_by_name("additional_reference_videos").max_items == kling_4.MAX_VIDEOS - 1
+    additional_videos = node.get_parameter_by_name("additional_reference_videos")
+    assert isinstance(additional_videos, ParameterList)
+    assert additional_videos.max_items == kling_4.MAX_VIDEOS - 1
 
 
 def test_omni_shows_the_additional_videos_on_kling_4_without_waiting_for_a_connection() -> None:
@@ -702,6 +705,7 @@ def test_omni_keeps_populated_element_ids_visible_on_the_griptape_key() -> None:
 def test_omni_prompt_placeholder_follows_the_reference_syntax_of_the_model() -> None:
     node = KlingOmniVideoGeneration(name="KlingOmni")
     prompt = node.get_parameter_by_name("prompt")
+    assert prompt is not None
     assert "<<<image_1>>>" in prompt.ui_options["placeholder_text"]
 
     node.set_parameter_value("model_name", "kling-4.0")
