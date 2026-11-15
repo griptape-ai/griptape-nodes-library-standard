@@ -166,7 +166,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 name="prompt",
                 tooltip=(
                     "Text prompt. Kling v1-v3 refer to inputs as <<<image_1>>>, <<<video_1>>>, <<<element_1>>> "
-                    "(max 2500 chars). Kling 4.0 uses @start (first frame), @end (end frame), @middle_frame_1, "
+                    "(max 2500 chars). Kling 4.0 uses @first_frame, @last_frame, @middle_frame_1, "
                     "@image_1, @video_1, @element_1 and @voice_1. "
                     "Numbers follow input order: reference images, middle frames and additional reference videos "
                     "by list position, with 'reference_video' as video 1. "
@@ -213,7 +213,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 name="first_frame_image",
                 tooltip=(
                     "First frame image (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64. "
-                    "On Kling 4.0, refer to it in the prompt as @start."
+                    "On Kling 4.0, refer to it in the prompt as @first_frame."
                 ),
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
@@ -248,7 +248,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 name="end_frame_image",
                 tooltip=(
                     "End frame image (optional). Requires first frame to be set. "
-                    "On Kling 4.0, refer to it in the prompt as @end."
+                    "On Kling 4.0, refer to it in the prompt as @last_frame."
                 ),
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,

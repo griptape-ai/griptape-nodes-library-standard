@@ -714,3 +714,21 @@ def test_omni_prompt_placeholder_follows_the_reference_syntax_of_the_model() -> 
 
     node.set_parameter_value("model_name", "kling-v3-omni")
     assert "<<<image_1>>>" in prompt.ui_options["placeholder_text"]
+
+
+def test_omni_tooltips_name_the_ids_the_payload_sends() -> None:
+    node = _omni_with_references("kling-4.0")
+    node.set_parameter_value("middle_frames", [_image()])
+    payload = asyncio.run(node._build_payload())
+    sent_ids = {item["id"] for item in payload["contents"] if item.get("id")}
+
+    tooltips = {
+        name: node.get_parameter_by_name(name).tooltip  # type: ignore[union-attr]
+        for name in ("prompt", "first_frame_image", "end_frame_image", "middle_frames")
+    }
+    assert "@first_frame" in tooltips["first_frame_image"]
+    assert "@last_frame" in tooltips["end_frame_image"]
+    assert "@middle_frame_1" in tooltips["middle_frames"]
+    for token in ("first_frame", "last_frame", "middle_frame_1", "image_1", "video_1", "element_1", "voice_1"):
+        assert token in sent_ids
+        assert f"@{token}" in tooltips["prompt"]
