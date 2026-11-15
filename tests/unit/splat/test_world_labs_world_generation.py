@@ -81,6 +81,25 @@ async def test_plain_string_input_routes_through_file(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("artifact_type", ["ImageUrlArtifact", "VideoUrlArtifact"])
+async def test_serialized_artifact_dict_routes_through_file(
+    node: WorldLabsWorldGeneration, captured_paths: list[str], artifact_type: str
+) -> None:
+    result = await node._get_media_bytes({"type": artifact_type, "value": "{inputs}/upload.jpg"})
+
+    assert result == CANNED_BYTES
+    assert captured_paths == ["{inputs}/upload.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_serialized_artifact_dict_without_value_returns_none(
+    node: WorldLabsWorldGeneration, captured_paths: list[str]
+) -> None:
+    assert await node._get_media_bytes({"type": "ImageUrlArtifact"}) is None
+    assert captured_paths == []
+
+
+@pytest.mark.asyncio
 async def test_raw_bytes_artifact_uses_to_bytes_directly(
     node: WorldLabsWorldGeneration, monkeypatch: pytest.MonkeyPatch
 ) -> None:

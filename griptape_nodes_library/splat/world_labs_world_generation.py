@@ -632,6 +632,13 @@ class WorldLabsWorldGeneration(GriptapeProxyNode):
         if isinstance(media_input, str):
             return await self._string_to_bytes(media_input)
 
+        # A value set inline in the editor arrives as a serialized artifact dict.
+        if isinstance(media_input, dict):
+            value = media_input.get("value")
+            if isinstance(value, str) and value:
+                return await self._string_to_bytes(value)
+            return None
+
         # Artifact-like with a string ``.value`` (URL / macro path / file path).
         value = getattr(media_input, "value", None)
         if isinstance(value, str) and value:

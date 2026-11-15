@@ -165,6 +165,9 @@ class FileOutputSettings(BaseNode):
                 name="macro",
                 default_value="",
                 tooltip="Macro template for output path resolution",
+                # The engine substitutes workflow variables into "{name}" tokens before a run, which
+                # would resolve {outputs} and drop unset ones like {sub_dirs?:/}. The node resolves them.
+                allow_variable_substitution=False,
                 settable=True,
             )
 
