@@ -23,7 +23,12 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.utils.artifact_normalization import normalize_artifact_input
 
 from griptape_nodes_library.media import prepare_media_data_uri
-from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
+from griptape_nodes_library.media.public_urls import (
+    PublicListItemUrl,
+    adelete_uploaded_artifacts,
+    gather_limited,
+    public_list_item_helpers,
+)
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.video import kling_4
 
@@ -78,12 +83,12 @@ MODEL_CAPABILITIES: dict[str, dict[str, Any]] = {
 }
 
 
-def _video_parameter_name(video_number: int) -> str:
-    """The input holding @video_<n>: `reference_video` for the first, `reference_video_<n>` after it."""
-    return "reference_video" if video_number == 1 else f"reference_video_{video_number}"
-
-
-ADDITIONAL_VIDEO_PARAMETERS = [_video_parameter_name(number) for number in range(2, kling_4.MAX_VIDEOS + 1)]
+ADDITIONAL_VIDEOS = "additional_reference_videos"
+LEGACY_PROMPT_PLACEHOLDER = "Describe the video... Use <<<image_1>>> to reference images."
+KLING_4_PROMPT_PLACEHOLDER = (
+    "Describe the video... Use @image_1 for the first reference image and @video_1 for the reference video."
+)
+VIDEO_UPLOAD_DISCLAIMER = "The Kling Omni service utilizes this URL to access the video for generation."
 
 
 class KlingOmniVideoGeneration(GriptapeProxyNode):
@@ -105,7 +110,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         - middle_frames (list[ImageArtifact]): Keyframes between the first and end frame (Kling 4.0 only)
         - element_ids (str): Comma-separated element IDs (optional)
         - reference_video (VideoUrlArtifact): Reference video for editing or style reference (optional)
-        - reference_video_2..reference_video_5 (VideoUrlArtifact): More feature reference videos (Kling 4.0 only)
+        - additional_reference_videos (list[VideoUrlArtifact]): Up to 4 more feature reference videos (Kling 4.0 only)
         - video_refer_type (str): Video reference type (base: edit video, feature: use as feature reference)
         - video_keep_sound (bool): Keep original video sound (default: False)
         - mode (str): Video generation mode (std: Standard, pro: Professional)
@@ -159,10 +164,17 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="prompt",
-                tooltip="Text prompt with optional templates like <<<image_1>>>, <<<element_1>>> (max 2500 chars)",
+                tooltip=(
+                    "Text prompt. Kling v1-v3 refer to inputs as <<<image_1>>>, <<<video_1>>>, <<<element_1>>> "
+                    "(max 2500 chars). Kling 4.0 uses @start (first frame), @end (end frame), @middle_frame_1, "
+                    "@image_1, @video_1, @element_1 and @voice_1. "
+                    "Numbers follow input order: reference images, middle frames and additional reference videos "
+                    "by list position, with 'reference_video' as video 1. "
+                    "Say what each reference is for, for example 'keep the face from @image_1'."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 multiline=True,
-                placeholder_text="Describe the video... Use <<<image_1>>> to reference images.",
+                placeholder_text=LEGACY_PROMPT_PLACEHOLDER,
             )
         )
         with ParameterGroup(name="Multi-Shot Settings") as multi_shot_settings_group:
@@ -199,7 +211,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterImage(
                 name="first_frame_image",
-                tooltip="First frame image (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64.",
+                tooltip=(
+                    "First frame image (optional). Accepts ImageArtifact, ImageUrlArtifact, URL, or Base64. "
+                    "On Kling 4.0, refer to it in the prompt as @start."
+                ),
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "first frame"},
@@ -231,7 +246,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterImage(
                 name="end_frame_image",
-                tooltip="End frame image (optional). Requires first frame to be set.",
+                tooltip=(
+                    "End frame image (optional). Requires first frame to be set. "
+                    "On Kling 4.0, refer to it in the prompt as @end."
+                ),
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
                 ui_options={"display_name": "end frame"},
@@ -258,6 +276,54 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             )
         )
 
+        # Use PublicArtifactUrlParameter for video upload handling
+        self._public_video_url_parameter = PublicArtifactUrlParameter(
+            node=self,
+            artifact_url_parameter=ParameterVideo(
+                name="reference_video",
+                tooltip=(
+                    "The video to edit or to use as a style or motion reference (optional). "
+                    "Refer to it in the prompt as <<<video_1>>>, or @video_1 with Kling 4.0 models. "
+                    "'video_refer_type' sets whether it is edited ('base') or only referenced ('feature'). "
+                    "On Kling 4.0, add more videos with 'additional reference videos'."
+                ),
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"placeholder_text": "https://example.com/video.mp4"},
+                hide_property=True,
+            ),
+            disclaimer_message=VIDEO_UPLOAD_DISCLAIMER,
+        )
+        self._public_video_url_parameter.add_input_parameters()
+
+        # Kling 4.0 takes up to 5 videos, at most one of them a base video, so the rest are feature references.
+        additional_videos = ParameterList(
+            name=ADDITIONAL_VIDEOS,
+            input_types=["VideoUrlArtifact", "str"],
+            default_value=[],
+            tooltip=(
+                f"More videos to use as style or motion references (Kling 4.0 models only, up to "
+                f"{kling_4.MAX_VIDEOS - 1}). Refer to them in the prompt in list order, as @video_2, @video_3 "
+                "and so on, with 'reference_video' as @video_1. They are never edited. Needs 'reference_video' "
+                "to be set."
+            ),
+            allowed_modes={ParameterMode.INPUT},
+            max_items=kling_4.MAX_VIDEOS - 1,
+            ui_options={"expander": True, "display_name": "additional reference videos", "hide_property": True},
+        )
+        additional_videos.set_badge(
+            variant="cloud-upload",
+            title="Media Upload",
+            message=(
+                f"The {self.name} node requires public URLs for the parameter: {ADDITIONAL_VIDEOS}.\n\n"
+                f"{VIDEO_UPLOAD_DISCLAIMER}\n"
+                "Executing this node will generate short lived, public URLs for the videos, which will be "
+                "cleaned up after execution.\n"
+            ),
+            hide_clear_button=False,
+        )
+        self.add_parameter(additional_videos)
+        self._additional_video_helpers: list[PublicListItemUrl] = []
+
         # Advanced References Group
         with ParameterGroup(name="Advanced References") as advanced_group:
             ParameterString(
@@ -281,52 +347,18 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 ui_options={"placeholder_text": "e.g., 829837252279803904", "hide": True},
             )
         advanced_group.ui_options = {"hide": False}
+        self._advanced_group = advanced_group
         self.add_node_element(advanced_group)
-
-        # Use PublicArtifactUrlParameter for video upload handling
-        self._public_video_url_parameter = PublicArtifactUrlParameter(
-            node=self,
-            artifact_url_parameter=ParameterVideo(
-                name="reference_video",
-                tooltip=(
-                    "Reference video for editing or style reference (optional). Referenced in the prompt as "
-                    "<<<video_1>>>, or @video_1 with Kling 4.0 models."
-                ),
-                allowed_modes={ParameterMode.INPUT},
-                ui_options={"placeholder_text": "https://example.com/video.mp4"},
-                hide_property=True,
-            ),
-            disclaimer_message="The Kling Omni service utilizes this URL to access the video for generation.",
-        )
-        self._public_video_url_parameter.add_input_parameters()
-
-        # Kling 4.0 takes up to 5 videos but only one base video, so the rest are feature references.
-        self._additional_video_url_parameters: list[PublicArtifactUrlParameter] = []
-        for video_number in range(2, kling_4.MAX_VIDEOS + 1):
-            helper = PublicArtifactUrlParameter(
-                node=self,
-                artifact_url_parameter=ParameterVideo(
-                    name=_video_parameter_name(video_number),
-                    tooltip=(
-                        f"Another feature reference video (Kling 4.0 models only), referenced in the prompt as "
-                        f"@video_{video_number}. Needs {_video_parameter_name(video_number - 1)} to be set."
-                    ),
-                    allowed_modes={ParameterMode.INPUT},
-                    ui_options={"placeholder_text": "https://example.com/video.mp4"},
-                    hide_property=True,
-                    hide=True,
-                ),
-                disclaimer_message="The Kling Omni service utilizes this URL to access the video for generation.",
-            )
-            helper.add_input_parameters()
-            self._additional_video_url_parameters.append(helper)
 
         # Generation Settings Group
         with ParameterGroup(name="Generation Settings") as gen_settings_group:
             ParameterString(
                 name="video_refer_type",
                 default_value="base",
-                tooltip="Video reference type: 'feature' is the feature reference video, 'base' is the video to be edited",
+                tooltip=(
+                    "How 'reference_video' is used: 'base' edits it, 'feature' only references its style or motion. "
+                    "Additional reference videos are always 'feature'."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=["base", "feature"])},
             )
@@ -464,12 +496,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         if parameter.name == "model_name":
             self._update_kling_4_visibility(entering_kling_4=self._entering_kling_4)
         elif parameter.name in {
+            "api_key_provider",
+            "element_ids",
             "voice_ids",
             "end_frame_image",
             "middle_frames",
             "audio",
             "reference_video",
-            *ADDITIONAL_VIDEO_PARAMETERS,
+            ADDITIONAL_VIDEOS,
         }:
             # Clearing a value an unsupported model can't use hides its input again.
             self._update_kling_4_visibility()
@@ -487,6 +521,28 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     def _wants_original_audio(self) -> bool:
         return (self.get_parameter_value("audio") or "native") == "original"
 
+    def _uses_customer_api_key(self) -> bool:
+        return self._api_key_provider is not None and self._api_key_provider.is_user_auth_enabled()
+
+    def _update_advanced_reference_visibility(self, *, voices_supported: bool) -> None:
+        """Element and voice IDs belong to the Kling account that made them, so they only apply to a customer key.
+
+        An input that already holds a value stays visible, so a saved workflow can still clear it.
+        """
+        customer_key = self._uses_customer_api_key()
+        element_ids = bool((self.get_parameter_value("element_ids") or "").strip())
+        voice_ids = bool(kling_4.parse_id_list(self.get_parameter_value("voice_ids")))
+        visible = {
+            "element_ids": customer_key or element_ids,
+            "voice_ids": (customer_key and voices_supported) or voice_ids,
+        }
+        for name, show in visible.items():
+            if show:
+                self.show_parameter_by_name(name)
+            else:
+                self.hide_parameter_by_name(name)
+        self._advanced_group.update_ui_options({"hide": not any(visible.values())})
+
     def _update_kling_4_visibility(self, *, entering_kling_4: bool = False) -> None:
         """Kling 4.0 has no mode, multi-shot or keep-sound; it adds resolution, audio and voices.
 
@@ -494,12 +550,19 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         the validation error that blocks the run points at something the user can clear.
         """
         model_id = self._selected_model()
+        self.get_parameter_by_name("prompt").update_ui_options(
+            {
+                "placeholder_text": KLING_4_PROMPT_PLACEHOLDER
+                if kling_4.is_kling_4(model_id)
+                else LEGACY_PROMPT_PLACEHOLDER
+            }
+        )
         aspect_ratios = list(kling_4.GENERATED_ASPECT_RATIOS)
         if not kling_4.is_kling_4(model_id):
             self.hide_parameter_by_name("resolution")
             # Audio always holds a mode, so only 'original' (which v1-v3 can't honour) counts as set.
+            self._update_advanced_reference_visibility(voices_supported=False)
             for name, populated in (
-                ("voice_ids", bool(kling_4.parse_id_list(self.get_parameter_value("voice_ids")))),
                 ("audio", self._wants_original_audio()),
                 ("middle_frames", bool(self._middle_frame_inputs())),
             ):
@@ -507,11 +570,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                     self.show_parameter_by_name(name)
                 else:
                     self.hide_parameter_by_name(name)
-            for name in ADDITIONAL_VIDEO_PARAMETERS:
-                if self.get_parameter_value(name):
-                    self.show_parameter_by_name(name)
-                else:
-                    self.hide_parameter_by_name(name)
+            if self._additional_video_inputs():
+                self.show_parameter_by_name(ADDITIONAL_VIDEOS)
+            else:
+                self.hide_parameter_by_name(ADDITIONAL_VIDEOS)
             self.show_parameter_by_name(["mode", "multi_shot", "video_keep_sound", "end_frame_image"])
             aspect_ratios = ["16:9", "9:16", "1:1"]
             current = self.get_parameter_value("aspect_ratio")
@@ -525,11 +587,8 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         self.hide_parameter_by_name(["mode", "multi_shot", "video_keep_sound", "shot_count"])
         for shot_index in range(1, MAX_MULTI_PROMPT_COUNT + 1):
             self.hide_parameter_by_name([f"shot_{shot_index}_prompt", f"shot_{shot_index}_duration"])
-        self.show_parameter_by_name(["prompt", "resolution", "audio", "element_ids"])
-        if capabilities.supports_voices or self.get_parameter_value("voice_ids"):
-            self.show_parameter_by_name("voice_ids")
-        else:
-            self.hide_parameter_by_name("voice_ids")
+        self.show_parameter_by_name(["prompt", "resolution", "audio"])
+        self._update_advanced_reference_visibility(voices_supported=capabilities.supports_voices)
         for name, populated in (
             ("end_frame_image", bool(self.get_parameter_value("end_frame_image"))),
             ("middle_frames", bool(self._middle_frame_inputs())),
@@ -538,13 +597,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name(name)
             else:
                 self.hide_parameter_by_name(name)
-        # Reveal one empty video input past the last one in use.
-        last_in_use = max(self._video_numbers_in_use(), default=0)
-        for video_number in range(2, kling_4.MAX_VIDEOS + 1):
-            if video_number <= last_in_use + 1:
-                self.show_parameter_by_name(_video_parameter_name(video_number))
-            else:
-                self.hide_parameter_by_name(_video_parameter_name(video_number))
+        self.show_parameter_by_name(ADDITIONAL_VIDEOS)
 
         self._update_option_choices(
             "resolution",
@@ -616,9 +669,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         try:
             await super().aprocess()
         finally:
-            await adelete_uploaded_artifacts(
-                [self._public_video_url_parameter, *self._additional_video_url_parameters], node_name=self.name
-            )
+            helpers = [self._public_video_url_parameter, *self._additional_video_helpers]
+            self._additional_video_helpers = []
+            await adelete_uploaded_artifacts(helpers, node_name=self.name)
 
     def _get_api_model_id(self) -> str:
         """Get the API model ID for this generation.
@@ -850,15 +903,24 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             )
             contents.append(kling_4.image_item("last_frame", last_frame, "last_frame"))
 
-        video_numbers = self._video_numbers_in_use()
-        helpers = [self._public_video_url_parameter, *self._additional_video_url_parameters]
-        video_urls = await gather_limited(
-            [helpers[number - 1].aget_public_url_for_parameter() for number in video_numbers]
+        helpers: list[PublicArtifactUrlParameter] = []
+        if self.get_parameter_value("reference_video"):
+            helpers.append(self._public_video_url_parameter)
+        # TODO: once PublicArtifactUrlParameter can wrap a ParameterList, upload the list with the engine's
+        # helper and drop public_list_item_helpers. https://github.com/griptape-ai/griptape-nodes-engine/issues/6345
+        # Kept on the node so aprocess deletes these uploads, including after a failed run.
+        self._additional_video_helpers = public_list_item_helpers(
+            self,
+            self._additional_video_inputs(),
+            name=ADDITIONAL_VIDEOS,
+            disclaimer_message=VIDEO_UPLOAD_DISCLAIMER,
         )
+        helpers += self._additional_video_helpers
+        video_urls = await gather_limited([helper.aget_public_url_for_parameter() for helper in helpers])
         first_video_type = (
             "base_video" if (self.get_parameter_value("video_refer_type") or "base") == "base" else "feature_video"
         )
-        for number, video_url in zip(video_numbers, video_urls, strict=True):
+        for number, video_url in enumerate(video_urls, start=1):
             video_type = first_video_type if number == 1 else "feature_video"
             contents.append({"type": video_type, "url": video_url, "id": f"video_{number}"})
 
@@ -925,9 +987,14 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_VOICES} voices (got {len(voice_ids)}).")
             )
 
-        video_count = len(self._video_numbers_in_use())
+        video_count = len(self._additional_video_inputs()) + (1 if self.get_parameter_value("reference_video") else 0)
         has_video = video_count > 0
-        exceptions += self._video_gap_errors()
+        if self._additional_video_inputs() and not self.get_parameter_value("reference_video"):
+            exceptions.append(ValueError(f"'{ADDITIONAL_VIDEOS}' needs 'reference_video' to be set."))
+        if video_count > kling_4.MAX_VIDEOS:
+            exceptions.append(
+                ValueError(f"Kling 4.0 accepts up to {kling_4.MAX_VIDEOS} reference videos (got {video_count}).")
+            )
         total = image_count + len(element_ids) + len(voice_ids) + video_count
         if total > kling_4.MAX_REFERENCES:
             exceptions.append(
@@ -945,21 +1012,11 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
 
         return exceptions
 
-    def _video_numbers_in_use(self) -> list[int]:
-        return [
-            number
-            for number in range(1, kling_4.MAX_VIDEOS + 1)
-            if self.get_parameter_value(_video_parameter_name(number))
-        ]
-
-    def _video_gap_errors(self) -> list[ValueError]:
-        """A video after an empty input would be sent with an id the prompt doesn't expect."""
-        in_use = self._video_numbers_in_use()
-        return [
-            ValueError(f"'{_video_parameter_name(number)}' needs '{_video_parameter_name(number - 1)}' to be set.")
-            for number in in_use
-            if number > 1 and number - 1 not in in_use
-        ]
+    def _additional_video_inputs(self) -> list[Any]:
+        videos = self.get_parameter_value(ADDITIONAL_VIDEOS) or []
+        if not isinstance(videos, list):
+            videos = [videos]
+        return [video for video in videos if video]
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         """Save the hosted video and record Kling's own id for it.
@@ -999,11 +1056,10 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                     f"{model_id} does not take middle frames. Clear 'middle frames', or select Kling 4.0 to use them."
                 )
             )
-        extra_videos = [name for name in ADDITIONAL_VIDEO_PARAMETERS if self.get_parameter_value(name)]
-        if extra_videos:
+        if self._additional_video_inputs():
             exceptions.append(
                 ValueError(
-                    f"{model_id} takes one reference video. Clear {', '.join(repr(n) for n in extra_videos)}, "
+                    f"{model_id} takes one reference video. Clear '{ADDITIONAL_VIDEOS}', "
                     "or select Kling 4.0 to use more."
                 )
             )

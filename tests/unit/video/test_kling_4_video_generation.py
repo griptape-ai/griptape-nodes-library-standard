@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from griptape.artifacts import ImageArtifact
 
+from griptape_nodes_library.media.public_urls import PublicListItemUrl
 from griptape_nodes_library.video import kling_4
 from griptape_nodes_library.video.kling_image_to_video_generation import KlingImageToVideoGeneration
 from griptape_nodes_library.video.kling_omni_video_generation import KlingOmniVideoGeneration
@@ -452,17 +453,32 @@ def test_omni_switching_to_v3_keeps_populated_kling_4_inputs_visible_and_rejecte
 
 
 def _omni_with_videos(model_id: str, count: int) -> KlingOmniVideoGeneration:
+    """`reference_video` plus `count - 1` additional videos, with uploads stubbed to https://public/v<n>.mp4."""
     node = KlingOmniVideoGeneration(name="KlingOmni")
     node.set_parameter_value("model_name", model_id)
     node.set_parameter_value("prompt", "move like @video_1, framed like @video_2")
-    helpers = [node._public_video_url_parameter, *node._additional_video_url_parameters]
-    for number, helper in enumerate(helpers[:count], start=1):
-        name = "reference_video" if number == 1 else f"reference_video_{number}"
-        node.set_parameter_value(name, f"https://example.com/v{number}.mp4")
-        helper.aget_public_url_for_parameter = AsyncMock(  # type: ignore[method-assign]
-            return_value=f"https://public/v{number}.mp4"
-        )
+    node.set_parameter_value("reference_video", "https://example.com/v1.mp4")
+    node._public_video_url_parameter.aget_public_url_for_parameter = AsyncMock(  # type: ignore[method-assign]
+        return_value="https://public/v1.mp4"
+    )
+    node.set_parameter_value(
+        "additional_reference_videos", [f"https://example.com/v{number}.mp4" for number in range(2, count + 1)]
+    )
     return node
+
+
+@pytest.fixture(autouse=True)
+def _stub_list_item_uploads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The additional videos are already public URLs, so the real helper returns them untouched.
+
+    Swap the public URL for the one the tests expect, without any network.
+    """
+
+    async def fake_public_url(self: PublicListItemUrl) -> str:
+        return str(self._value).replace("https://example.com", "https://public")
+
+    monkeypatch.setattr(PublicListItemUrl, "aget_public_url_for_parameter", fake_public_url)
+    monkeypatch.setattr(PublicListItemUrl, "adelete_uploaded_artifact", AsyncMock())
 
 
 @pytest.mark.parametrize("model_id", ["kling-4.0", "kling-4.0-flash"])
@@ -480,18 +496,21 @@ def test_omni_sends_up_to_five_videos_with_one_base(model_id: str) -> None:
     assert _validation_messages(node) == []
 
 
-def test_omni_reveals_one_empty_video_input_past_the_last_used() -> None:
+def test_omni_additional_videos_are_a_capped_list_beside_reference_video() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    names = [parameter.name for parameter in node.parameters]
+
+    assert names.index("reference_video") < names.index("additional_reference_videos")
+    assert names.index("additional_reference_videos") < names.index("element_ids")
+    assert names.index("reference_images") < names.index("reference_video")
+    assert node.get_parameter_by_name("additional_reference_videos").max_items == kling_4.MAX_VIDEOS - 1
+
+
+def test_omni_shows_the_additional_videos_on_kling_4_without_waiting_for_a_connection() -> None:
     node = KlingOmniVideoGeneration(name="KlingOmni")
     node.set_parameter_value("model_name", "kling-4.0")
-    assert {f"reference_video_{n}" for n in range(2, 6)} <= _hidden(node)
 
-    node.set_parameter_value("reference_video", "https://example.com/v1.mp4")
-    assert "reference_video_2" not in _hidden(node)
-    assert {"reference_video_3", "reference_video_4", "reference_video_5"} <= _hidden(node)
-
-    node.set_parameter_value("reference_video_2", "https://example.com/v2.mp4")
-    assert "reference_video_3" not in _hidden(node)
-    assert {"reference_video_4", "reference_video_5"} <= _hidden(node)
+    assert "additional_reference_videos" not in _hidden(node)
 
 
 def test_omni_counts_every_video_toward_the_reference_total() -> None:
@@ -506,11 +525,16 @@ def test_omni_counts_every_video_toward_the_reference_total() -> None:
     ]
 
 
-def test_omni_rejects_a_video_after_an_empty_input() -> None:
-    node = _omni_with_videos("kling-4.0", 3)
-    node.set_parameter_value("reference_video_2", None)
+def test_omni_additional_videos_list_refuses_a_sixth_video() -> None:
+    with pytest.raises(ValueError, match="holds at most 4 items"):
+        _omni_with_videos("kling-4.0", 6)
 
-    assert _validation_messages(node) == ["'reference_video_3' needs 'reference_video_2' to be set."]
+
+def test_omni_rejects_additional_videos_without_a_reference_video() -> None:
+    node = _omni_with_videos("kling-4.0", 3)
+    node.set_parameter_value("reference_video", None)
+
+    assert _validation_messages(node) == ["'additional_reference_videos' needs 'reference_video' to be set."]
 
 
 def test_omni_v3_rejects_extra_videos_and_keeps_them_visible() -> None:
@@ -518,25 +542,29 @@ def test_omni_v3_rejects_extra_videos_and_keeps_them_visible() -> None:
     node.set_parameter_value("video_refer_type", "feature")
     node.set_parameter_value("model_name", "kling-v3-omni")
 
-    assert "reference_video_2" not in _hidden(node)
-    assert "kling-v3-omni takes one reference video. Clear 'reference_video_2', or select Kling 4.0 to use more." in (
-        _validation_messages(node)
+    assert "additional_reference_videos" not in _hidden(node)
+    assert (
+        "kling-v3-omni takes one reference video. Clear 'additional_reference_videos', or select Kling 4.0 to use more."
+        in _validation_messages(node)
     )
 
-    node.set_parameter_value("reference_video_2", None)
-    assert "reference_video_2" in _hidden(node)
+    node.set_parameter_value("additional_reference_videos", [])
+    assert "additional_reference_videos" in _hidden(node)
 
 
 @pytest.mark.parametrize("run_fails", [False, True])
 def test_omni_deletes_every_uploaded_video_after_the_run(*, run_fails: bool) -> None:
-    node = _omni_with_videos("kling-4.0", 2)
-    helpers = [node._public_video_url_parameter, *node._additional_video_url_parameters]
-    deletes = [AsyncMock() for _ in helpers]
-    for helper, delete in zip(helpers, deletes, strict=True):
-        helper.adelete_uploaded_artifact = delete  # type: ignore[method-assign]
-    node._process_generation = AsyncMock(  # type: ignore[method-assign]
-        side_effect=RuntimeError("upload of video 2 failed") if run_fails else None
-    )
+    node = _omni_with_videos("kling-4.0", 3)
+    first_delete = AsyncMock()
+    node._public_video_url_parameter.adelete_uploaded_artifact = first_delete  # type: ignore[method-assign]
+
+    async def build_then_run() -> None:
+        await node._build_payload()
+        if run_fails:
+            msg = "upload of video 2 failed"
+            raise RuntimeError(msg)
+
+    node._process_generation = build_then_run  # type: ignore[method-assign]
 
     if run_fails:
         with pytest.raises(RuntimeError, match="upload of video 2 failed"):
@@ -544,8 +572,8 @@ def test_omni_deletes_every_uploaded_video_after_the_run(*, run_fails: bool) -> 
     else:
         asyncio.run(node.aprocess())
 
-    for delete in deletes:
-        delete.assert_awaited_once()
+    first_delete.assert_awaited_once()
+    assert PublicListItemUrl.adelete_uploaded_artifact.await_count == 2  # type: ignore[attr-defined]
 
 
 def test_omni_sends_middle_frames_between_the_reference_images_and_the_last_frame() -> None:
@@ -618,3 +646,67 @@ def test_omni_v3_keeps_populated_middle_frames_visible_and_rejected() -> None:
     node.set_parameter_value("middle_frames", [])
 
     assert "middle_frames" in _hidden(node)
+
+
+def _advanced_group_hidden(node: Any) -> bool:
+    group = next(element for element in node.root_ui_element.children if element.name == "Advanced References")
+    return bool(group.ui_options.get("hide"))
+
+
+@pytest.mark.parametrize("model_id", ["kling-v3-omni", "kling-4.0", "kling-4.0-flash"])
+def test_omni_hides_element_and_voice_ids_on_the_griptape_key(model_id: str) -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", model_id)
+
+    assert {"element_ids", "voice_ids"} <= _hidden(node)
+    assert _advanced_group_hidden(node)
+
+
+def test_omni_shows_element_and_voice_ids_on_a_customer_key_and_hides_them_again() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+
+    node.set_parameter_value("api_key_provider", True)
+    assert not ({"element_ids", "voice_ids"} & _hidden(node))
+    assert not _advanced_group_hidden(node)
+
+    node.set_parameter_value("api_key_provider", False)
+    assert {"element_ids", "voice_ids"} <= _hidden(node)
+    assert _advanced_group_hidden(node)
+
+
+def test_omni_customer_key_shows_voice_ids_only_where_the_model_takes_them() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("api_key_provider", True)
+
+    for model_id, voices_hidden in (("kling-v3-omni", True), ("kling-4.0-flash", True), ("kling-4.0", False)):
+        node.set_parameter_value("model_name", model_id)
+        assert "element_ids" not in _hidden(node)
+        assert ("voice_ids" in _hidden(node)) is voices_hidden
+
+
+def test_omni_keeps_populated_element_ids_visible_on_the_griptape_key() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    node.set_parameter_value("model_name", "kling-4.0")
+    node.set_parameter_value("element_ids", "11, 22")
+
+    assert "element_ids" not in _hidden(node)
+    assert "voice_ids" in _hidden(node)
+    assert not _advanced_group_hidden(node)
+
+    node.set_parameter_value("element_ids", "")
+    assert "element_ids" in _hidden(node)
+    assert _advanced_group_hidden(node)
+
+
+def test_omni_prompt_placeholder_follows_the_reference_syntax_of_the_model() -> None:
+    node = KlingOmniVideoGeneration(name="KlingOmni")
+    prompt = node.get_parameter_by_name("prompt")
+    assert "<<<image_1>>>" in prompt.ui_options["placeholder_text"]
+
+    node.set_parameter_value("model_name", "kling-4.0")
+    assert "@image_1" in prompt.ui_options["placeholder_text"]
+    assert "<<<" not in prompt.ui_options["placeholder_text"]
+
+    node.set_parameter_value("model_name", "kling-v3-omni")
+    assert "<<<image_1>>>" in prompt.ui_options["placeholder_text"]
