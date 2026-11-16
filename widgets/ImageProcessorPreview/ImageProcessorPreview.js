@@ -9,8 +9,6 @@ import { PREVIEW_FONT } from "./_text.js";
 const WIDGET_VERSION = "1.3.0";
 const CHECKER = 10;
 const SCRUB_STEPS = 1000;
-// How long the arrows wait for the node before letting the user try again.
-const STEP_TIMEOUT_MS = 5000;
 
 export default function ImageProcessorPreview(container, props) {
   if (container._imagePreview?.wrapper?.isConnected) {
@@ -20,8 +18,6 @@ export default function ImageProcessorPreview(container, props) {
   if (container._imagePreview) delete container._imagePreview;
 
   let value = props.value || {};
-  let onChange = props.onChange;
-  let disabled = Boolean(props.disabled);
   let sourceUrl = "";
   let sourceReady = false;
   // The scaled source's pixels, kept so a colour operation only redoes its own math while dragging.
@@ -59,24 +55,21 @@ export default function ImageProcessorPreview(container, props) {
   scrubRow.appendChild(scrub);
   scrubRow.appendChild(scrubTime);
 
-  // Arrows for a node with several source images (Extract PDF Images). The node says how many there are
-  // and which one it sent; an arrow writes the one wanted into the value and the node sends that image.
-  const stepRow = document.createElement("div");
-  stepRow.style.cssText = "display:none;align-items:center;justify-content:center;gap:8px;padding:0 2px;";
-  const stepLabel = document.createElement("span");
-  stepLabel.style.cssText = "font-size:11px;color:var(--muted-foreground);white-space:nowrap;";
-  const prevButton = stepButton("‹", "Previous image", -1);
-  const nextButton = stepButton("›", "Next image", 1);
-  stepRow.appendChild(prevButton);
-  stepRow.appendChild(stepLabel);
-  stepRow.appendChild(nextButton);
-  // One step at a time: the arrows wait for the node to send the image asked for, so a slow answer
-  // can't land after a later click's.
-  let stepIndex = 0;
-  let stepPending = false;
-  let stepTimer = 0;
+  // Arrows for a node that sends several pages (Extract PDF Images). Stepping happens here, in the
+  // browser, so looking through the pages never edits the node.
+  const pageRow = document.createElement("div");
+  pageRow.style.cssText = "display:none;align-items:center;justify-content:center;gap:8px;padding:0 2px;";
+  const pageLabel = document.createElement("span");
+  pageLabel.style.cssText = "font-size:11px;color:var(--muted-foreground);white-space:nowrap;";
+  const prevButton = pageButton("‹", "Previous page", -1);
+  const nextButton = pageButton("›", "Next page", 1);
+  pageRow.appendChild(prevButton);
+  pageRow.appendChild(pageLabel);
+  pageRow.appendChild(nextButton);
+  let pageUrls = [];
+  let pageIndex = 0;
 
-  function stepButton(text, title, delta) {
+  function pageButton(text, title, delta) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = text;
@@ -88,31 +81,27 @@ export default function ImageProcessorPreview(container, props) {
     for (const type of ["pointerdown", "mousedown"]) button.addEventListener(type, (e) => e.stopPropagation());
     button.addEventListener("click", (e) => {
       e.stopPropagation();
-      const count = Number(value.image_count) || 0;
-      const next = Math.max(0, Math.min(count - 1, stepIndex + delta));
-      if (disabled || stepPending || next === stepIndex) return;
-      stepIndex = next;
-      stepPending = true;
-      clearTimeout(stepTimer);
-      stepTimer = setTimeout(() => {
-        stepIndex = Number(value.image_index) || 0;
-        stepPending = false;
-        updateStepRow();
-      }, STEP_TIMEOUT_MS);
-      updateStepRow();
-      onChange?.({ ...value, image_index: next });
+      const next = Math.max(0, Math.min(pageUrls.length - 1, pageIndex + delta));
+      if (next === pageIndex) return;
+      pageIndex = next;
+      handleUpdate({ value });
     });
     return button;
   }
 
-  function updateStepRow() {
-    const count = Number(value.image_count) || 0;
-    stepRow.style.display = count > 1 ? "flex" : "none";
-    if (count <= 1) return;
-    const page = stepPending ? "" : `Page ${value.image_page} · `;
-    stepLabel.textContent = `${page}image ${stepIndex + 1} of ${count}`;
-    prevButton.disabled = disabled || stepPending || stepIndex <= 0;
-    nextButton.disabled = disabled || stepPending || stepIndex >= count - 1;
+  // Keeps the page shown while the node resends the same pages (a rotation change); new pages start at 1.
+  function updatePages() {
+    const urls = Array.isArray(value.page_urls) ? value.page_urls : [];
+    const base = (u) => (u ? u.split("?")[0] : "");
+    if (urls.map(base).join("|") !== pageUrls.map(base).join("|")) pageIndex = 0;
+    pageUrls = urls;
+    pageRow.style.display = urls.length > 1 ? "flex" : "none";
+    if (urls.length <= 1) return;
+    const total = Number(value.page_count) || urls.length;
+    const shown = total > urls.length ? ` (first ${urls.length} shown)` : "";
+    pageLabel.textContent = `Page ${pageIndex + 1} of ${total}${shown}`;
+    prevButton.disabled = pageIndex <= 0;
+    nextButton.disabled = pageIndex >= urls.length - 1;
     prevButton.style.opacity = prevButton.disabled ? "0.4" : "1";
     nextButton.style.opacity = nextButton.disabled ? "0.4" : "1";
   }
@@ -132,7 +121,7 @@ export default function ImageProcessorPreview(container, props) {
 
   wrapper.appendChild(canvasWrap);
   wrapper.appendChild(scrubRow);
-  wrapper.appendChild(stepRow);
+  wrapper.appendChild(pageRow);
   wrapper.appendChild(statusBar);
   container.appendChild(wrapper);
 
@@ -387,16 +376,7 @@ export default function ImageProcessorPreview(container, props) {
 
   function handleUpdate(newProps) {
     value = newProps.value || {};
-    onChange = newProps.onChange;
-    disabled = Boolean(newProps.disabled);
-    const shownIndex = Number(value.image_index) || 0;
-    // The answer, or a different image altogether (a new PDF), ends the step.
-    if (!stepPending || shownIndex === stepIndex || (value.image_url || "") !== sourceUrl) {
-      clearTimeout(stepTimer);
-      stepIndex = shownIndex;
-      stepPending = false;
-    }
-    updateStepRow();
+    updatePages();
     loadFont(value.font_url);
     if (Array.isArray(value.images)) {
       // Each entry pairs an image with its mode; keep them together so a mode never lands on the wrong image.
@@ -408,7 +388,7 @@ export default function ImageProcessorPreview(container, props) {
     }
     // The node says which kind of media it previews, so an empty video node asks for a video, not an image.
     const nextIsVideo = value.media === "video" || Boolean(value.video_url);
-    const newUrl = (nextIsVideo ? value.video_url : value.image_url) || "";
+    const newUrl = (nextIsVideo ? value.video_url : pageUrls[pageIndex] || value.image_url) || "";
     const base = (u) => (u ? u.split("?")[0] : "");
     if (nextIsVideo !== isVideo || base(newUrl) !== base(sourceUrl)) {
       isVideo = nextIsVideo;
@@ -440,7 +420,6 @@ export default function ImageProcessorPreview(container, props) {
 
   function cleanup() {
     ro.disconnect();
-    clearTimeout(stepTimer);
     // Release the media player; browsers cap how many a page can hold.
     video.pause();
     video.removeAttribute("src");

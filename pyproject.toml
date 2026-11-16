@@ -24,6 +24,7 @@ dependencies = [
   "zstandard>=0.22.0",
     "tokenizers>=0.22.0,<0.23",
   "lxml>=5.0.0",
+  "pypdfium2>=4.30.0",
 ]
 
 [build-system]

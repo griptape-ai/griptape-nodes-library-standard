@@ -21,7 +21,7 @@ from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from griptape_nodes_library.files import extract_pdf_images
-from griptape_nodes_library.files.extract_pdf_images import ExtractPdfImages, OutputFormat, PreviewSource, Rotation
+from griptape_nodes_library.files.extract_pdf_images import ExtractPdfImages, OutputFormat, Rotation
 from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 
 RED = (255, 0, 0)
@@ -133,7 +133,7 @@ def test_perform_extraction_saves_numbered_images_in_the_output_folder(
         "build_directory",
         lambda **_kwargs: SimpleNamespace(create=lambda: SimpleNamespace(resolve=lambda: out_dir)),
     )
-    monkeypatch.setattr(node, "_build_preview_url", lambda *_args: "")
+    monkeypatch.setattr(node, "_build_preview_pages", lambda *_args: ([], 0))
     node.set_parameter_value("path", str(pdf_path))
 
     node._perform_extraction()
@@ -155,7 +155,7 @@ def test_prefix_padding_and_format_name_the_files(
         "build_directory",
         lambda **_kwargs: SimpleNamespace(create=lambda: SimpleNamespace(resolve=lambda: tmp_path)),
     )
-    monkeypatch.setattr(node, "_build_preview_url", lambda *_args: "")
+    monkeypatch.setattr(node, "_build_preview_pages", lambda *_args: ([], 0))
     node.set_parameter_value("path", str(pdf_path))
     node.set_parameter_value("file_prefix", "scan")
     node.set_parameter_value("number_padding", "2")
@@ -219,12 +219,14 @@ def test_encrypted_pdf_needs_the_password(node: ExtractPdfImages) -> None:
     assert len(node._extract_images(buffer.getvalue(), "secret", Rotation.NONE)) == 1
 
 
-def test_setting_path_publishes_a_preview_of_the_first_image(
+def test_setting_path_publishes_a_preview_of_every_page(
     node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pdf_path = tmp_path / "scan.pdf"
-    pdf_path.write_bytes(_pdf([_scan((120, 160))]))
-    monkeypatch.setattr(node, "_build_preview_url", lambda *_args: "http://static/scan.pdf.jpg")
+    pdf_path.write_bytes(_pdf([_scan((120, 160)), _scan((80, 100))]))
+    monkeypatch.setattr(
+        node, "_build_preview_pages", lambda *_args: ([f"http://static/scan.pdf_{n}.jpg" for n in (1, 2)], 2)
+    )
 
     node.set_parameter_value("path", str(pdf_path))
     node.after_value_set(node.path, str(pdf_path))
@@ -232,24 +234,22 @@ def test_setting_path_publishes_a_preview_of_the_first_image(
     assert node.get_parameter_value("rotation_preview") == {
         "operation": "rotate",
         "media": "image",
-        "image_url": "http://static/scan.pdf.jpg",
-        "image_index": 0,
-        "image_count": 1,
-        "image_page": 1,
+        "image_url": "http://static/scan.pdf_1.jpg",
+        "page_urls": ["http://static/scan.pdf_1.jpg", "http://static/scan.pdf_2.jpg"],
+        "page_count": 2,
     }
 
 
 def test_changing_rotation_does_not_rebuild_the_preview_image(
-    node: ExtractPdfImages, monkeypatch: pytest.MonkeyPatch
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        node, "_read_preview_source", lambda _path: PreviewSource(PdfReader(BytesIO(_pdf([_scan((60, 80))]))))
-    )
-    monkeypatch.setattr(node, "_build_preview_url", lambda *_args: "http://static/first.jpg")
-    node.set_parameter_value("path", "/some/scan.pdf")
-    node.after_value_set(node.path, "/some/scan.pdf")
+    pdf_path = tmp_path / "scan.pdf"
+    pdf_path.write_bytes(_pdf([_scan((60, 80))]))
+    monkeypatch.setattr(node, "_build_preview_pages", lambda *_args: (["http://static/first.jpg"], 1))
+    node.set_parameter_value("path", str(pdf_path))
+    node.after_value_set(node.path, str(pdf_path))
     before = node.get_parameter_value("rotation_preview")
-    monkeypatch.setattr(node, "_build_preview_url", lambda *_args: pytest.fail("rebuilt the preview image"))
+    monkeypatch.setattr(node, "_build_preview_pages", lambda *_args: pytest.fail("rebuilt the preview image"))
 
     node.set_parameter_value("rotation", Rotation.CLOCKWISE_90)
     node.after_value_set(node.get_parameter_by_name("rotation"), Rotation.CLOCKWISE_90)  # type: ignore[arg-type]
@@ -264,7 +264,7 @@ def test_preview_is_the_shared_rotate_preview_driven_by_the_rotation_setting(nod
     assert preview.ui_options["synced_parameters"] == ["rotation"]
     assert node.get_parameter_by_name("rotation") is not None
     assert node.get_parameter_value("rotation_preview")["operation"] == "rotate"
-    # The preview shows the PDF's images, so the path stays editable.
+    # The preview shows the PDF's pages, so the path stays editable.
     assert not node.path.hide_property
 
 
@@ -273,7 +273,7 @@ def test_loading_a_saved_path_builds_the_preview(
 ) -> None:
     pdf_path = tmp_path / "scan.pdf"
     pdf_path.write_bytes(_pdf([_scan((120, 160))]))
-    monkeypatch.setattr(node, "_build_preview_url", lambda *_args: "http://static/scan.pdf.jpg")
+    monkeypatch.setattr(node, "_build_preview_pages", lambda *_args: (["http://static/scan.pdf.jpg"], 1))
 
     node.set_parameter_value("path", str(pdf_path), initial_setup=True)
 
@@ -288,29 +288,99 @@ def test_the_preview_knows_every_rotation_the_node_offers() -> None:
         assert f'"{rotation.value}"' in table.group(1) or f"{rotation.value}:" in table.group(1), rotation
 
 
-def test_build_preview_url_saves_a_small_copy_of_the_image(
-    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    pdf_path = tmp_path / "scan.pdf"
-    pdf_path.write_bytes(_pdf([_scan((60, 80)), _scan((2000, 3000))]))
+def _stub_static_urls(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Serving the file is the engine's job. Stub it so a test does not start static file machinery."""
     requested: list[Path] = []
 
     class FakeStaticUrl:
-        url = "http://static/preview.jpg"
+        def __init__(self, path: Path) -> None:
+            self.url = f"http://static/{path.name}"
 
     def fake_handle_request(request: Any) -> FakeStaticUrl:
         requested.append(Path(request.file_path))
-        return FakeStaticUrl()
+        return FakeStaticUrl(requested[-1])
 
-    # Serving the file is the engine's job. Stub it so this test does not start static file machinery.
     monkeypatch.setattr(extract_pdf_images, "CreateStaticFileDownloadUrlFromPathResultSuccess", FakeStaticUrl)
     monkeypatch.setattr(extract_pdf_images, "GriptapeNodes", SimpleNamespace(handle_request=fake_handle_request))
+    return requested
 
-    url = node._build_preview_url(node._read_preview_source(str(pdf_path)), 1, 0)
 
-    assert url == "http://static/preview.jpg"
-    preview = _decode(requested[0].read_bytes())
-    assert preview.size == (667, 1000)
+def test_build_preview_pages_renders_every_page_small(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf_path = tmp_path / "scan.pdf"
+    pdf_path.write_bytes(_pdf([_scan((2000, 3000)), _scan((3000, 2000)), _scan((400, 300))]))
+    requested = _stub_static_urls(monkeypatch)
+
+    urls, page_count = node._build_preview_pages(pdf_path.read_bytes(), "key")
+
+    assert page_count == len(urls) == len(set(urls)) == 3  # noqa: PLR2004
+    assert urls == [f"http://static/{path.name}" for path in requested]
+    sizes = [_decode(path.read_bytes()).size for path in requested]
+    assert [max(size) for size in sizes] == [800, 800, 800]
+    assert sizes[0][0] < sizes[0][1]
+    assert sizes[1][0] > sizes[1][1]
+
+
+def test_preview_pages_include_the_rotation_the_pdf_applies(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer = PdfWriter(clone_from=BytesIO(_pdf([_scan((200, 100))])))
+    writer.pages[0].rotate(90)
+    pdf_path = tmp_path / "turned.pdf"
+    with pdf_path.open("wb") as f:
+        writer.write(f)
+    requested = _stub_static_urls(monkeypatch)
+
+    node._build_preview_pages(pdf_path.read_bytes(), "key")
+
+    width, height = _decode(requested[0].read_bytes()).size
+    assert width < height
+
+
+def test_protected_pdf_has_no_preview_pages_without_the_password(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer = PdfWriter(clone_from=BytesIO(_pdf([_scan((60, 80))])))
+    writer.encrypt("secret")
+    pdf_path = tmp_path / "protected.pdf"
+    with pdf_path.open("wb") as f:
+        writer.write(f)
+    _stub_static_urls(monkeypatch)
+
+    assert node._build_preview_pages(pdf_path.read_bytes(), "key") == ([], 0)
+    node.set_parameter_value("password", "secret")
+    assert len(node._build_preview_pages(pdf_path.read_bytes(), "key")[0]) == 1
+
+
+def test_a_long_pdf_previews_only_its_first_pages(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(extract_pdf_images, "PREVIEW_MAX_PAGES", 2)
+    pdf_path = tmp_path / "long.pdf"
+    pdf_path.write_bytes(_pdf([_scan((40, 40)) for _ in range(3)]))
+    _stub_static_urls(monkeypatch)
+
+    urls, page_count = node._build_preview_pages(pdf_path.read_bytes(), "key")
+
+    assert (len(urls), page_count) == (2, 3)
+
+
+def test_saving_the_pdf_again_rebuilds_the_preview(
+    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pdf_path = tmp_path / "scan.pdf"
+    pdf_path.write_bytes(_pdf([_scan((60, 80))]))
+    monkeypatch.setattr(node, "_build_preview_pages", lambda _bytes, key: ([f"http://static/{key}.jpg"], 1))
+    node.set_parameter_value("path", str(pdf_path))
+    node.after_value_set(node.path, str(pdf_path))
+    before = node.get_parameter_value("rotation_preview")["image_url"]
+
+    pdf_path.write_bytes(_pdf([_scan((60, 80)), _scan((60, 80))]))
+    node.set_parameter_value("path", str(pdf_path))
+    node.after_value_set(node.path, str(pdf_path))
+
+    assert node.get_parameter_value("rotation_preview")["image_url"] != before
 
 
 @pytest.mark.parametrize("output_format", [OutputFormat.ORIGINAL, OutputFormat.PNG])
@@ -339,10 +409,10 @@ def test_entering_the_password_after_the_path_builds_the_preview(
     pdf_path.write_bytes(_pdf([_scan((60, 80))]))
     password = {"value": ""}
 
-    def build(*_args: Any) -> str:
-        return "http://static/preview.jpg" if password["value"] == "secret" else ""
+    def build(*_args: Any) -> tuple[list[str], int]:
+        return (["http://static/preview.jpg"], 1) if password["value"] == "secret" else ([], 0)
 
-    monkeypatch.setattr(node, "_build_preview_url", build)
+    monkeypatch.setattr(node, "_build_preview_pages", build)
     node.set_parameter_value("path", str(pdf_path))
     node.after_value_set(node.path, str(pdf_path))
     assert node.get_parameter_value("rotation_preview")["image_url"] == ""
@@ -352,105 +422,6 @@ def test_entering_the_password_after_the_path_builds_the_preview(
     node.after_value_set(node.get_parameter_by_name("password"), "secret")  # type: ignore[arg-type]
 
     assert node.get_parameter_value("rotation_preview")["image_url"] == "http://static/preview.jpg"
-
-
-def _step_preview_to(node: ExtractPdfImages, index: int) -> None:
-    """Write an image index into the preview's value, as the widget's arrows do."""
-    value = {**node.get_parameter_value("rotation_preview"), "image_index": index}
-    node.set_parameter_value("rotation_preview", value)
-
-
-@pytest.fixture
-def three_page_pdf(node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
-    """Point the node at a three-page PDF, one image a page, recording each preview image it builds."""
-    pdf_path = tmp_path / "scans.pdf"
-    pdf_path.write_bytes(_pdf([_scan((60, 80)), _scan((70, 90)), _scan((80, 100))]))
-    built: list[tuple[int, int]] = []
-
-    def build(_source: PreviewSource, page_index: int, image_on_page: int) -> str:
-        built.append((page_index, image_on_page))
-        return f"http://static/page{page_index + 1}.jpg"
-
-    monkeypatch.setattr(node, "_build_preview_url", build)
-    node.set_parameter_value("path", str(pdf_path))
-    return built
-
-
-def test_preview_says_how_many_images_the_pdf_holds(
-    node: ExtractPdfImages, three_page_pdf: list[tuple[int, int]]
-) -> None:
-    preview = node.get_parameter_value("rotation_preview")
-
-    assert preview["image_count"] == 3  # noqa: PLR2004
-    assert preview["image_index"] == 0
-    assert preview["image_url"] == "http://static/page1.jpg"
-    assert three_page_pdf == [(0, 0)]
-
-
-def test_stepping_the_preview_shows_that_image(node: ExtractPdfImages, three_page_pdf: list[tuple[int, int]]) -> None:
-    _step_preview_to(node, 2)
-
-    preview = node.get_parameter_value("rotation_preview")
-    assert preview["image_index"] == 2  # noqa: PLR2004
-    assert preview["image_page"] == 3  # noqa: PLR2004
-    assert preview["image_url"] == "http://static/page3.jpg"
-    assert three_page_pdf == [(0, 0), (2, 0)]
-
-
-def test_stepping_back_reuses_the_preview_image(node: ExtractPdfImages, three_page_pdf: list[tuple[int, int]]) -> None:
-    _step_preview_to(node, 1)
-    _step_preview_to(node, 0)
-
-    assert node.get_parameter_value("rotation_preview")["image_url"] == "http://static/page1.jpg"
-    assert three_page_pdf == [(0, 0), (1, 0)]
-
-
-def test_stepping_past_the_last_image_stays_on_it(
-    node: ExtractPdfImages,
-    three_page_pdf: list[tuple[int, int]],  # noqa: ARG001
-) -> None:
-    _step_preview_to(node, 7)
-
-    assert node.get_parameter_value("rotation_preview")["image_index"] == 2  # noqa: PLR2004
-
-
-def test_a_different_pdf_starts_at_its_first_image(
-    node: ExtractPdfImages,
-    three_page_pdf: list[tuple[int, int]],  # noqa: ARG001
-    tmp_path: Path,
-) -> None:
-    _step_preview_to(node, 2)
-    other = tmp_path / "other.pdf"
-    other.write_bytes(_pdf([_scan((60, 80)), _scan((70, 90)), _scan((80, 100))]))
-
-    node.set_parameter_value("path", str(other))
-
-    assert node.get_parameter_value("rotation_preview")["image_index"] == 0
-
-
-@pytest.mark.parametrize("preview_first", [True, False])
-def test_loading_a_saved_preview_keeps_its_image(
-    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, preview_first: bool
-) -> None:
-    pdf_path = tmp_path / "scans.pdf"
-    pdf_path.write_bytes(_pdf([_scan((60, 80)), _scan((70, 90))]))
-    monkeypatch.setattr(node, "_build_preview_url", lambda _source, page, _image: f"http://static/page{page + 1}.jpg")
-    saved = {"operation": "rotate", "media": "image", "image_url": "stale", "image_index": 1}
-    loads = [("rotation_preview", saved), ("path", str(pdf_path))]
-
-    for name, value in loads if preview_first else reversed(loads):
-        node.set_parameter_value(name, value, initial_setup=True)
-
-    preview = node.get_parameter_value("rotation_preview")
-    assert preview["image_index"] == 1
-    assert preview["image_url"] == "http://static/page2.jpg"
-
-
-def test_preview_source_lists_every_image_in_page_order(node: ExtractPdfImages, tmp_path: Path) -> None:
-    pdf_path = tmp_path / "scans.pdf"
-    pdf_path.write_bytes(_pdf([_scan((60, 80)), _scan((70, 90))]))
-
-    assert node._read_preview_source(str(pdf_path)).locations == [(0, 0), (1, 0)]
 
 
 def test_failure_raises_when_failed_is_unwired(node: ExtractPdfImages) -> None:
