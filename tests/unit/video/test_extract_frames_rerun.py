@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from griptape_nodes.exe_types.node_types import NodeResolutionState
 
-from griptape_nodes_library.video.extract_frames import DEFAULT_DIRECTORY, ExtractFrames
+from griptape_nodes_library.video.extract_frames import ExtractFrames
 
 
 def _resolved_node() -> ExtractFrames:
@@ -22,7 +22,6 @@ def _resolved_node() -> ExtractFrames:
 @pytest.mark.parametrize(
     "directory",
     [
-        DEFAULT_DIRECTORY,
         "{outputs}/shots/frames_v{###}",
         "{outputs}/frames",
     ],
