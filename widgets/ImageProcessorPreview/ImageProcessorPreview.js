@@ -55,8 +55,8 @@ export default function ImageProcessorPreview(container, props) {
   scrubRow.appendChild(scrub);
   scrubRow.appendChild(scrubTime);
 
-  // Arrows for a node that sends several pages (Extract PDF Images). Stepping happens here, in the
-  // browser, so looking through the pages never edits the node.
+  // Arrows for a node with several pages (Extract PDF Images). A step asks the node for the page by
+  // changing the preview's `page`, and the node sends back that page's render.
   const pageRow = document.createElement("div");
   pageRow.style.cssText = "display:none;align-items:center;justify-content:center;gap:8px;padding:0 2px;";
   const pageLabel = document.createElement("span");
@@ -66,8 +66,7 @@ export default function ImageProcessorPreview(container, props) {
   pageRow.appendChild(prevButton);
   pageRow.appendChild(pageLabel);
   pageRow.appendChild(nextButton);
-  let pageUrls = [];
-  let pageIndex = 0;
+  let onChange = props.onChange;
 
   function pageButton(text, title, delta) {
     const button = document.createElement("button");
@@ -81,27 +80,23 @@ export default function ImageProcessorPreview(container, props) {
     for (const type of ["pointerdown", "mousedown"]) button.addEventListener(type, (e) => e.stopPropagation());
     button.addEventListener("click", (e) => {
       e.stopPropagation();
-      const next = Math.max(0, Math.min(pageUrls.length - 1, pageIndex + delta));
-      if (next === pageIndex) return;
-      pageIndex = next;
-      handleUpdate({ value });
+      const total = Number(value.page_count) || 0;
+      const page = Number(value.page) || 1;
+      const next = Math.max(1, Math.min(total, page + delta));
+      if (next === page || !onChange) return;
+      onChange({ ...value, page: next });
     });
     return button;
   }
 
-  // Keeps the page shown while the node resends the same pages (a rotation change); new pages start at 1.
   function updatePages() {
-    const urls = Array.isArray(value.page_urls) ? value.page_urls : [];
-    const base = (u) => (u ? u.split("?")[0] : "");
-    if (urls.map(base).join("|") !== pageUrls.map(base).join("|")) pageIndex = 0;
-    pageUrls = urls;
-    pageRow.style.display = urls.length > 1 ? "flex" : "none";
-    if (urls.length <= 1) return;
-    const total = Number(value.page_count) || urls.length;
-    const shown = total > urls.length ? ` (first ${urls.length} shown)` : "";
-    pageLabel.textContent = `Page ${pageIndex + 1} of ${total}${shown}`;
-    prevButton.disabled = pageIndex <= 0;
-    nextButton.disabled = pageIndex >= urls.length - 1;
+    const total = Number(value.page_count) || 0;
+    pageRow.style.display = total > 1 ? "flex" : "none";
+    if (total <= 1) return;
+    const page = Number(value.page) || 1;
+    pageLabel.textContent = `Page ${page} of ${total}`;
+    prevButton.disabled = page <= 1;
+    nextButton.disabled = page >= total;
     prevButton.style.opacity = prevButton.disabled ? "0.4" : "1";
     nextButton.style.opacity = nextButton.disabled ? "0.4" : "1";
   }
@@ -376,6 +371,7 @@ export default function ImageProcessorPreview(container, props) {
 
   function handleUpdate(newProps) {
     value = newProps.value || {};
+    if (newProps.onChange) onChange = newProps.onChange;
     updatePages();
     loadFont(value.font_url);
     if (Array.isArray(value.images)) {
@@ -388,7 +384,7 @@ export default function ImageProcessorPreview(container, props) {
     }
     // The node says which kind of media it previews, so an empty video node asks for a video, not an image.
     const nextIsVideo = value.media === "video" || Boolean(value.video_url);
-    const newUrl = (nextIsVideo ? value.video_url : pageUrls[pageIndex] || value.image_url) || "";
+    const newUrl = (nextIsVideo ? value.video_url : value.image_url) || "";
     const base = (u) => (u ? u.split("?")[0] : "");
     if (nextIsVideo !== isVideo || base(newUrl) !== base(sourceUrl)) {
       isVideo = nextIsVideo;
