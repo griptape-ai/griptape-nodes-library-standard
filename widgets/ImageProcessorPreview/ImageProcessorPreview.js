@@ -6,9 +6,11 @@
 import { OPERATIONS } from "./_operations.js";
 import { PREVIEW_FONT } from "./_text.js";
 
-const WIDGET_VERSION = "1.2.0";
+const WIDGET_VERSION = "1.3.0";
 const CHECKER = 10;
 const SCRUB_STEPS = 1000;
+// How long the arrows wait for the node before letting the user try again.
+const STEP_TIMEOUT_MS = 5000;
 
 export default function ImageProcessorPreview(container, props) {
   if (container._imagePreview?.wrapper?.isConnected) {
@@ -18,6 +20,8 @@ export default function ImageProcessorPreview(container, props) {
   if (container._imagePreview) delete container._imagePreview;
 
   let value = props.value || {};
+  let onChange = props.onChange;
+  let disabled = Boolean(props.disabled);
   let sourceUrl = "";
   let sourceReady = false;
   // The scaled source's pixels, kept so a colour operation only redoes its own math while dragging.
@@ -55,6 +59,64 @@ export default function ImageProcessorPreview(container, props) {
   scrubRow.appendChild(scrub);
   scrubRow.appendChild(scrubTime);
 
+  // Arrows for a node with several source images (Extract PDF Images). The node says how many there are
+  // and which one it sent; an arrow writes the one wanted into the value and the node sends that image.
+  const stepRow = document.createElement("div");
+  stepRow.style.cssText = "display:none;align-items:center;justify-content:center;gap:8px;padding:0 2px;";
+  const stepLabel = document.createElement("span");
+  stepLabel.style.cssText = "font-size:11px;color:var(--muted-foreground);white-space:nowrap;";
+  const prevButton = stepButton("‹", "Previous image", -1);
+  const nextButton = stepButton("›", "Next image", 1);
+  stepRow.appendChild(prevButton);
+  stepRow.appendChild(stepLabel);
+  stepRow.appendChild(nextButton);
+  // One step at a time: the arrows wait for the node to send the image asked for, so a slow answer
+  // can't land after a later click's.
+  let stepIndex = 0;
+  let stepPending = false;
+  let stepTimer = 0;
+
+  function stepButton(text, title, delta) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = text;
+    button.title = title;
+    button.style.cssText = [
+      "width:24px", "height:20px", "padding:0", "border:none", "border-radius:4px", "cursor:pointer",
+      "background:var(--muted)", "color:var(--foreground)", "font-size:14px", "line-height:20px",
+    ].join(";");
+    for (const type of ["pointerdown", "mousedown"]) button.addEventListener(type, (e) => e.stopPropagation());
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const count = Number(value.image_count) || 0;
+      const next = Math.max(0, Math.min(count - 1, stepIndex + delta));
+      if (disabled || stepPending || next === stepIndex) return;
+      stepIndex = next;
+      stepPending = true;
+      clearTimeout(stepTimer);
+      stepTimer = setTimeout(() => {
+        stepIndex = Number(value.image_index) || 0;
+        stepPending = false;
+        updateStepRow();
+      }, STEP_TIMEOUT_MS);
+      updateStepRow();
+      onChange?.({ ...value, image_index: next });
+    });
+    return button;
+  }
+
+  function updateStepRow() {
+    const count = Number(value.image_count) || 0;
+    stepRow.style.display = count > 1 ? "flex" : "none";
+    if (count <= 1) return;
+    const page = stepPending ? "" : `Page ${value.image_page} · `;
+    stepLabel.textContent = `${page}image ${stepIndex + 1} of ${count}`;
+    prevButton.disabled = disabled || stepPending || stepIndex <= 0;
+    nextButton.disabled = disabled || stepPending || stepIndex >= count - 1;
+    prevButton.style.opacity = prevButton.disabled ? "0.4" : "1";
+    nextButton.style.opacity = nextButton.disabled ? "0.4" : "1";
+  }
+
   const statusBar = document.createElement("div");
   statusBar.style.cssText = [
     "font-size:11px", "color:var(--muted-foreground)", "padding:4px 8px",
@@ -70,6 +132,7 @@ export default function ImageProcessorPreview(container, props) {
 
   wrapper.appendChild(canvasWrap);
   wrapper.appendChild(scrubRow);
+  wrapper.appendChild(stepRow);
   wrapper.appendChild(statusBar);
   container.appendChild(wrapper);
 
@@ -324,6 +387,16 @@ export default function ImageProcessorPreview(container, props) {
 
   function handleUpdate(newProps) {
     value = newProps.value || {};
+    onChange = newProps.onChange;
+    disabled = Boolean(newProps.disabled);
+    const shownIndex = Number(value.image_index) || 0;
+    // The answer, or a different image altogether (a new PDF), ends the step.
+    if (!stepPending || shownIndex === stepIndex || (value.image_url || "") !== sourceUrl) {
+      clearTimeout(stepTimer);
+      stepIndex = shownIndex;
+      stepPending = false;
+    }
+    updateStepRow();
     loadFont(value.font_url);
     if (Array.isArray(value.images)) {
       // Each entry pairs an image with its mode; keep them together so a mode never lands on the wrong image.
@@ -367,6 +440,7 @@ export default function ImageProcessorPreview(container, props) {
 
   function cleanup() {
     ro.disconnect();
+    clearTimeout(stepTimer);
     // Release the media player; browsers cap how many a page can hold.
     video.pause();
     video.removeAttribute("src");
