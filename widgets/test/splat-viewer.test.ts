@@ -6,7 +6,7 @@ import type { SplatViewerProps, SplatViewerState } from "../src/SplatViewer/Spla
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
 import { FakeResizeObserver } from "./support/dom";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { type MountedWidget, flush, mountWidget, settle, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<SplatViewerProps>;
 type Props = Partial<SplatViewerProps>;
@@ -129,8 +129,8 @@ function setup() {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -169,9 +169,10 @@ describe.each(implementations)("SplatViewer (%s)", (_label, load) => {
       expect(options().map(([value]) => value)).toEqual(["100k", "500k", "full_res"]);
     });
 
-    it("is 640 px tall unless the node gives a height", () => {
-      mount({ value: undefined });
+    it("is 640 px tall unless the node gives a height", async () => {
+      const first = mount({ value: undefined });
       expect(container.querySelector<HTMLElement>(".splat-viewer-widget")!.style.height).toBe("640px");
+      await first.cleanup();
       mount({ value: undefined, height: 300 });
       expect(container.querySelectorAll(".splat-viewer-widget")).toHaveLength(1);
       expect(container.querySelector<HTMLElement>(".splat-viewer-widget")!.style.height).toBe("300px");
@@ -210,9 +211,9 @@ describe.each(implementations)("SplatViewer (%s)", (_label, load) => {
     expect(seen).not.toHaveBeenCalled();
   });
 
-  it("cleanup empties the container", () => {
+  it("cleanup empties the container", async () => {
     const handle = mount({ value: undefined });
-    handle.cleanup();
+    await handle.cleanup();
     expect(container.childElementCount).toBe(0);
   });
 });
@@ -236,7 +237,6 @@ describe("SplatViewer (source, stubbed WebGL)", () => {
 
   const renderer = () => fakes.renderers.at(-1)!;
   const mesh = () => fakes.meshes.at(-1)!;
-  const flush = () => new Promise((r) => setTimeout(r, 0));
 
   it("loads the highest-fidelity wired splat and marks the rest unwired", () => {
     // Given a state with 100k and full res wired
@@ -276,7 +276,7 @@ describe("SplatViewer (source, stubbed WebGL)", () => {
     mesh().boundingBox = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
 
     // When it loads
-    mesh().options.onLoad?.();
+    flush(() => mesh().options.onLoad?.());
 
     // Then the overlay is gone, the splat is upright, and the camera sits back by 1.5× its size
     expect(stageText()).toBe("");
@@ -290,7 +290,7 @@ describe("SplatViewer (source, stubbed WebGL)", () => {
   it("shows why a splat failed to load", async () => {
     mount({ value: state({ full_res: { url: URL_FULL } }) });
     mesh().reject(new Error("404"));
-    await flush();
+    await settle();
     expect(stageText()).toBe("Failed to load splat: 404");
   });
 
@@ -331,8 +331,10 @@ describe("SplatViewer (source, stubbed WebGL)", () => {
     const firstRo = FakeResizeObserver.instances.at(-1)!;
 
     // When the user picks 100k
-    select().value = "100k";
-    select().dispatchEvent(new Event("change"));
+    flush(() => {
+      select().value = "100k";
+      select().dispatchEvent(new Event("change", { bubbles: true }));
+    });
 
     // Then the old scene is disposed and the 100k splat loads
     expect(first.loop).toBeNull();
@@ -360,8 +362,10 @@ describe("SplatViewer (source, stubbed WebGL)", () => {
   it("keeps the user's pick across updates while it stays wired, and falls back when it's unwired", () => {
     const both = state({ "100k": { url: URL_100K }, full_res: { url: URL_FULL } });
     const handle = mount({ value: both });
-    select().value = "100k";
-    select().dispatchEvent(new Event("change"));
+    flush(() => {
+      select().value = "100k";
+      select().dispatchEvent(new Event("change", { bubbles: true }));
+    });
 
     handle.update({ value: both });
     expect(select().value).toBe("100k");
@@ -379,12 +383,12 @@ describe("SplatViewer (source, stubbed WebGL)", () => {
     expect(stageText()).toBe("Wire a splat input to render.");
   });
 
-  it("cleanup stops rendering, disconnects the observer, disposes the scene, and empties the container", () => {
+  it("cleanup stops rendering, disconnects the observer, disposes the scene, and empties the container", async () => {
     const handle = mount({ value: state({ full_res: { url: URL_FULL } }) });
     const r = renderer();
     const ro = FakeResizeObserver.instances.at(-1)!;
 
-    handle.cleanup();
+    await handle.cleanup();
 
     expect(r.loop).toBeNull();
     expect(r.dispose).toHaveBeenCalled();

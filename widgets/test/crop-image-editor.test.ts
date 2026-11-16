@@ -6,7 +6,7 @@ import type { CropImageEditorProps, CropValue, LiveCropValue } from "../src/Crop
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
 import { type DomFakes, installDomFakes, pointer } from "./support/dom";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { type MountedWidget, flush, mountWidget, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<CropImageEditorProps>;
 type Props = Partial<CropImageEditorProps>;
@@ -74,8 +74,8 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -110,6 +110,8 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
     if (!btn) throw new Error(`no button titled ${title}`);
     return btn;
   };
+
+  const click = (el: HTMLElement) => flush(() => el.click());
 
   function drag(from: [number, number], to: [number, number], init: { shiftKey?: boolean } = {}) {
     pointer(canvas(), "pointerdown", ...from);
@@ -163,39 +165,24 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
   });
 
   describe("repeated mount on the same container", () => {
-    it("reuses the editor and applies the new props", () => {
+    it("builds a separate editor for each mount, each cleaned up on its own", async () => {
       // Given a mounted, loaded editor
       const first = mountLoaded();
-      const contextsBefore = fakes.contexts.length;
 
       // When the loader mounts again on the same container with new props
       const onChange = vi.fn<(value: CropValue) => void>();
       const second = mount({ value: baseValue({ left: 10, top: 5 }), onChange });
+      fakes.lastImage().load(200, 100);
+      expect(editors()).toHaveLength(2);
 
-      // Then no second editor is built and the new value is shown
+      // Then cleaning up the first leaves the second working with its own callback
+      await first.handle.cleanup();
       expect(editors()).toHaveLength(1);
-      expect(fakes.contexts.length).toBe(contextsBefore);
       expect(statusText()).toBe("x: 10  y: 5  →  100 × 50 px");
-      expect(second.result).toEqual(first.handle.result);
-
-      // And the new callback receives commits, the old one does not
-      sidebarButton("Reset crop to full image").click();
+      click(sidebarButton("Reset crop to full image"));
       expect(onChange).toHaveBeenCalledTimes(1);
       expect(first.onChange).not.toHaveBeenCalled();
-    });
-
-    it("builds a fresh editor when the previous one was removed from the document", () => {
-      // Given an editor whose DOM the host cleared without calling cleanup
-      mount({ value: baseValue() });
-      const stale = editors()[0];
-      stale?.remove();
-
-      // When the loader mounts again
-      mount({ value: baseValue() });
-
-      // Then a new editor replaces it
-      expect(editors()).toHaveLength(1);
-      expect(editors()[0]).not.toBe(stale);
+      expect(second.result).not.toBe(first.handle.result);
     });
   });
 
@@ -233,7 +220,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
 
     it("keeps the rest of the value when committing a crop", () => {
       const { onChange } = mountLoaded({ value: { ...baseValue(), extra: "kept" } });
-      sidebarButton("Reset crop to full image").click();
+      click(sidebarButton("Reset crop to full image"));
       expect(onChange).toHaveBeenCalledWith({
         ...baseValue(),
         extra: "kept",
@@ -348,7 +335,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       container.addEventListener("pointerdown", outer);
       container.addEventListener("mousedown", outer);
       pointer(canvas(), "pointerdown", ...at(100, 50));
-      canvas().dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      flush(() => canvas().dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
       expect(outer).not.toHaveBeenCalled();
     });
 
@@ -363,19 +350,19 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
   describe("sidebar presets", () => {
     it("applies an aspect ratio around the current crop centre", () => {
       const { onChange } = mountLoaded();
-      sidebarButton("1:1").click();
+      click(sidebarButton("1:1"));
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ left: 75, top: 25, width: 50, height: 50 }));
     });
 
     it("clamps a resolution preset to the image", () => {
       const { onChange } = mountLoaded();
-      sidebarButton("854×480").click();
+      click(sidebarButton("854×480"));
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ left: 0, top: 0, width: 200, height: 100 }));
     });
 
     it("moves the crop to a named position", () => {
       const { onChange } = mountLoaded();
-      sidebarButton("Bottom Right").click();
+      click(sidebarButton("Bottom Right"));
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ left: 100, top: 50, width: 100, height: 50 }));
     });
   });
@@ -388,13 +375,13 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       fakes.lastContext().reset();
 
       zoom.value = "200";
-      zoom.dispatchEvent(new Event("input", { bubbles: true }));
+      flush(() => zoom.dispatchEvent(new Event("input", { bubbles: true })));
       expect(onLiveChange).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 200 }));
       expect(onChange).not.toHaveBeenCalled();
       expect(fakes.lastContext().count("setLineDash")).toBeGreaterThan(0);
       expect(zoom.parentElement?.textContent).toContain("200%");
 
-      zoom.dispatchEvent(new Event("change", { bubbles: true }));
+      flush(() => zoom.dispatchEvent(new Event("change", { bubbles: true })));
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 200, rotate: 0 }));
     });
 
@@ -405,8 +392,8 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       fakes.lastContext().reset();
 
       rotate.value = "-45";
-      rotate.dispatchEvent(new Event("input", { bubbles: true }));
-      rotate.dispatchEvent(new Event("change", { bubbles: true }));
+      flush(() => rotate.dispatchEvent(new Event("input", { bubbles: true })));
+      flush(() => rotate.dispatchEvent(new Event("change", { bubbles: true })));
 
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 100, rotate: -45 }));
       expect(fakes.lastContext().calls).toContainEqual({ method: "rotate", args: [(-45 * Math.PI) / 180] });
@@ -421,7 +408,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       if (!reset) throw new Error("no reset button");
       expect(reset.title).toBe("Reset to 100%");
 
-      reset.click();
+      click(reset);
 
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 100 }));
       expect(sliders()[0]?.value).toBe("100");
@@ -440,9 +427,9 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       const [zoom] = sliders();
       if (!zoom) throw new Error("no zoom slider");
       zoom.value = "200";
-      zoom.dispatchEvent(new Event("input", { bubbles: true }));
-      zoom.dispatchEvent(new Event("change", { bubbles: true }));
-      sidebarButton("1:1").click();
+      flush(() => zoom.dispatchEvent(new Event("input", { bubbles: true })));
+      flush(() => zoom.dispatchEvent(new Event("change", { bubbles: true })));
+      click(sidebarButton("1:1"));
 
       // Then nothing is emitted and the controls show as disabled
       expect(onChange).not.toHaveBeenCalled();
@@ -473,7 +460,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
 
       // When the user drags inside the crop and clicks a preset
       drag(at(100, 50), at(110, 60));
-      sidebarButton("1:1").click();
+      click(sidebarButton("1:1"));
 
       // Then nothing commits, and the status names the connected parameter
       expect(onChange).not.toHaveBeenCalled();
@@ -497,7 +484,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
 
       if (!zoom) throw new Error("no zoom slider");
       zoom.value = "300";
-      zoom.dispatchEvent(new Event("change", { bubbles: true }));
+      flush(() => zoom.dispatchEvent(new Event("change", { bubbles: true })));
       expect(onChange).not.toHaveBeenCalled();
     });
 
@@ -511,19 +498,18 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
   });
 
   describe("cleanup", () => {
-    it("removes the editor DOM, stops observing resizes, and forgets the editor", () => {
+    it("removes the editor DOM and stops observing resizes", async () => {
       // Given a mounted editor observing its canvas area
       const handle = mount({ value: baseValue() });
       const ro = fakes.lastResizeObserver();
       expect(ro.observed).toHaveLength(1);
 
       // When the loader cleans it up
-      handle.cleanup();
+      await handle.cleanup();
 
       // Then its DOM and resize observation are gone
       expect(editors()).toHaveLength(0);
       expect(ro.disconnected).toBe(true);
-      expect((container as HTMLElement & { _cropEditor?: unknown })._cropEditor).toBeUndefined();
     });
 
     it("registers no listeners outside its own DOM", () => {
@@ -536,7 +522,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       expect(onContainer).not.toHaveBeenCalled();
     });
 
-    it("re-renders on resize until cleaned up", () => {
+    it("re-renders on resize until cleaned up", async () => {
       const { handle } = mountLoaded();
       const ro = fakes.lastResizeObserver();
       const ctx = fakes.lastContext();
@@ -545,16 +531,16 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       ro.trigger();
       expect(ctx.count("drawImage")).toBe(1);
 
-      handle.cleanup();
+      await handle.cleanup();
       ctx.reset();
       ro.trigger();
       expect(ctx.count("drawImage")).toBe(0);
     });
 
-    it("mounts a fresh editor on the same container after cleanup", () => {
+    it("mounts a fresh editor on the same container after cleanup", async () => {
       // Given an editor that has been cleaned up
       const first = mount({ value: baseValue() });
-      first.cleanup();
+      await first.cleanup();
 
       // When the loader mounts again
       const onChange = vi.fn<(value: CropValue) => void>();
@@ -566,7 +552,7 @@ describe.each(implementations)("CropImageEditor (%s)", (_label, load) => {
       expect(editors()).toHaveLength(1);
       expect(fakes.lastResizeObserver().disconnected).toBe(false);
       expect(statusText()).toBe("x: 0  y: 0  →  100 × 50 px");
-      sidebarButton("Reset crop to full image").click();
+      click(sidebarButton("Reset crop to full image"));
       expect(onChange).toHaveBeenCalledTimes(1);
     });
   });

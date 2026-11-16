@@ -9,7 +9,7 @@ import type {
 } from "../src/MaskAdjustmentPreview/MaskAdjustmentPreview";
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { flush, type MountedWidget, mountWidget, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<MaskAdjustmentPreviewProps>;
 type Props = Partial<MaskAdjustmentPreviewProps>;
@@ -82,7 +82,7 @@ function loadMedia(video: HTMLVideoElement, event: "loadedmetadata" | "loadeddat
   Object.defineProperty(video, "videoWidth", { configurable: true, value: SIZE });
   Object.defineProperty(video, "videoHeight", { configurable: true, value: SIZE });
   Object.defineProperty(video, "duration", { configurable: true, value: duration });
-  video.dispatchEvent(new Event(event));
+  flush(() => video.dispatchEvent(new Event(event)));
 }
 
 describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
@@ -113,8 +113,8 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     document.getElementById("mask-preview-slider-styles")?.remove();
     vi.unstubAllGlobals();
@@ -135,7 +135,9 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
 
   function flushFrames() {
     const pending = frames.splice(0);
-    for (const cb of pending) cb(0);
+    flush(() => {
+      for (const cb of pending) cb(0);
+    });
   }
 
   // Mounts and loads both videos (or only the mask), then runs the render it schedules.
@@ -189,7 +191,9 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
 
   function slide(el: HTMLInputElement, value: string, ...events: ("input" | "change")[]) {
     el.value = value;
-    for (const type of events) el.dispatchEvent(new Event(type, { bubbles: true }));
+    flush(() => {
+      for (const type of events) el.dispatchEvent(new Event(type, { bubbles: true }));
+    });
   }
 
   describe("mount", () => {
@@ -244,7 +248,7 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
 
       // And given a 3×3 block, a -1 adjustment shrinks it back to its centre
       frame = maskFrame(centreBlock);
-      mask().dispatchEvent(new Event("seeked"));
+      flush(() => mask().dispatchEvent(new Event("seeked")));
       handle.update({ value: baseValue({ adjustment: -1 }) });
       flushFrames();
       expect(count(lastPut(), yellow)).toBe(1);
@@ -300,7 +304,7 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
       const { onChange } = mountLoaded();
       numberInput().focus();
       numberInput().value = "40";
-      numberInput().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      flush(() => numberInput().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
 
       expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ adjustment: 25 }));
       expect(adjustmentSlider().value).toBe("25");
@@ -311,7 +315,7 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
       const { onChange } = mountLoaded({ value: baseValue({ adjustment: 4 }) });
       numberInput().focus();
       numberInput().value = "";
-      numberInput().blur();
+      flush(() => numberInput().blur());
       expect(onChange).not.toHaveBeenCalled();
       expect(numberInput().value).toBe("4");
     });
@@ -341,7 +345,7 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
 
       // And once the mask's seek completes, its new frame is captured and drawn
       const puts = tmpCtx().puts.length;
-      mask().dispatchEvent(new Event("seeked"));
+      flush(() => mask().dispatchEvent(new Event("seeked")));
       flushFrames();
       expect(tmpCtx().puts.length).toBe(puts + 1);
       slide(timeline(), "15", "input");
@@ -408,13 +412,27 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
       expect(onChange).toHaveBeenCalledTimes(2);
     });
 
-    it("reuses the preview on a repeated mount of the same container", () => {
+    it("builds a separate preview for each mount on the same container, each cleaned up on its own", async () => {
+      // Given a mounted, loaded preview
       const first = mountLoaded();
-      const second = mount({ value: baseValue({ adjustment: 3 }) });
+
+      // When the loader mounts again on the same container with new props
+      const onChange = vi.fn<(value: MaskPreviewValue) => void>();
+      const second = mount({ value: baseValue({ adjustment: 3 }), onChange });
+      expect(container.querySelectorAll(".mask-adjustment-preview")).toHaveLength(2);
+      expect(second.result).not.toBe(first.handle.result);
+
+      // Then cleaning up the first leaves the second working with its own callback
+      await first.handle.cleanup();
       expect(container.querySelectorAll(".mask-adjustment-preview")).toHaveLength(1);
       expect(videos()).toHaveLength(2);
       expect(adjustmentSlider().value).toBe("3");
-      expect(second.result).toEqual(first.handle.result);
+      slide(adjustmentSlider(), "4", "change");
+      expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ adjustment: 4 }));
+      expect(first.onChange).not.toHaveBeenCalled();
+
+      await second.cleanup();
+      expect(container.children).toHaveLength(0);
     });
 
     it("keeps pointer events on the preview from reaching the node canvas behind it", () => {
@@ -430,27 +448,26 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
 
     it("reports a video that fails to load", () => {
       mount({ value: baseValue() });
-      mask().dispatchEvent(new Event("error"));
+      flush(() => mask().dispatchEvent(new Event("error")));
       expect(infoText()).toBe("Mask video error: unknown");
     });
   });
 
   describe("cleanup", () => {
-    it("releases both videos, removes the preview DOM, and forgets the preview", () => {
+    it("releases both videos and removes the preview DOM", async () => {
       // Given a mounted, loaded preview
       mountLoaded();
       const [orig, msk] = [original(), mask()];
       const pauses = [vi.spyOn(orig, "pause"), vi.spyOn(msk, "pause")];
 
       // When the loader cleans it up
-      handles[0]?.cleanup();
+      await handles[0]?.cleanup();
 
       // Then the videos are stopped and emptied and the DOM is gone
       expect(pauses.every((p) => p.mock.calls.length === 1)).toBe(true);
       expect(orig.hasAttribute("src")).toBe(false);
       expect(msk.hasAttribute("src")).toBe(false);
       expect(container.children).toHaveLength(0);
-      expect((container as HTMLElement & { _maskPreview?: unknown })._maskPreview).toBeUndefined();
     });
 
     it("registers no listeners outside its own DOM", () => {
@@ -463,9 +480,9 @@ describe.each(implementations)("MaskAdjustmentPreview (%s)", (_label, load) => {
       expect(onContainer).not.toHaveBeenCalled();
     });
 
-    it("builds a fresh preview on the same container after cleanup", () => {
+    it("builds a fresh preview on the same container after cleanup", async () => {
       const first = mount({ value: baseValue() });
-      first.cleanup();
+      await first.cleanup();
       mount({ value: baseValue({ adjustment: 2 }) });
       expect(container.querySelectorAll(".mask-adjustment-preview")).toHaveLength(1);
       expect(adjustmentSlider().value).toBe("2");

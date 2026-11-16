@@ -1,82 +1,75 @@
 // Frame scrubber and status bar for CropVideoEditor.
 
+import type { ChangeEvent, SyntheticEvent } from 'react';
 import { Icon } from './_icons';
 
-export interface FooterOptions {
-  isDisabled: () => boolean;
+export interface FrameScrubberProps {
+  frame: number;
+  totalFrames: number;
+  disabled: boolean;
   onSeek: (frame: number) => void;
-  version: string;
 }
 
-export interface FooterStatus {
+export interface StatusBarProps {
   videoLoaded: boolean;
   lockedParams: readonly string[];
   ecL: number;
   ecT: number;
   ecW: number;
   ecH: number;
+  version: string;
 }
 
-export interface Footer {
-  controls: HTMLDivElement;
-  statusBar: HTMLDivElement;
-  sync: (totalFrames: number, disabled: boolean) => void;
-  setFrame: (frame: number, totalFrames: number) => void;
-  updateStatus: (status: FooterStatus) => void;
-}
+const stopPropagation = (e: SyntheticEvent) => e.stopPropagation();
 
-const stopPropagation = (e: Event) => e.stopPropagation();
+export function FrameScrubber({ frame, totalFrames, disabled, onSeek }: FrameScrubberProps) {
+  const off = disabled || totalFrames === 0;
 
-export function createFooter({ isDisabled, onSeek, version }: FooterOptions): Footer {
-  const scrubSlider = (
-    <input
-      type="range" min="0" max="0" step="1" value="0"
-      style="flex:1;accent-color:#2563eb;"
-      onMouseDown={stopPropagation}
-      onPointerDown={stopPropagation}
-      onInput={(e) => {
-        if (isDisabled()) return;
-        e.stopPropagation();
-        const frame = parseInt((e.target as HTMLInputElement).value, 10);
-        const total = parseInt(scrubSlider.max, 10);
-        frameDisplay.textContent = `${frame} / ${total}`;
-        onSeek(frame);
-      }}
-    />
-  ) as HTMLInputElement;
+  function onInput(e: ChangeEvent<HTMLInputElement>) {
+    if (disabled) return;
+    e.stopPropagation();
+    onSeek(parseInt(e.target.value, 10));
+  }
 
-  const frameDisplay = (
-    <span style="font-size:11px;color:var(--foreground);min-width:52px;text-align:right;font-family:monospace;">
-      0 / 0
-    </span>
-  ) as HTMLSpanElement;
-
-  // ── Frame scrubber row ──────────────────────────────────────────────────────
-  const scrubRow = (
-    <div style="display:flex;align-items:center;gap:8px;">
-      <span style="color:var(--muted-foreground);display:flex;align-items:center;flex-shrink:0;">
-        <Icon name="film" size={13} />
-      </span>
-      {scrubSlider}
-      {frameDisplay}
-    </div>
-  ) as HTMLDivElement;
-
-  const controls = (
+  return (
     <div
-      class="nodrag nowheel"
+      className="nodrag nowheel"
       style={{
         background: "var(--muted)", borderRadius: "4px", padding: "6px 8px",
         display: "flex", flexDirection: "column", gap: "5px",
       }}
     >
-      {scrubRow}
+      {/* ── Frame scrubber row ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", opacity: off ? "0.4" : "1" }}>
+        <span style={{ color: "var(--muted-foreground)", display: "flex", alignItems: "center", flexShrink: 0 }}>
+          <Icon name="film" size={13} />
+        </span>
+        <input
+          type="range" min="0" max={String(Math.max(0, totalFrames - 1))} step="1" value={String(frame)}
+          disabled={off}
+          style={{ flex: 1, accentColor: "#2563eb" }}
+          onMouseDown={stopPropagation}
+          onPointerDown={stopPropagation}
+          onChange={onInput}
+        />
+        <span style={{ fontSize: "11px", color: "var(--foreground)", minWidth: "52px", textAlign: "right", fontFamily: "monospace" }}>
+          {`${frame} / ${totalFrames}`}
+        </span>
+      </div>
     </div>
-  ) as HTMLDivElement;
+  );
+}
 
-  // ── Status bar ─────────────────────────────────────────────────────────────
-  const statusL = (<span />) as HTMLSpanElement;
-  const statusBar = (
+function statusLine({ videoLoaded, lockedParams, ecL, ecT, ecW, ecH }: StatusBarProps): { text: string; color: string } {
+  if (!videoLoaded) return { text: "No video connected", color: "" };
+  const coordLocked = ["left", "top", "width", "height"].filter(f => lockedParams.includes(f));
+  if (coordLocked.length > 0) return { text: "\u{1F512} Connected: " + coordLocked.join(", "), color: "#f59e0b" };
+  return { text: `x: ${Math.round(ecL)}  y: ${Math.round(ecT)}  →  ${Math.round(ecW)} × ${Math.round(ecH)} px`, color: "" };
+}
+
+export function StatusBar(props: StatusBarProps) {
+  const { text, color } = statusLine(props);
+  return (
     <div
       style={{
         fontSize: "11px", color: "var(--muted-foreground)", padding: "4px 8px",
@@ -84,40 +77,10 @@ export function createFooter({ isDisabled, onSeek, version }: FooterOptions): Fo
         display: "flex", justifyContent: "space-between", alignItems: "center",
       }}
     >
-      {statusL}
-      <span style="font-family:monospace;font-size:10px;color:var(--muted-foreground);opacity:0.6;">
-        {`v${version}`}
+      <span style={{ color: color || undefined }}>{text}</span>
+      <span style={{ fontFamily: "monospace", fontSize: "10px", color: "var(--muted-foreground)", opacity: 0.6 }}>
+        {`v${props.version}`}
       </span>
     </div>
-  ) as HTMLDivElement;
-
-  function sync(totalFrames: number, disabled: boolean): void {
-    scrubSlider.disabled = disabled || totalFrames === 0;
-    scrubSlider.max = String(Math.max(0, totalFrames - 1));
-    scrubRow.style.opacity = (disabled || totalFrames === 0) ? "0.4" : "1";
-  }
-
-  function setFrame(frame: number, totalFrames: number): void {
-    scrubSlider.max = String(Math.max(0, totalFrames - 1));
-    scrubSlider.value = String(frame);
-    frameDisplay.textContent = `${frame} / ${totalFrames}`;
-  }
-
-  function updateStatus({ videoLoaded, lockedParams, ecL, ecT, ecW, ecH }: FooterStatus): void {
-    if (!videoLoaded) {
-      statusL.textContent = "No video connected";
-      statusL.style.color = "";
-      return;
-    }
-    const coordLocked = ["left", "top", "width", "height"].filter(f => lockedParams.includes(f));
-    if (coordLocked.length > 0) {
-      statusL.style.color = "#f59e0b";
-      statusL.textContent = "\u{1F512} Connected: " + coordLocked.join(", ");
-      return;
-    }
-    statusL.style.color = "";
-    statusL.textContent = `x: ${Math.round(ecL)}  y: ${Math.round(ecT)}  →  ${Math.round(ecW)} × ${Math.round(ecH)} px`;
-  }
-
-  return { controls, statusBar, sync, setFrame, updateStatus };
+  );
 }

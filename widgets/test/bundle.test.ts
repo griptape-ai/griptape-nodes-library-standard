@@ -3,7 +3,9 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { ENTRIES, WIDGETS_ROOT } from "../scripts/build.mjs";
+import { WIDGET_HOST_KEY } from "@griptape-ai/nodes-widget-api/host";
+
+import { ENTRIES, WIDGETS_ROOT, buildWidgets, verifyBundle } from "../scripts/build.mjs";
 import { buildIntoScratch, importMount, removeDir, scratchDir } from "./support/bundle";
 
 // Module syntax that would make the browser fetch something besides the bundle itself.
@@ -92,5 +94,45 @@ describe("rebuilding after a helper change", () => {
     expect(await readdir(changed.outDir)).toEqual(["CropImageEditor.js"]);
 
     await Promise.all([original, unchanged, changed].map((b) => removeDir(b.outDir)));
+  });
+});
+
+describe("the editor's React", () => {
+  const hostGlobal = globalThis as Record<string, unknown>;
+  const dirs: string[] = [];
+
+  afterAll(async () => {
+    await Promise.all(dirs.map(removeDir));
+  });
+
+  it("is read from the editor when a bundle loads, which fails without it", async () => {
+    // Given a bundle that hasn't been imported yet, and no editor host
+    const { outDir } = await buildIntoScratch(undefined, ["KlingMultiShotEditor"]);
+    dirs.push(outDir);
+    const host = hostGlobal[WIDGET_HOST_KEY];
+    delete hostGlobal[WIDGET_HOST_KEY];
+
+    // Then importing it fails with a message the editor shows
+    try {
+      await expect(importMount(join(outDir, "KlingMultiShotEditor.js"))).rejects.toThrow(/doesn't provide it/);
+    } finally {
+      hostGlobal[WIDGET_HOST_KEY] = host;
+    }
+  });
+
+  it("fails the build for a React module the editor doesn't provide", async () => {
+    const root = await scratchDir("server");
+    dirs.push(root);
+    await writeFile(join(root, "Widget.tsx"), 'import { renderToString } from "react-dom/server";\nexport default renderToString;\n');
+
+    await expect(buildWidgets({ root, outDir: join(root, "out"), entries: { Widget: "Widget.tsx" } })).rejects.toThrow(
+      /doesn't provide "react-dom\/server"/,
+    );
+  });
+
+  it("fails verification for a bundle that includes React", () => {
+    const meta = { imports: [], exports: ["default"], inputs: { "node_modules/react/cjs/react.production.js": {} } };
+
+    expect(() => verifyBundle("Widget.js", "export{a as default};", meta as never)).toThrow(/bundles React/);
   });
 });

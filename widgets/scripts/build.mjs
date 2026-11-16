@@ -11,6 +11,7 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { editorReact } from "@griptape-ai/nodes-widget-api/esbuild";
 import * as esbuild from "esbuild";
 
 export const WIDGETS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,6 +38,8 @@ const FORBIDDEN_SYNTAX = [
   { pattern: /(?:^|[;}])\s*export\s*(?:\*|\{[^}]*\})\s*from\s*["']/m, what: "a re-export" },
   { pattern: /\bimport\s*\(/, what: "a dynamic import" },
 ];
+// A bundled copy of React would render widgets with a second React, outside the editor's.
+const BUNDLED_REACT = /(?:^|\/)node_modules\/(?:react|react-dom|scheduler)\//;
 const EXPORT_STATEMENT = /(?:^|[;}])\s*export\b/gm;
 const DEFAULT_EXPORT = /(?:^|[;}])\s*export\s*\{\s*[\w$]+ as default\s*\};?\s*$/;
 
@@ -57,7 +60,9 @@ export function buildOptions(root, entries, outdir) {
     platform: "browser",
     target: "es2020",
     jsx: "automatic",
-    jsxImportSource: "@griptape-ai/nodes-widget-api",
+    jsxImportSource: "react",
+    // React comes from the editor at runtime, so it is never bundled.
+    plugins: [editorReact()],
     minify: true,
     sourcemap: false,
     legalComments: "inline",
@@ -79,6 +84,10 @@ export function verifyBundle(name, text, meta) {
   const problems = [];
   if (meta.imports.length > 0) {
     problems.push(`imports ${meta.imports.map((i) => i.path).join(", ")}`);
+  }
+  const react = Object.keys(meta.inputs).filter((input) => BUNDLED_REACT.test(input));
+  if (react.length > 0) {
+    problems.push(`bundles React instead of using the editor's (${react[0]})`);
   }
   if (meta.exports.length !== 1 || meta.exports[0] !== "default") {
     problems.push(`exports [${meta.exports.join(", ")}] instead of a single default export`);

@@ -1,0 +1,1 @@
+- The standard library's widgets are React components that render with the editor's own React, so they need an editor that shares it. An older editor shows each widget's plain parameter controls instead.

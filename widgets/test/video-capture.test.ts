@@ -1,11 +1,13 @@
 import { join } from "node:path";
 
+import { act } from "react";
+
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { VideoCaptureProps, VideoCaptureValue } from "../src/VideoCapture/VideoCapture";
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { type MountedWidget, flush, mountWidget, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<VideoCaptureProps>;
 type Props = Partial<VideoCaptureProps>;
@@ -116,9 +118,16 @@ class FakeMediaRecorder {
   }
 }
 
-// Lets the widget's async chains (getUserMedia → enumerateDevices, fetch → then) settle.
-async function flush(): Promise<void> {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+// Lets the widget's async chains (getUserMedia → enumerateDevices, fetch → then) settle and React
+// render what they changed. Microtasks only, so it also works under fake timers.
+async function drain(): Promise<void> {
+  await act(async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  });
+}
+
+function click(el: HTMLElement): void {
+  flush(() => el.click());
 }
 
 const MIME = "video/webm;codecs=vp9,opus";
@@ -162,8 +171,8 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     if (srcObjectDescriptor) Object.defineProperty(HTMLMediaElement.prototype, "srcObject", srcObjectDescriptor);
     delete (navigator as { mediaDevices?: unknown }).mediaDevices;
@@ -183,25 +192,25 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
   async function mountStreaming(props: Props = {}) {
     const onChange = vi.fn<(value: VideoCaptureValue) => void>();
     const handle = mount({ value: { state: "idle" }, onChange, ...props });
-    await flush();
+    await drain();
     return { handle, onChange };
   }
 
   // Records, stops, and leaves the widget reviewing the recording.
   async function mountReviewing(props: Props = {}) {
     const mounted = await mountStreaming(props);
-    recordBtn().click();
-    recordBtn().click();
+    click(recordBtn());
+    click(recordBtn());
     return mounted;
   }
 
   // Accepts the recording and lets the next animation frame run.
   function acceptRecording() {
-    button("Accept").click();
+    click(button("Accept"));
     for (const cb of frames.splice(0)) cb(0);
   }
 
-  const wrappers = () => container.querySelectorAll(":scope > div");
+  const wrappers = () => container.querySelectorAll(":scope > div > div");
   const video = () => container.querySelector("video")!;
   const videoWrap = () => video().parentElement!;
   const placeholder = () => videoWrap().children[0] as HTMLDivElement;
@@ -230,7 +239,7 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       expect(selects()).toHaveLength(2);
       expect(reviewOverlay().hidden).toBe(true);
       expect(recordBtn().disabled).toBe(true);
-      expect(document.getElementById("vc-styles")).not.toBeNull();
+      expect(container.querySelector("style")?.textContent).toContain("@keyframes vc-spin");
     });
 
     it("opens the default camera and microphone and lists the devices once streaming", async () => {
@@ -269,8 +278,8 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
 
       // When a microphone becomes available and the badge is clicked
       media.handler = (req) => Promise.resolve(media.stream(req));
-      micBadge().click();
-      await flush();
+      click(micBadge());
+      await drain();
 
       // Then the camera reopens with the default microphone
       expect(media.streams[0]!.tracks.every((t) => t.stopped)).toBe(true);
@@ -295,8 +304,8 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
 
       // When the camera becomes available and Retry is clicked
       media.handler = (req) => Promise.resolve(media.stream(req));
-      retryBtn().click();
-      await flush();
+      click(retryBtn());
+      await drain();
 
       // Then the default devices open
       expect(media.requests.at(-1)).toEqual({ video: true, audio: true });
@@ -312,7 +321,7 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       await mountStreaming();
 
       // When record is clicked
-      recordBtn().click();
+      click(recordBtn());
 
       // Then the stream records in 100 ms chunks and the badge counts up
       const rec = FakeMediaRecorder.instances[0]!;
@@ -321,7 +330,7 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       expect(rec.timeslice).toBe(100);
       expect(recBadge().hidden).toBe(false);
       expect(recBadge().textContent).toBe("● REC 00:00");
-      vi.advanceTimersByTime(65_000);
+      flush(() => vi.advanceTimersByTime(65_000));
       expect(recBadge().textContent).toBe("● REC 01:05");
 
       // And the device selectors are locked while recording
@@ -331,10 +340,10 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
     it("stops into review: plays the recording back and releases the camera", async () => {
       // Given a recording under way
       await mountStreaming();
-      recordBtn().click();
+      click(recordBtn());
 
       // When record is clicked again
-      recordBtn().click();
+      click(recordBtn());
 
       // Then the camera is released and the recording plays back unmuted
       expect(media.streams[0]!.tracks.every((t) => t.stopped)).toBe(true);
@@ -352,8 +361,8 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       await mountReviewing();
 
       // When Re-record is clicked
-      button("Re-record").click();
-      await flush();
+      click(button("Re-record"));
+      await drain();
 
       // Then the blob is released and the camera streams again
       expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:http://localhost/recording");
@@ -370,8 +379,8 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
 
       // When another camera is picked
       videoSel!.value = "cam-2";
-      videoSel!.dispatchEvent(new Event("change"));
-      await flush();
+      flush(() => videoSel!.dispatchEvent(new Event("change", { bubbles: true })));
+      await drain();
 
       // Then the old stream stops and the picked camera opens with the current microphone
       expect(media.streams[0]!.tracks.every((t) => t.stopped)).toBe(true);
@@ -388,7 +397,7 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       const { onChange } = await mountReviewing();
 
       // When Accept is clicked
-      button("Accept").click();
+      click(button("Accept"));
 
       // Then nothing is sent until the frame, and the review buttons lock under the overlay
       expect(onChange).not.toHaveBeenCalled();
@@ -409,7 +418,7 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       const ready: VideoCaptureValue = { state: "upload_ready", _uploadUrl: UPLOAD_URL, _emitSeq: 1 };
       handle.update({ value: ready, onChange });
       handle.update({ value: ready, onChange });
-      await flush();
+      await drain();
 
       // Then the blob is PUT once and accepted is committed with the same sequence
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -429,12 +438,23 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
 
       // When the node replies with an upload URL
       handle.update({ value: { state: "upload_ready", _uploadUrl: UPLOAD_URL, _emitSeq: 1 }, onChange });
-      await flush();
+      await drain();
 
       // Then the overlay clears and only the request was committed
       expect(encodingOverlay().hidden).toBe(true);
       expect(button("Accept").disabled).toBe(false);
       expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it("doesn't upload when the node offers an upload URL with nothing recorded", async () => {
+      // Given a widget mounted while the node's value still asks for an upload
+      const { onChange } = await mountStreaming({
+        value: { state: "upload_ready", _uploadUrl: UPLOAD_URL, _emitSeq: 1 },
+      });
+
+      // Then nothing is sent or committed
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(onChange).not.toHaveBeenCalled();
     });
 
     it("processed hides the overlay", async () => {
@@ -457,7 +477,7 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       // Then the overlay shows it until the timeout
       expect(encodingOverlay().textContent).toBe("Upload not found. Please re-record.");
       expect(encodingOverlay().hidden).toBe(false);
-      vi.advanceTimersByTime(4000);
+      flush(() => vi.advanceTimersByTime(4000));
       expect(encodingOverlay().hidden).toBe(true);
     });
 
@@ -477,21 +497,21 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
   });
 
   describe("repeated mount on the same container", () => {
-    it("reuses the widget and applies the new props", async () => {
-      // Given a mounted widget
+    it("builds a second, independent widget", async () => {
+      // Given a widget reviewing a recording
       const first = await mountReviewing();
 
       // When the loader mounts again with a new callback
       const onChange = vi.fn<(value: VideoCaptureValue) => void>();
-      const second = mount({ value: { state: "idle" }, onChange });
+      mount({ value: { state: "idle" }, onChange });
+      await drain();
 
-      // Then no second widget or camera request is made, and the new callback receives commits
-      expect(wrappers()).toHaveLength(1);
-      expect(media.requests).toHaveLength(1);
-      expect(second.result).toEqual(first.handle.result);
+      // Then the second widget opens its own camera, and the first one's commits stay its own
+      expect(wrappers()).toHaveLength(2);
+      expect(media.requests).toHaveLength(2);
       acceptRecording();
-      expect(onChange).toHaveBeenCalledTimes(1);
-      expect(first.onChange).not.toHaveBeenCalled();
+      expect(first.onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).not.toHaveBeenCalled();
     });
   });
 
@@ -499,12 +519,12 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
     it("removes the widget, stops the camera and the recorder, and stops listening for devices", async () => {
       // Given a recording under way
       const { handle } = await mountStreaming();
-      recordBtn().click();
+      click(recordBtn());
       const rec = FakeMediaRecorder.instances[0]!;
       const removeListener = vi.spyOn(media, "removeEventListener");
 
       // When the widget is cleaned up
-      handle.cleanup();
+      await handle.cleanup();
 
       // Then the DOM is gone, the recorder stops without entering review, and the tracks stop
       expect(wrappers()).toHaveLength(0);
@@ -519,6 +539,25 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       expect(media.enumerateDevices).not.toHaveBeenCalled();
     });
 
+    it("ignores a recorder stop that lands after cleanup", async () => {
+      // Given a recording stopped by the user whose stop event hasn't fired yet, as in a browser
+      const { handle } = await mountStreaming();
+      click(recordBtn());
+      const rec = FakeMediaRecorder.instances[0]!;
+      rec.stop = () => { rec.state = "inactive"; };
+      click(recordBtn());
+      const lateStop = rec.onstop!;
+
+      // When the widget is cleaned up and the stop event then arrives
+      await handle.cleanup();
+
+      // Then the recorder's handlers are detached, and the late stop makes no recording
+      expect(rec.onstop).toBeNull();
+      expect(rec.ondataavailable).toBeNull();
+      expect(() => lateStop()).not.toThrow();
+      expect(URL.createObjectURL).not.toHaveBeenCalled();
+    });
+
     it("stops a camera that opens after cleanup instead of attaching it", async () => {
       // Given a camera request still in flight
       let resolve!: (s: FakeStream) => void;
@@ -526,10 +565,10 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
       const handle = mount();
 
       // When the widget is cleaned up before the camera opens
-      handle.cleanup();
+      await handle.cleanup();
       const late = new FakeStream([new FakeTrack("video", "cam-1")]);
       resolve(late);
-      await flush();
+      await drain();
 
       // Then the late stream is stopped
       expect(late.tracks[0]!.stopped).toBe(true);
@@ -538,7 +577,7 @@ describe.each(implementations)("VideoCapture (%s)", (_label, load) => {
     it("mounts a fresh widget on the same container after cleanup", async () => {
       const first = await mountStreaming();
       const stale = wrappers()[0];
-      first.handle.cleanup();
+      await first.handle.cleanup();
       mount();
       expect(wrappers()).toHaveLength(1);
       expect(wrappers()[0]).not.toBe(stale);

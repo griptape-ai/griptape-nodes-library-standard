@@ -4,30 +4,45 @@
 
 import { HANDLE_R, WIDGET_VERSION, OVERLAY, CROP_BORDER, GUIDE,
          HANDLE_FILL, HANDLE_STROKE, HANDLE_STROKE_HOVER, HANDLE_LOCKED } from './_styles';
-import { createSidebar } from './_sidebar';
-import { createFooter }  from './_footer';
-import type { CropVideoValue, LiveCropVideoValue } from './_types';
-import type { WidgetHandle, WidgetProps } from '@griptape-ai/nodes-widget-api';
+import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { reactWidget } from '@griptape-ai/nodes-widget-api/react';
+import { Sidebar } from './_sidebar';
+import { FrameScrubber, StatusBar } from './_footer';
+import type { CropRect, CropVideoValue, LiveCropVideoValue } from './_types';
+import type { WidgetProps } from '@griptape-ai/nodes-widget-api';
 
 export type { CommittedCropVideoValue, CropRect, CropVideoValue, CustomCrop, LiveCropVideoValue } from './_types';
 
 export type CropVideoEditorProps = WidgetProps<CropVideoValue, LiveCropVideoValue>;
 
 type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
-type Mode = "idle" | "moving" | "resizing" | "drawing";
+type DragMode = "moving" | "resizing" | "drawing";
 
 interface Handle { id: HandleId; cx: number; cy: number; affects: string[] }
 interface Point { x: number; y: number }
 interface Box { l: number; t: number; w: number; h: number }
 
-// A mounted editor, kept on its container so a repeated mount updates it instead of building
-// a second one.
-interface CropVideoInstance {
-  handleUpdate: (props: CropVideoEditorProps) => void;
-  cleanup: () => void;
-  wrapper: HTMLDivElement;
+// The canvas wrap's size and the video size the canvas is fitted to.
+interface Layout { w: number; h: number; natW: number; natH: number }
+
+// The video the editor shows: its URL, its size in natural pixels, and the frame scrubbed to.
+interface Media {
+  url: string;
+  natW: number;
+  natH: number;
+  totalFrames: number;
+  frame: number;
+  loaded: boolean;
 }
-type CropVideoContainer = HTMLElement & { _instance?: CropVideoInstance };
+
+// Pointer-drag scratch: what the drag started from and the box it has reached.
+interface Drag {
+  mode: DragMode;
+  handle: Handle | null;
+  start: Point;
+  rect: Box;
+  box: Box;
+}
 
 // The node's RESOLUTION_PRESETS and crop maths (CropVideo._get_crop_dimensions and
 // _calculate_crop_coordinates). The crop settings arrive as synced_parameters, so the widget works out
@@ -93,220 +108,171 @@ function lockedEdges(locked: readonly string[] | undefined): string[] {
   return edges;
 }
 
-export default function CropVideoEditor(
-  host: HTMLElement,
-  props: CropVideoEditorProps,
-): WidgetHandle<CropVideoEditorProps> {
-  const container = host as CropVideoContainer;
-  const { value, onChange, disabled } = props;
+// Compare by pathname only so token refreshes in signed URLs don't cause reloads.
+function urlPathname(u: string): string {
+  if (!u) return "";
+  try { return new URL(u, location.href).pathname; }
+  catch { return u.split("?")[0] as string; }
+}
 
-  // ── Re-use existing instance ───────────────────────────────────────────────
-  if (container._instance?.wrapper?.isConnected) {
-    container._instance.handleUpdate(props);
-    return { cleanup: container._instance.cleanup, update: container._instance.handleUpdate };
+function mediaFromValue(v: CropVideoValue): Media {
+  return {
+    url: v.video_url || "", natW: v.video_width || 0, natH: v.video_height || 0,
+    totalFrames: v.total_frames || 0, frame: 0, loaded: false,
+  };
+}
+
+// A new video path starts over; the same video takes the refreshed URL and any dims the value carries,
+// keeping the frame and the loaded metadata.
+function followValue(m: Media, v: CropVideoValue): Media {
+  const url = v.video_url || "";
+  if (urlPathname(url) !== urlPathname(m.url)) return mediaFromValue(v);
+  return {
+    ...m,
+    url: url || m.url,
+    natW: v.video_width || m.natW,
+    natH: v.video_height || m.natH,
+    totalFrames: v.total_frames !== undefined ? v.total_frames : m.totalFrames,
+  };
+}
+
+const hitR = HANDLE_R + 5;
+
+function getHandles({ l: bl, t: bt, w: bw, h: bh }: Box, scale: number): Handle[] {
+  const l = bl * scale, t = bt * scale;
+  const r = (bl + bw) * scale, b = (bt + bh) * scale;
+  const mx = (l + r) / 2, my = (t + b) / 2;
+  return [
+    { id: "nw", cx: l,  cy: t,  affects: ["left","top","width","height"] },
+    { id: "n",  cx: mx, cy: t,  affects: ["top","height"] },
+    { id: "ne", cx: r,  cy: t,  affects: ["top","width","height"] },
+    { id: "e",  cx: r,  cy: my, affects: ["width"] },
+    { id: "se", cx: r,  cy: b,  affects: ["width","height"] },
+    { id: "s",  cx: mx, cy: b,  affects: ["height"] },
+    { id: "sw", cx: l,  cy: b,  affects: ["left","width","height"] },
+    { id: "w",  cx: l,  cy: my, affects: ["left","width"] },
+  ];
+}
+
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+
+function CropVideoEditor(props: CropVideoEditorProps) {
+  const { onChange, onLiveChange } = props;
+  const value: CropVideoValue = props.value || {};
+  const isDisabled = !!props.disabled;
+  const lockedParams = lockedEdges(props.locked);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+
+  const [media, setMedia] = useState(() => mediaFromValue(value));
+  // The box a drag or preset left behind, shown until the settings next change.
+  const [edited, setEdited] = useState<Box | null>(null);
+  // The box an in-progress drag has reached.
+  const [live, setLive] = useState<Box | null>(null);
+  const [hoverHandle, setHoverHandle] = useState<HandleId | null>(null);
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  // Measured when a video's metadata loads and on resize, so a new video keeps the last one's
+  // canvas until its own metadata arrives.
+  const [layout, setLayout] = useState<Layout | null>(null);
+
+  // A new value replaces the edited box with the one its settings describe.
+  const [followed, setFollowed] = useState(props.value);
+  if (followed !== props.value) {
+    setFollowed(props.value);
+    setMedia((m) => followValue(m, value));
+    setEdited(null);
   }
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  let videoUrl     = value?.video_url   || "";
-  let vidNatW      = value?.video_width  || 0;
-  let vidNatH      = value?.video_height || 0;
-  let totalFrames  = value?.total_frames || 0;
-  let lockedParams = lockedEdges(props.locked);
-  let latestValue: CropVideoValue = value || {};
-  let isDisabled   = !!disabled;
-  let currentFrame = 0;
+  const { natW: vidNatW, natH: vidNatH, totalFrames, loaded: videoLoaded } = media;
+  const box = live ?? edited ?? cropFromSettings(value, vidNatW, vidNatH);
 
-  // Crop rect in natural video pixels
-  const initialCrop = cropFromSettings(latestValue, vidNatW, vidNatH);
-  let ecL = initialCrop.l;
-  let ecT = initialCrop.t;
-  let ecW = initialCrop.w;
-  let ecH = initialCrop.h;
-
-  let onChangeRef = onChange;
-  let onLiveChangeRef = props.onLiveChange;
-  let videoLoaded = false;
-  let scale = 1;             // canvas-px / natural-px
-  let mode: Mode = "idle";   // idle | moving | resizing | drawing
-  let dragHandle: Handle | null = null;
-  let dragStart: Point | null = null;
-  let rectAtDrag: Box | null = null;
-  let hoverHandle: HandleId | null = null;
-
-  const hitR = HANDLE_R + 5;
-
-  // ── DOM structure ──────────────────────────────────────────────────────────
-  // Video element (background)
-  const video = (
-    <video
-      muted preload="metadata" crossOrigin="anonymous"
-      style={{
-        position: "absolute", inset: "0", width: "100%", height: "100%",
-        objectFit: "contain", pointerEvents: "none",
-      }}
-      onLoadedMetadata={onVideoLoadedMetadata}
-      onSeeked={() => render()}
-    />
-  ) as HTMLVideoElement;
-
-  // Canvas overlay (transparent bg — draws crop overlay + handles only)
-  const canvas = (
-    <canvas
-      style="position:absolute;inset:0;width:100%;height:100%;"
-      onPointerDown={onCanvasPointerDown}
-      onPointerMove={onCanvasPointerMove}
-      onPointerUp={onCanvasPointerUp}
-    />
-  ) as HTMLCanvasElement;
-  // Every browser the editor supports provides a 2D context for a fresh canvas.
-  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
-
-  const canvasWrap = (
-    <div
-      style={{
-        flex: "1 1 0", minHeight: "0", position: "relative",
-        background: "#111", borderRadius: "6px", overflow: "hidden",
-      }}
-    >
-      {video}
-      {canvas}
-    </div>
-  ) as HTMLDivElement;
-
-  // Sidebar
-  const sidebarInst = createSidebar({
-    getImgSize: () => ({ imgNatW: vidNatW, imgNatH: vidNatH }),
-    getCropRect: () => ({ l: ecL, t: ecT, w: ecW, h: ecH }),
-    onApply(crop) {
-      mode = "idle";
-      ecL = crop.left; ecT = crop.top; ecW = crop.width; ecH = crop.height;
-      render();
-      emitAll();
-    },
-  });
-
-  // Footer (frame scrubber + status bar)
-  const footerInst = createFooter({
-    isDisabled: () => isDisabled,
-    onSeek(frame) { seekToFrame(frame); },
-    version: WIDGET_VERSION,
-  });
-
-  const wrapper = (
-    <div class="nodrag nowheel" style="display:flex;flex-direction:column;height:100%;gap:6px;">
-      {/* Canvas row: video + canvas | sidebar */}
-      <div style="display:flex;flex-direction:row;flex:1 1 0;min-height:180px;gap:6px;">
-        {canvasWrap}
-        {sidebarInst.el}
-      </div>
-      {footerInst.controls}
-      {footerInst.statusBar}
-    </div>
-  ) as HTMLDivElement;
-  container.append(wrapper);
+  // canvas-px / natural-px, with the canvas letterboxed inside the wrap
+  const scale = layout ? Math.min(layout.w / layout.natW, layout.h / layout.natH) : 1;
+  const canvasSize = layout && { w: Math.round(layout.natW * scale), h: Math.round(layout.natH * scale) };
 
   // ── Video loading ──────────────────────────────────────────────────────────
-  // Compare by pathname only so token refreshes in signed URLs don't cause reloads.
-  function urlPathname(u: string): string {
-    if (!u) return "";
-    try { return new URL(u, location.href).pathname; }
-    catch { return u.split("?")[0] as string; }
-  }
-
-  function loadVideo(url: string) {
-    if (!url) return;
-    if (video.src && urlPathname(video.src) === urlPathname(url)) return;
-    videoLoaded = false;
-    video.src = url;
+  useEffect(() => {
+    const video = videoRef.current as HTMLVideoElement;
+    if (!media.url) return;
+    if (video.src && urlPathname(video.src) === urlPathname(media.url)) return;
+    video.src = media.url;
     video.load();
+  }, [media.url]);
+
+  // Releases the video when the editor unmounts.
+  useEffect(() => {
+    const video = videoRef.current as HTMLVideoElement;
+    return () => {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, []);
+
+  function measureArea(): { w: number; h: number } {
+    const wrap = canvasWrapRef.current as HTMLDivElement;
+    return { w: wrap.clientWidth || 480, h: wrap.clientHeight || 360 };
   }
 
-  function onVideoLoadedMetadata() {
-    videoLoaded = true;
-    // Fill in dims from the video element if Python couldn't probe them
-    if (!vidNatW) vidNatW = video.videoWidth;
-    if (!vidNatH) vidNatH = video.videoHeight;
-    if (mode === "idle") ({ l: ecL, t: ecT, w: ecW, h: ecH } = cropFromSettings(latestValue, vidNatW, vidNatH));
-    syncCanvasSize();
-    // Default crop to full frame if not yet set
-    if (!ecW) ecW = vidNatW;
-    if (!ecH) ecH = vidNatH;
-    footerInst.sync(totalFrames, isDisabled);
-    // Restore the previously viewed frame (no-op for first load where currentFrame=0)
-    if (currentFrame > 0 && video.duration) {
-      video.currentTime = (currentFrame / totalFrames) * video.duration;
-    }
-    syncUI();
-    render();
+  function onResize() {
+    const { w, h } = measureArea();
+    setLayout((l) => (!l || (l.w === w && l.h === h) ? l : { ...l, w, h }));
   }
 
   // ── Canvas sizing ──────────────────────────────────────────────────────────
-  function syncCanvasSize() {
-    const areaW = canvasWrap.clientWidth  || 480;
-    const areaH = canvasWrap.clientHeight || 360;
-    const natW = vidNatW || video.videoWidth  || 1;
-    const natH = vidNatH || video.videoHeight || 1;
-    scale = Math.min(areaW / natW, areaH / natH);
-    const cw = Math.round(natW * scale);
-    const ch = Math.round(natH * scale);
-    // Centre the canvas within the wrap (letterbox)
-    canvas.width  = cw;
-    canvas.height = ch;
-    canvas.style.cssText = [
-      "position:absolute",
-      `left:${Math.round((areaW - cw) / 2)}px`,
-      `top:${Math.round((areaH - ch) / 2)}px`,
-      `width:${cw}px`, `height:${ch}px`,
-    ].join(";");
-    render();
-  }
+  useEffect(() => {
+    if (!videoLoaded) return;
+    const ro = new ResizeObserver(onResize);
+    ro.observe(canvasWrapRef.current as HTMLDivElement);
+    return () => ro.disconnect();
+  }, [videoLoaded]);
 
-  const ro = new ResizeObserver(() => { if (videoLoaded) syncCanvasSize(); });
-  ro.observe(canvasWrap);
+  function onVideoLoadedMetadata() {
+    const video = videoRef.current as HTMLVideoElement;
+    // Fill in dims from the video element if Python couldn't probe them
+    setMedia((m) => ({ ...m, loaded: true, natW: m.natW || video.videoWidth, natH: m.natH || video.videoHeight }));
+    if (!dragRef.current) setEdited(null);
+    setLayout({ ...measureArea(), natW: media.natW || video.videoWidth || 1, natH: media.natH || video.videoHeight || 1 });
+    // Restore the previously viewed frame (no-op for first load where frame=0)
+    if (media.frame > 0 && video.duration) {
+      video.currentTime = (media.frame / totalFrames) * video.duration;
+    }
+  }
 
   // ── Frame scrubbing ────────────────────────────────────────────────────────
   function seekToFrame(frame: number) {
+    const video = videoRef.current as HTMLVideoElement;
     if (!video.duration || totalFrames <= 0) return;
-    currentFrame = frame;
+    setMedia((m) => ({ ...m, frame }));
     video.currentTime = (frame / totalFrames) * video.duration;
-    footerInst.setFrame(frame, totalFrames);
   }
 
   // ── Handle geometry ────────────────────────────────────────────────────────
-  function getHandles(): Handle[] {
-    const l = ecL * scale, t = ecT * scale;
-    const r = (ecL + ecW) * scale, b = (ecT + ecH) * scale;
-    const mx = (l + r) / 2, my = (t + b) / 2;
-    return [
-      { id: "nw", cx: l,  cy: t,  affects: ["left","top","width","height"] },
-      { id: "n",  cx: mx, cy: t,  affects: ["top","height"] },
-      { id: "ne", cx: r,  cy: t,  affects: ["top","width","height"] },
-      { id: "e",  cx: r,  cy: my, affects: ["width"] },
-      { id: "se", cx: r,  cy: b,  affects: ["width","height"] },
-      { id: "s",  cx: mx, cy: b,  affects: ["height"] },
-      { id: "sw", cx: l,  cy: b,  affects: ["left","width","height"] },
-      { id: "w",  cx: l,  cy: my, affects: ["left","width"] },
-    ];
-  }
-
   function isHandleLocked(h: Handle) {
     return h.affects.some(f => lockedParams.includes(f));
   }
 
   function hitHandle(px: number, py: number): Handle | null {
-    for (const h of getHandles()) {
+    for (const h of getHandles(box, scale)) {
       if (Math.hypot(px - h.cx, py - h.cy) <= hitR) return h;
     }
     return null;
   }
 
   function insideCrop(px: number, py: number) {
-    return px >= ecL * scale && px <= (ecL + ecW) * scale
-        && py >= ecT * scale && py <= (ecT + ecH) * scale;
+    return px >= box.l * scale && px <= (box.l + box.w) * scale
+        && py >= box.t * scale && py <= (box.t + box.h) * scale;
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  function render() {
+  function draw() {
+    const canvas = canvasRef.current as HTMLCanvasElement;
+    // Every browser the editor supports provides a 2D context for a fresh canvas.
+    const ctx = ctxRef.current ??= canvas.getContext("2d") as CanvasRenderingContext2D;
     const cw = canvas.width, ch = canvas.height;
     ctx.clearRect(0, 0, cw, ch);
     if (!videoLoaded) {
@@ -318,8 +284,8 @@ export default function CropVideoEditor(
       return;
     }
 
-    const l = ecL * scale, t = ecT * scale;
-    const w = ecW * scale, h = ecH * scale;
+    const l = box.l * scale, t = box.t * scale;
+    const w = box.w * scale, h = box.h * scale;
 
     // Darken outside crop rect
     ctx.fillStyle = OVERLAY;
@@ -344,7 +310,7 @@ export default function CropVideoEditor(
     ctx.strokeRect(l, t, w, h);
 
     // Handles
-    for (const hand of getHandles()) {
+    for (const hand of getHandles(box, scale)) {
       const locked = isHandleLocked(hand);
       const hovered = !locked && hand.id === hoverHandle;
       ctx.beginPath();
@@ -357,193 +323,194 @@ export default function CropVideoEditor(
     }
   }
 
+  // Redraws after every render; a completed seek redraws too.
+  useLayoutEffect(draw);
+
+  // ── Emit ───────────────────────────────────────────────────────────────────
+  // A drag sets the box freely, so both presets switch to Custom. The editor commits the crop settings to
+  // their parameters and keeps the rest (the video's details) in the widget's own value.
+  function emitAll({ l, t, w, h }: Box) {
+    if (typeof onChange !== "function") return;
+    onChange({
+      ...value,
+      custom_left: l, custom_top: t, custom_width: w, custom_height: h,
+      crop_size: "Custom", crop_position: "Custom",
+    });
+  }
+
+  // Moves the node's crop fields along with a drag without committing them.
+  function emitLive({ l, t, w, h }: Box) {
+    if (typeof onLiveChange !== "function") return;
+    onLiveChange({ custom_left: l, custom_top: t, custom_width: w, custom_height: h });
+  }
+
+  function commit(next: Box) {
+    dragRef.current = null;
+    setLive(null);
+    setEdited(next);
+    emitAll(next);
+  }
+
   // ── Drag interaction ───────────────────────────────────────────────────────
-  function canvasXY(e: MouseEvent): Point {
+  function canvasXY(e: ReactPointerEvent<HTMLCanvasElement>): Point {
+    const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const sx = canvas.width  / (rect.width  || canvas.width);
     const sy = canvas.height / (rect.height || canvas.height);
     return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
   }
 
-  function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+  function startDrag(e: ReactPointerEvent<HTMLCanvasElement>, mode: DragMode, handle: Handle | null, start: Point) {
+    dragRef.current = { mode, handle, start, rect: box, box };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
 
-  function onCanvasPointerDown(e: PointerEvent) {
+  function onCanvasPointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
     e.stopPropagation();
     if (isDisabled) return;
     const { x, y } = canvasXY(e);
     const hand = hitHandle(x, y);
 
     if (hand && !isHandleLocked(hand)) {
-      mode = "resizing";
-      dragHandle = hand;
-      dragStart = { x, y };
-      rectAtDrag = { l: ecL, t: ecT, w: ecW, h: ecH };
-      canvas.setPointerCapture(e.pointerId);
+      startDrag(e, "resizing", hand, { x, y });
       return;
     }
 
     const leftLocked = lockedParams.includes("left");
     const topLocked  = lockedParams.includes("top");
-    const posLocked  = leftLocked && topLocked;   // both axes must be locked to block move
+    // both axes must be locked to block move
     if (insideCrop(x, y) && !(leftLocked && topLocked)) {
-      mode = "moving";
-      dragStart = { x, y };
-      rectAtDrag = { l: ecL, t: ecT, w: ecW, h: ecH };
-      canvas.setPointerCapture(e.pointerId);
+      startDrag(e, "moving", null, { x, y });
       return;
     }
 
     const sizeLocked = lockedParams.includes("width") || lockedParams.includes("height");
     if (!(leftLocked || topLocked) && !sizeLocked) {
-      mode = "drawing";
-      dragStart = { x: x / scale, y: y / scale };
-      canvas.setPointerCapture(e.pointerId);
+      startDrag(e, "drawing", null, { x: x / scale, y: y / scale });
     }
   }
 
-  function onCanvasPointerMove(e: PointerEvent) {
-    e.stopPropagation();
-    const { x, y } = canvasXY(e);
+  // The box a drag reaches at canvas point (x, y).
+  function dragBox(drag: Drag, x: number, y: number, shiftKey: boolean): Box {
+    const { start, rect } = drag;
 
-    if (mode === "idle") {
-      const hand = hitHandle(x, y);
-      const newHover = hand && !isHandleLocked(hand) ? hand.id : null;
-      if (newHover !== hoverHandle) { hoverHandle = newHover; render(); }
-      canvas.style.cursor = newHover ? "crosshair" : (insideCrop(x, y) ? "move" : "crosshair");
-      return;
-    }
-
-    if (mode === "moving") {
-      const start = dragStart as Point, rect = rectAtDrag as Box;
+    if (drag.mode === "moving") {
       const dx = (x - start.x) / scale, dy = (y - start.y) / scale;
-      if (!lockedParams.includes("left")) ecL = clamp(Math.round(rect.l + dx), 0, vidNatW - ecW);
-      if (!lockedParams.includes("top"))  ecT = clamp(Math.round(rect.t + dy), 0, vidNatH - ecH);
-      render();
-      emitLive();
-      return;
+      return {
+        ...rect,
+        l: lockedParams.includes("left") ? rect.l : clamp(Math.round(rect.l + dx), 0, vidNatW - rect.w),
+        t: lockedParams.includes("top")  ? rect.t : clamp(Math.round(rect.t + dy), 0, vidNatH - rect.h),
+      };
     }
 
-    if (mode === "resizing") {
+    if (drag.mode === "resizing") {
       const nx = x / scale, ny = y / scale;
-      const rect = rectAtDrag as Box;
       const { l, t, w, h } = rect;
       let nl = l, nt = t, nw = w, nh = h;
-      const id = (dragHandle as Handle).id;
+      const id = (drag.handle as Handle).id;
 
       if (id.includes("e")) nw = clamp(Math.round(nx - nl), 1, vidNatW - nl);
       if (id.includes("s")) nh = clamp(Math.round(ny - nt), 1, vidNatH - nt);
       if (id.includes("w")) { const r = nl + nw; nl = clamp(Math.round(nx), 0, r - 1); nw = r - nl; }
       if (id.includes("n")) { const b = nt + nh; nt = clamp(Math.round(ny), 0, b - 1); nh = b - nt; }
 
-      if (e.shiftKey && (id === "se" || id === "nw" || id === "ne" || id === "sw")) {
+      if (shiftKey && (id === "se" || id === "nw" || id === "ne" || id === "sw")) {
         const asp = rect.w / rect.h;
         if (nw / nh > asp) nh = Math.round(nw / asp); else nw = Math.round(nh * asp);
       }
+      return { l: nl, t: nt, w: nw, h: nh };
+    }
 
-      ecL = nl; ecT = nt; ecW = nw; ecH = nh;
-      render();
-      emitLive();
+    const nx = clamp(x / scale, 0, vidNatW), ny = clamp(y / scale, 0, vidNatH);
+    const w = Math.max(1, Math.round(Math.abs(nx - start.x)));
+    return {
+      l: Math.round(Math.min(start.x, nx)),
+      t: Math.round(Math.min(start.y, ny)),
+      w,
+      h: shiftKey ? w : Math.max(1, Math.round(Math.abs(ny - start.y))),
+    };
+  }
+
+  function onCanvasPointerMove(e: ReactPointerEvent<HTMLCanvasElement>) {
+    e.stopPropagation();
+    const { x, y } = canvasXY(e);
+    const drag = dragRef.current;
+
+    if (!drag) {
+      const hand = hitHandle(x, y);
+      const newHover = hand && !isHandleLocked(hand) ? hand.id : null;
+      setHoverHandle(newHover);
+      setCursor(newHover ? "crosshair" : (insideCrop(x, y) ? "move" : "crosshair"));
       return;
     }
 
-    if (mode === "drawing") {
-      const start = dragStart as Point;
-      const nx = clamp(x / scale, 0, vidNatW), ny = clamp(y / scale, 0, vidNatH);
-      ecL = Math.round(Math.min(start.x, nx));
-      ecT = Math.round(Math.min(start.y, ny));
-      ecW = Math.max(1, Math.round(Math.abs(nx - start.x)));
-      ecH = e.shiftKey ? ecW : Math.max(1, Math.round(Math.abs(ny - start.y)));
-      render();
-      emitLive();
-    }
+    drag.box = dragBox(drag, x, y, e.shiftKey);
+    setLive(drag.box);
+    emitLive(drag.box);
   }
 
-  function onCanvasPointerUp(e: PointerEvent) {
+  function onCanvasPointerUp(e: ReactPointerEvent<HTMLCanvasElement>) {
     e.stopPropagation();
-    if (mode !== "idle") {
-      mode = "idle";
-      render();
-      emitAll();
-    }
+    if (dragRef.current) commit(dragRef.current.box);
   }
 
-
-  // ── Emit ───────────────────────────────────────────────────────────────────
-  // A drag sets the box freely, so both presets switch to Custom. The editor commits the crop settings to
-  // their parameters and keeps the rest (the video's details) in the widget's own value.
-  function emitAll() {
-    if (typeof onChangeRef !== "function") return;
-    onChangeRef({
-      ...latestValue,
-      custom_left: ecL, custom_top: ecT, custom_width: ecW, custom_height: ecH,
-      crop_size: "Custom", crop_position: "Custom",
-    });
+  function onApply(crop: CropRect) {
+    commit({ l: crop.left, t: crop.top, w: crop.width, h: crop.height });
   }
 
-  // Moves the node's crop fields along with a drag without committing them.
-  function emitLive() {
-    if (typeof onLiveChangeRef !== "function") return;
-    onLiveChangeRef({ custom_left: ecL, custom_top: ecT, custom_width: ecW, custom_height: ecH });
-  }
-
-  // ── Sync UI state ──────────────────────────────────────────────────────────
-  function syncUI() {
-    sidebarInst.syncDisabled(lockedParams, isDisabled);
-    footerInst.sync(totalFrames, isDisabled);
-    footerInst.updateStatus({ videoLoaded, lockedParams, ecL, ecT, ecW, ecH });
-  }
-
-  // ── Update handler (called by framework on value changes) ──────────────────
-  function handleUpdate(newProps: CropVideoEditorProps) {
-    const v: CropVideoValue = newProps.value || {};
-    latestValue = v;
-    onChangeRef = newProps.onChange;
-    onLiveChangeRef = newProps.onLiveChange;
-    isDisabled  = !!newProps.disabled;
-
-    const newUrl = v.video_url || "";
-    const videoChanged = urlPathname(newUrl) !== urlPathname(videoUrl);
-    if (videoChanged) {
-      videoUrl = newUrl;
-      vidNatW  = v.video_width  || 0;
-      vidNatH  = v.video_height || 0;
-      totalFrames = v.total_frames || 0;
-      currentFrame = 0;
-      videoLoaded = false;
-      loadVideo(newUrl);
-    } else {
-      // Same video — update token + dims without reloading or resetting the frame
-      if (newUrl) videoUrl = newUrl;
-      if (v.video_width)  vidNatW = v.video_width;
-      if (v.video_height) vidNatH = v.video_height;
-      if (v.total_frames !== undefined) totalFrames = v.total_frames;
-    }
-
-    lockedParams = lockedEdges(newProps.locked);
-
-    // Only follow the settings when idle — don't clobber an in-progress drag.
-    if (mode === "idle" && vidNatW && vidNatH) {
-      ({ l: ecL, t: ecT, w: ecW, h: ecH } = cropFromSettings(v, vidNatW, vidNatH));
-    }
-
-    syncUI();
-    if (videoLoaded) render();
-  }
-
-  // ── Cleanup ────────────────────────────────────────────────────────────────
-  function cleanup() {
-    ro.disconnect();
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
-    wrapper.remove();
-    delete container._instance;
-  }
-
-  // Initial load
-  loadVideo(videoUrl);
-  syncUI();
-
-  container._instance = { handleUpdate, cleanup, wrapper };
-  return { cleanup, update: handleUpdate };
+  // ── DOM structure ──────────────────────────────────────────────────────────
+  return (
+    <div className="nodrag nowheel" style={{ display: "flex", flexDirection: "column", height: "100%", gap: "6px" }}>
+      {/* Canvas row: video + canvas | sidebar */}
+      <div style={{ display: "flex", flexDirection: "row", flex: "1 1 0", minHeight: "180px", gap: "6px" }}>
+        <div
+          ref={canvasWrapRef}
+          style={{
+            flex: "1 1 0", minHeight: "0", position: "relative",
+            background: "#111", borderRadius: "6px", overflow: "hidden",
+          }}
+        >
+          {/* Video element (background) */}
+          <video
+            ref={videoRef}
+            muted preload="metadata" crossOrigin="anonymous"
+            style={{
+              position: "absolute", inset: "0", width: "100%", height: "100%",
+              objectFit: "contain", pointerEvents: "none",
+            }}
+            onLoadedMetadata={onVideoLoadedMetadata}
+            onSeeked={draw}
+          />
+          {/* Canvas overlay (transparent bg — draws crop overlay + handles only) */}
+          <canvas
+            ref={canvasRef}
+            width={canvasSize?.w}
+            height={canvasSize?.h}
+            style={layout && canvasSize
+              ? {
+                  position: "absolute",
+                  left: `${Math.round((layout.w - canvasSize.w) / 2)}px`,
+                  top: `${Math.round((layout.h - canvasSize.h) / 2)}px`,
+                  width: `${canvasSize.w}px`, height: `${canvasSize.h}px`, cursor,
+                }
+              : { position: "absolute", inset: "0", width: "100%", height: "100%", cursor }}
+            onPointerDown={onCanvasPointerDown}
+            onPointerMove={onCanvasPointerMove}
+            onPointerUp={onCanvasPointerUp}
+          />
+        </div>
+        <Sidebar
+          imgNatW={vidNatW} imgNatH={vidNatH} crop={box}
+          lockedParams={lockedParams} disabled={isDisabled} onApply={onApply}
+        />
+      </div>
+      <FrameScrubber frame={media.frame} totalFrames={totalFrames} disabled={isDisabled} onSeek={seekToFrame} />
+      <StatusBar
+        videoLoaded={videoLoaded} lockedParams={lockedParams}
+        ecL={box.l} ecT={box.t} ecW={box.w} ecH={box.h} version={WIDGET_VERSION}
+      />
+    </div>
+  );
 }
+
+export default reactWidget(CropVideoEditor);

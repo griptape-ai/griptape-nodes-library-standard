@@ -2,6 +2,7 @@
 // context that records draw calls, an Image whose load the test triggers, and a ResizeObserver
 // whose callbacks and disconnects the test can see.
 
+import { act } from "react";
 import { vi } from "vitest";
 
 export interface DrawCall {
@@ -63,11 +64,11 @@ export class FakeImage {
   load(width: number, height: number): void {
     this.naturalWidth = width;
     this.naturalHeight = height;
-    this.onload?.();
+    act(() => this.onload?.());
   }
 
   fail(): void {
-    this.onerror?.();
+    act(() => this.onerror?.());
   }
 }
 
@@ -97,7 +98,7 @@ export class FakeResizeObserver {
   // Delivers a resize the way the browser would: only to targets still observed.
   trigger(): void {
     if (this.disconnected || this.observed.length === 0) return;
-    this.callback([], this as unknown as ResizeObserver);
+    act(() => this.callback([], this as unknown as ResizeObserver));
   }
 }
 
@@ -165,14 +166,16 @@ export function pointer(
   y: number,
   init: { shiftKey?: boolean } = {},
 ): void {
-  target.dispatchEvent(
-    new PointerEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      clientX: x,
-      clientY: y,
-      pointerId: 1,
-      shiftKey: init.shiftKey ?? false,
-    }),
-  );
+  act(() => {
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+        pointerId: 1,
+        shiftKey: init.shiftKey ?? false,
+      }),
+    );
+  });
 }

@@ -1,9 +1,12 @@
+import { useCallback, useEffect, useInsertionEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject, type SyntheticEvent } from 'react';
+import { reactWidget } from '@griptape-ai/nodes-widget-api/react';
+
 import { CARD_HUES, CARD_HEIGHTS, injectStyles } from './_styles';
 import { Icon } from './_icons';
-import { createToolbar } from './_toolbar';
-import { createViewer } from './_viewer';
+import { Toolbar } from './_toolbar';
+import { Viewer } from './_viewer';
 import type { GridItem, GridLayout, GridValue } from './_types';
-import type { WidgetHandle, WidgetProps } from '@griptape-ai/nodes-widget-api';
+import type { WidgetProps } from '@griptape-ai/nodes-widget-api';
 
 export type { CommittedGridValue, GridItem, GridLayout, GridSettings, GridValue } from './_types';
 
@@ -14,7 +17,7 @@ export type SelectFromGridProps = WidgetProps<GridValue>;
 // Displays a list of items as a clickable grid. The user selects items by
 // clicking or drag-selecting (lasso); the selection is written back to the
 // node via onChange as `selected_indices`. The toolbar's fullscreen button, or
-// the one on each cell's hover, opens a fullscreen viewer (_viewer.js) that
+// the one on each cell's hover, opens a fullscreen viewer (_viewer.tsx) that
 // shares the same selection.
 //
 // VALUE SHAPE (ParameterDict "grid")
@@ -49,324 +52,195 @@ export type SelectFromGridProps = WidgetProps<GridValue>;
 //   { type: "text",  value: string }   — rendered as a styled quote card
 //   Any item may also carry an optional "label" string displayed as an overlay.
 
-// A mounted grid, kept on its container so a repeated mount updates it instead of building
-// a second one.
-interface SfgInstance {
-  wrapper: HTMLDivElement;
-  handleUpdate: (props: SelectFromGridProps) => void;
-  cleanup: () => void;
+// The grid's working copy of the value. Each update from the editor replaces it; user edits
+// change it and are committed through onChange.
+interface GridState {
+  items: GridItem[];
+  selected: number[];
+  columns: number;
+  layout: GridLayout;
+  multiSelect: boolean;
+  showLabels: boolean;
+  labelSize: number;
+  // The layout the cells are arranged in: a layout change takes effect after the exit animation
+  shownLayout: GridLayout;
+  // Cells show placeholders only, while the column slider is being dragged
+  skeleton: boolean;
 }
-type SfgContainer = HTMLElement & { _sfgInst?: SfgInstance };
 
 interface DragState {
   startX: number;
   startY: number;
-  lasso: HTMLDivElement | null;
+  lasso: boolean;
   dragging: boolean;
-  startCell: HTMLElement | null;
+  startCell: number | null;
 }
 
-const stopPropagation = (e: Event) => e.stopPropagation();
+interface Rect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
 
-function Spinner() {
-  return <div class="sfg-spinner"><Icon name="loader-circle" size={22} /></div>;
+const DRAG_THRESHOLD = 5;
+const GRID_GAP = 5;
+const EXIT_MS = 110;
+
+const stopPropagation = (e: SyntheticEvent) => e.stopPropagation();
+
+function stateFromValue(value: GridValue | null | undefined): GridState {
+  const v = value || {};
+  const layout = v.layout || "grid";
+  return {
+    items:       v.items            || [],
+    selected:    v.selected_indices || [],
+    columns:     v.columns          || 3,
+    layout,
+    multiSelect: v.settings?.multi_select !== false,
+    showLabels:  v.show_labels !== false,
+    labelSize:   v.label_size  || 10,
+    shownLayout: layout,
+    skeleton:    false,
+  };
+}
+
+// Applies an update from the editor over the working copy, changing only the fields that differ.
+// The cells are rearranged at once only when what they show changes, so an echo of the grid's own
+// commit leaves a running layout animation or a column-drag skeleton alone.
+function reconcile(prev: GridState, value: GridValue | null | undefined): GridState {
+  const next = stateFromValue(value);
+  const sameItems    = JSON.stringify(next.items) === JSON.stringify(prev.items);
+  const sameSelected = JSON.stringify(next.selected) === JSON.stringify(prev.selected);
+  let selected = sameSelected ? prev.selected : next.selected;
+  let rearrange = !sameItems || !sameSelected || next.columns !== prev.columns || next.layout !== prev.layout;
+  // If switching to single-select with multiple items selected, clear down to none
+  if (next.multiSelect !== prev.multiSelect && !next.multiSelect && selected.length > 1) {
+    selected = [];
+    rearrange = true;
+  }
+  return {
+    ...next,
+    items:       sameItems ? prev.items : next.items,
+    selected,
+    shownLayout: rearrange ? next.layout : prev.shownLayout,
+    skeleton:    rearrange ? false : prev.skeleton,
+  };
+}
+
+const isMediaItem = (item: GridItem) => item.type === "image" || item.type === "video" || item.type === "audio";
+
+const overlaps = (a: Rect, sel: { left: number; top: number; right: number; bottom: number }) =>
+  a.left < sel.right && (a.left + a.width) > sel.left && a.top < sel.bottom && (a.top + a.height) > sel.top;
+
+function cellIndex(cell: Element) {
+  return parseInt((cell as HTMLElement).dataset.idx as string, 10);
+}
+
+// ── Lazy hydration ────────────────────────────────────────────────────────────
+
+type WatchCell = (el: Element, onVisible: () => void) => () => void;
+
+// One IntersectionObserver over the grid's media cells. Cells register through the returned
+// function, which may be called before the observer exists: it observes everything registered so far.
+function useCellObserver(gridRef: RefObject<HTMLDivElement | null>): WatchCell {
+  const watched  = useRef(new Map<Element, () => void>());
+  const observer = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach(({ isIntersecting, target }) => {
+        if (isIntersecting) watched.current.get(target)?.();
+      }),
+      { root: gridRef.current, rootMargin: "300px 0px", threshold: 0 },
+    );
+    observer.current = io;
+    watched.current.forEach((_, el) => io.observe(el));
+    return () => {
+      io.disconnect();
+      observer.current = null;
+    };
+  }, [gridRef]);
+
+  return useCallback((el, onVisible) => {
+    watched.current.set(el, onVisible);
+    observer.current?.observe(el);
+    return () => {
+      watched.current.delete(el);
+      observer.current?.unobserve(el);
+    };
+  }, []);
+}
+
+// ── Cells ─────────────────────────────────────────────────────────────────────
+
+function Spinner({ fading }: { fading: boolean }) {
+  const [gone, setGone] = useState(false);
+  if (gone) return null;
+  return (
+    <div
+      className="sfg-spinner"
+      style={fading ? { opacity: 0 } : undefined}
+      onTransitionEnd={() => { if (fading) setGone(true); }}
+    >
+      <Icon name="loader-circle" size={22} />
+    </div>
+  );
 }
 
 function ErrorCard() {
-  return <div class="sfg-error-card"><Icon name="alert-circle" size={28} /></div>;
+  return <div className="sfg-error-card"><Icon name="alert-circle" size={28} /></div>;
 }
 
-export default function SelectFromGrid(
-  host: HTMLElement,
-  props: SelectFromGridProps,
-): WidgetHandle<SelectFromGridProps> {
-  const container = host as SfgContainer;
-  // ── Mount guard ───────────────────────────────────────────────────────────
-  if (container._sfgInst?.wrapper?.isConnected) {
-    container._sfgInst.handleUpdate(props);
-    return { cleanup: container._sfgInst.cleanup, update: container._sfgInst.handleUpdate };
-  }
-  // A stale instance may still own an open fullscreen overlay and its key listener
-  if (container._sfgInst) container._sfgInst.cleanup();
+interface CellMediaProps {
+  item: GridItem;
+  hydrated: boolean;
+  videoRef: RefObject<HTMLVideoElement | null>;
+}
 
-  injectStyles();
+// A media cell's content: a spinner until the cell scrolls into view and its media loads.
+function CellMedia({ item, hydrated, videoRef }: CellMediaProps) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  let latestValue: GridValue = props.value || {};
-  let onChangeRef = props.onChange;
-  let isDisabled  = props.disabled || false;
+  const isAudio = item.type === "audio";
+  const loading = !failed && !(hydrated && isAudio) && !loaded;
 
-  let items: GridItem[]        = latestValue.items            || [];
-  let selectedIndices: number[] = latestValue.selected_indices || [];
-  let columns         = latestValue.columns          || 3;
-  let layout: GridLayout = latestValue.layout        || "grid";
-  let multiSelect     = (latestValue.settings?.multi_select) !== false;
-  let showLabels      = latestValue.show_labels !== false;
-  let labelSize       = latestValue.label_size  || 10;
-
-  // ── Toolbar ───────────────────────────────────────────────────────────────
-  const { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn,
-          labelsBtn, labelSizeSlider, labelSizeVal, setDisabled } =
-    createToolbar({
-      layout, columns, isDisabled, showLabels, labelSize,
-      onColumnsChange(n) { columns = n; renderGrid(/* skeleton */ true); },
-      onColumnsCommit(n) { columns = n; animateGridChange(); emitChange(); },
-      onLayoutChange(l)  { layout = l; animateGridChange(); emitChange(); },
-      onClear()          {
-        if (selectedIndices.length === 0) return;
-        setSelection([]);
-      },
-      onLabelsToggle(v)  {
-        showLabels = v;
-        wrapper.classList.toggle("sfg-hide-labels", !showLabels);
-        emitChange();
-      },
-      onLabelSizeChange(n) {
-        labelSize = n;
-        wrapper.style.setProperty("--sfg-label-size", n + "px");
-      },
-      onLabelSizeCommit(n) {
-        labelSize = n;
-        emitChange();
-      },
-      onFullscreen() {
-        viewer.open(selectedIndices.length ? (selectedIndices[0] as number) : 0);
-      },
-    });
-
-  const viewer = createViewer({
-    getItems:      () => items,
-    getSelected:   () => selectedIndices,
-    isMultiSelect: () => multiSelect,
-    isDisabled:    () => isDisabled,
-    onToggle:      (idx) => toggleSelection(idx),
-    onRemove:      (idx) => setSelection(selectedIndices.filter((i) => i !== idx)),
-  });
-
-  // ── DOM ───────────────────────────────────────────────────────────────────
-  const grid = (
-    <div
-      class="sfg-grid"
-      onPointerDown={onGridPointerDown}
-      onPointerMove={onGridPointerMove}
-      onPointerUp={onGridPointerUp}
-      onPointerCancel={onGridPointerCancel}
-    />
-  ) as HTMLDivElement;
-
-  const wrapper = (
-    <div
-      class={"sfg-widget nodrag nowheel" + (showLabels ? "" : " sfg-hide-labels")}
-      style={{ "--sfg-label-size": labelSize + "px" }}
-    >
-      {controls}
-      {grid}
-    </div>
-  ) as HTMLDivElement;
-
-  container.appendChild(wrapper);
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  function emitChange() {
-    onChangeRef({
-      ...(latestValue || {}),
-      items,
-      selected_indices: selectedIndices,
-      columns,
-      layout,
-      show_labels: showLabels,
-      label_size:  labelSize,
-    });
-  }
-
-  function syncSelectionClasses() {
-    grid.querySelectorAll<HTMLElement>(".sfg-cell").forEach((cell) => {
-      cell.classList.toggle("selected", selectedIndices.includes(parseInt(cell.dataset.idx as string, 10)));
-    });
-  }
-
-  function setSelection(indices: number[]) {
-    selectedIndices = indices;
-    syncSelectionClasses();
-    updateCount();
-    emitChange();
-    viewer.refresh();
-  }
-
-  // Click semantics: toggle in multi-select; in single-select, picking another replaces it.
-  function toggleSelection(idx: number) {
-    const alreadySelected = selectedIndices.includes(idx);
-    if (multiSelect) {
-      setSelection(alreadySelected ? selectedIndices.filter((i) => i !== idx) : [...selectedIndices, idx]);
-    } else {
-      setSelection(alreadySelected ? [] : [idx]);
-    }
-  }
-
-  function updateCount() {
-    const has = selectedIndices.length > 0;
-    countEl.textContent = has ? `${selectedIndices.length} selected` : "";
-    countEl.classList.toggle("active", has);
-    clearBtn.classList.toggle("active", has);
-    grid.classList.toggle("has-selection", has);
-  }
-
-  function updateGridRows() {
-    // Set grid-auto-rows to the pixel column width so cells are always 1:1.
-    // CSS aspect-ratio on grid items is unreliable for row-track sizing cross-browser.
-    const gap = 5;
-    const w   = grid.clientWidth;
-    const rowH = (w - (columns - 1) * gap) / columns;
-    grid.style.gridAutoRows = rowH > 0 ? `${rowH}px` : "";
-  }
-
-  function applyGridLayout() {
-    const isMasonry = layout === "masonry";
-    grid.classList.toggle("layout-masonry", isMasonry);
-    if (isMasonry) {
-      grid.style.gridTemplateColumns = "";
-      grid.style.gridAutoRows = "";
-    } else {
-      grid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
-      updateGridRows();
-    }
-  }
-
-  // Keep grid rows square when the node is resized
-  const gridRO = new ResizeObserver(() => { if (layout !== "masonry") updateGridRows(); });
-  gridRO.observe(grid);
-
-  // Lazy-hydrate media cells as they scroll into view
-  const cellObserver = new IntersectionObserver(
-    (entries) => entries.forEach(({ isIntersecting, target }) => {
-      if (isIntersecting) hydrateCell(target as HTMLElement);
-    }),
-    { root: grid, rootMargin: "300px 0px", threshold: 0 }
-  );
-
-  function buildCellContent(cell: HTMLElement, item: GridItem, idx: number, skeleton = false) {
-    cell.dataset.idx = String(idx);
-    const hue       = CARD_HUES[idx % CARD_HUES.length];
-    const minHeight = layout === "masonry" ? CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px" : null;
-
-    if (skeleton) {
-      cell.appendChild(<div class="sfg-cell-inner" style={{ background: `hsla(${hue}, 22%, 50%, 0.09)`, minHeight }} />);
-      return;
-    }
-
-    const isMedia = item.type === "image" || item.type === "video" || item.type === "audio";
-
-    cell.appendChild(
-      <div class={"sfg-cell-inner" + (isMedia ? " sfg-loading" : "")}>
-        {isMedia ? (
-          // Spinner placeholder only — media element created lazily by cellObserver
-          <Spinner />
-        ) : item.type === "dict" ? (
-          <div class="sfg-dict-card" textContent={(item.value as string) || "{}"} />
-        ) : (
-          <div class="sfg-quote-card" style={{ background: `hsla(${hue}, 22%, 50%, 0.09)`, minHeight }}>
-            <div
-              class="sfg-quote-text"
-              textContent={item.value !== undefined ? String(item.value) : (item.label || "")}
-            />
-          </div>
-        )}
-      </div>,
-    );
-
-    // Stop here so the grid doesn't treat the press as a selection click or lasso start
-    cell.appendChild(
-      <button
-        type="button" class="sfg-expand-btn" title="View fullscreen"
-        onPointerDown={stopPropagation}
-        onClick={(e) => {
-          e.stopPropagation();
-          viewer.open(idx);
-        }}
-      >
-        <Icon name="maximize-2" size={12} />
-      </button>,
-    );
-
-    if (item.label) cell.appendChild(<div class="sfg-item-label">{item.label}</div>);
-
-    if (isMedia) cellObserver.observe(cell);
-  }
-
-  function hydrateCell(cell: HTMLElement) {
-    if (cell.dataset.hydrated === "true") return;
-
-    const idx  = parseInt(cell.dataset.idx as string, 10);
-    const item = items[idx];
-    if (!item) return;
-
-    // If the URL hasn't arrived yet (phase-1 placeholder), wait — phase 2 will
-    // trigger a full renderGrid() which rebuilds the cell with the real URL.
-    if ((item.type === "image" || item.type === "video") && !item.url) return;
-
-    cell.dataset.hydrated = "true";
-    cellObserver.unobserve(cell);
-
-    const inner   = cell.querySelector(".sfg-cell-inner");
-    if (!inner) return;
-    const spinner = inner.querySelector<HTMLElement>(".sfg-spinner");
-
-    const fadeOutSpinner = () => {
-      if (!spinner) return;
-      spinner.style.opacity = "0";
-      spinner.addEventListener("transitionend", () => spinner.remove(), { once: true });
-    };
-
-    const showError = () => {
-      inner.classList.remove("sfg-loading");
-      if (spinner) spinner.remove();
-      inner.appendChild(<ErrorCard />);
-    };
-
+  let media = null;
+  if (hydrated) {
     switch (item.type) {
-      case "image": {
-        const img = (
+      case "image":
+        media = (
           <img
+            className={loaded ? "sfg-loaded" : undefined}
             src={item.url as string}
             alt={item.label || ""}
             decoding="async"
-            onLoad={() => {
-              inner.classList.remove("sfg-loading");
-              img.classList.add("sfg-loaded");
-              fadeOutSpinner();
-            }}
-            onError={showError}
+            onLoad={() => setLoaded(true)}
+            onError={() => setFailed(true)}
           />
-        ) as HTMLImageElement;
-        inner.appendChild(img);
+        );
         break;
-      }
-      case "video": {
-        const vid = (
+      case "video":
+        media = (
           <video
+            ref={videoRef}
+            className={loaded ? "sfg-loaded" : undefined}
             src={item.url as string}
-            poster={item.thumbnail || null}
+            poster={item.thumbnail || undefined}
             muted loop playsInline
             preload="metadata"
-            onLoadedMetadata={() => {
-              inner.classList.remove("sfg-loading");
-              vid.currentTime = 0.001;
-              vid.classList.add("sfg-loaded");
-              fadeOutSpinner();
+            onLoadedMetadata={(e) => {
+              e.currentTarget.currentTime = 0.001;
+              setLoaded(true);
             }}
-            onError={showError}
+            onError={() => setFailed(true)}
           />
-        ) as HTMLVideoElement;
-        cell.addEventListener("mouseenter", () => void vid.play().catch(() => {}));
-        cell.addEventListener("mouseleave", () => { vid.pause(); vid.currentTime = 0; });
-        inner.appendChild(vid);
+        );
         break;
-      }
-      case "audio": {
-        inner.classList.remove("sfg-loading");
-        if (spinner) spinner.remove();
-        const card = (
-          <div class="sfg-audio-card">
+      case "audio":
+        media = failed ? null : (
+          <div className="sfg-audio-card">
             <Icon name="music" size={28} />
             {item.url ? (
               <audio
@@ -374,20 +248,180 @@ export default function SelectFromGrid(
                 controls
                 onPointerDown={stopPropagation}
                 onClick={stopPropagation}
-                onError={() => card.replaceWith(<ErrorCard />)}
+                onError={() => setFailed(true)}
               />
             ) : null}
           </div>
-        ) as HTMLDivElement;
-        inner.appendChild(card);
+        );
         break;
-      }
     }
   }
 
+  // Audio drops its spinner as soon as it's shown; images and video fade theirs out on load
+  const showSpinner = !failed && !(hydrated && isAudio);
+
+  return (
+    <div className={"sfg-cell-inner" + (loading ? " sfg-loading" : "")}>
+      {showSpinner ? <Spinner fading={loaded} /> : null}
+      {media}
+      {failed ? <ErrorCard /> : null}
+    </div>
+  );
+}
+
+interface CellProps {
+  item: GridItem;
+  idx: number;
+  masonry: boolean;
+  selected: boolean;
+  pending: boolean;
+  skeleton: boolean;
+  watch: WatchCell;
+  onExpand: (idx: number) => void;
+}
+
+function Cell({ item, idx, masonry, selected, pending, skeleton, watch, onExpand }: CellProps) {
+  const cellRef  = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  const isMedia   = isMediaItem(item);
+  const hue       = CARD_HUES[idx % CARD_HUES.length];
+  const minHeight = masonry ? CARD_HEIGHTS[idx % CARD_HEIGHTS.length] + "px" : undefined;
+
+  // Media elements are created once the cell scrolls into view
+  useEffect(() => {
+    const cell = cellRef.current;
+    if (!cell || !isMedia || hydrated || skeleton) return;
+    return watch(cell, () => {
+      // If the URL hasn't arrived yet (phase-1 placeholder), wait — phase 2
+      // sends the item again with the real URL, which mounts a fresh cell.
+      if ((item.type === "image" || item.type === "video") && !item.url) return;
+      setHydrated(true);
+    });
+  }, [watch, isMedia, hydrated, skeleton, item.type, item.url]);
+
+  let content;
+  if (skeleton) {
+    content = <div className="sfg-cell-inner" style={{ background: `hsla(${hue}, 22%, 50%, 0.09)`, minHeight }} />;
+  } else {
+    content = (
+      <>
+        {isMedia ? (
+          <CellMedia item={item} hydrated={hydrated} videoRef={videoRef} />
+        ) : (
+          <div className="sfg-cell-inner">
+            {item.type === "dict" ? (
+              <div className="sfg-dict-card">{(item.value as string) || "{}"}</div>
+            ) : (
+              <div className="sfg-quote-card" style={{ background: `hsla(${hue}, 22%, 50%, 0.09)`, minHeight }}>
+                <div className="sfg-quote-text">
+                  {item.value !== undefined ? String(item.value) : (item.label || "")}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Stop here so the grid doesn't treat the press as a selection click or lasso start */}
+        <button
+          type="button" className="sfg-expand-btn" title="View fullscreen"
+          onPointerDown={stopPropagation}
+          onClick={(e) => {
+            e.stopPropagation();
+            onExpand(idx);
+          }}
+        >
+          <Icon name="maximize-2" size={12} />
+        </button>
+        {item.label ? <div className="sfg-item-label">{item.label}</div> : null}
+      </>
+    );
+  }
+
+  return (
+    <div
+      ref={cellRef}
+      className={"sfg-cell" + (selected ? " selected" : "") + (pending ? " pending" : "")}
+      data-idx={String(idx)}
+      data-hydrated={hydrated ? "true" : undefined}
+      onMouseEnter={() => void videoRef.current?.play().catch(() => {})}
+      onMouseLeave={() => {
+        const vid = videoRef.current;
+        if (!vid) return;
+        vid.pause();
+        vid.currentTime = 0;
+      }}
+    >
+      {content}
+    </div>
+  );
+}
+
+// ── Widget ────────────────────────────────────────────────────────────────────
+
+function SelectFromGrid(props: SelectFromGridProps) {
+  const { value, onChange } = props;
+
+  useInsertionEffect(() => injectStyles(), []);
+  const disabled = props.disabled || false;
+
+  const [state, setState] = useState(() => stateFromValue(value));
+  const [syncedProps, setSyncedProps] = useState(props);
+  if (syncedProps !== props) {
+    setSyncedProps(props);
+    setState((prev) => reconcile(prev, value));
+  }
+
+  const { items, selected, columns, layout, multiSelect, showLabels, labelSize, shownLayout, skeleton } = state;
+
+  const [viewerAt, setViewerAt] = useState<number | null>(null);
+  if (viewerAt !== null && items.length === 0) setViewerAt(null);
+
+  const [lasso, setLasso] = useState<Rect | null>(null);
+  const [pending, setPending] = useState<ReadonlySet<number>>(() => new Set());
+  const [gridWidth, setGridWidth] = useState(0);
+  const [enterTick, setEnterTick] = useState(0);
+
+  const gridRef   = useRef<HTMLDivElement>(null);
+  const dragRef   = useRef<DragState | null>(null);
+  const exitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const watch     = useCellObserver(gridRef);
+
+  // ── Commit ──────────────────────────────────────────────────────────────
+
+  function commit(next: GridState) {
+    setState(next);
+    onChange({
+      ...(value || {}),
+      items:            next.items,
+      selected_indices: next.selected,
+      columns:          next.columns,
+      layout:           next.layout,
+      show_labels:      next.showLabels,
+      label_size:       next.labelSize,
+    });
+  }
+
+  function setSelection(indices: number[]) {
+    commit({ ...state, selected: indices });
+  }
+
+  // Click semantics: toggle in multi-select; in single-select, picking another replaces it.
+  function toggleSelection(idx: number) {
+    const alreadySelected = selected.includes(idx);
+    if (multiSelect) {
+      setSelection(alreadySelected ? selected.filter((i) => i !== idx) : [...selected, idx]);
+    } else {
+      setSelection(alreadySelected ? [] : [idx]);
+    }
+  }
+
+  // ── Layout animation ────────────────────────────────────────────────────
+
+  // Fades the current cells out, then rearranges the grid and lets the new cells animate in.
   function animateGridChange() {
-    const cells = [...grid.querySelectorAll<HTMLElement>(".sfg-cell")];
-    const EXIT_MS = 110;
+    const grid = gridRef.current;
+    const cells = grid ? [...grid.querySelectorAll<HTMLElement>(".sfg-cell")] : [];
 
     // Phase 1 — scale + fade existing cells out with a short stagger
     cells.forEach((cell, i) => {
@@ -398,20 +432,30 @@ export default function SelectFromGrid(
       cell.style.transform = "scale(0.82)";
     });
 
-    setTimeout(() => {
-      renderGrid();
+    clearTimeout(exitTimer.current);
+    exitTimer.current = setTimeout(() => {
+      setState((s) => ({ ...s, shownLayout: s.layout, skeleton: false }));
+      setEnterTick((t) => t + 1);
+    }, EXIT_MS + Math.min(cells.length * 6, 40) + 20);
+  }
 
-      // Phase 3 — start new cells invisible/shrunk, then animate in with stagger
-      const entering = [...grid.querySelectorAll<HTMLElement>(".sfg-cell")];
-      entering.forEach((cell) => {
-        cell.style.transition = "none";
-        cell.style.opacity    = "0";
-        cell.style.transform  = "scale(0.88)";
-      });
+  useEffect(() => () => clearTimeout(exitTimer.current), []);
 
-      // Two rAF passes ensure the browser has committed the hidden state
-      // before we start the entering transition.
-      requestAnimationFrame(() => requestAnimationFrame(() => {
+  // Phase 3 — start the rearranged cells invisible/shrunk, then animate them in with stagger
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!enterTick || !grid) return;
+    const entering = [...grid.querySelectorAll<HTMLElement>(".sfg-cell")];
+    entering.forEach((cell) => {
+      cell.style.transition = "none";
+      cell.style.opacity    = "0";
+      cell.style.transform  = "scale(0.88)";
+    });
+
+    // Two rAF passes ensure the browser has committed the hidden state
+    // before we start the entering transition.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
         entering.forEach((cell, i) => {
           const delay = Math.min(i * 12, 90);
           cell.style.transition =
@@ -419,59 +463,28 @@ export default function SelectFromGrid(
           cell.style.opacity   = "";
           cell.style.transform = "";
         });
-      }));
-    }, EXIT_MS + Math.min(cells.length * 6, 40) + 20);
-  }
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [enterTick]);
 
-  function renderGrid(skeleton = false) {
-    grid.innerHTML = "";
-    applyGridLayout();
+  // Keep grid rows square when the node is resized
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    setGridWidth(grid.clientWidth);
+    const ro = new ResizeObserver(() => setGridWidth(grid.clientWidth));
+    ro.observe(grid);
+    return () => ro.disconnect();
+  }, []);
 
-    if (items.length === 0) {
-      grid.appendChild(<div class="sfg-empty">Connect a list to display items here</div>);
-      updateCount();
-      return;
-    }
-
-    const mkCell = (item: GridItem, idx: number) => {
-      const cell = (
-        <div class={"sfg-cell" + (selectedIndices.includes(idx) ? " selected" : "")} />
-      ) as HTMLDivElement;
-      buildCellContent(cell, item, idx, skeleton);
-      return cell;
-    };
-
-    if (layout === "masonry") {
-      const cols = Array.from({ length: columns }, () => (<div class="sfg-masonry-col" />) as HTMLDivElement);
-      grid.append(...cols);
-      items.forEach((item, idx) => (cols[idx % columns] as HTMLDivElement).appendChild(mkCell(item, idx)));
-    } else {
-      grid.append(...items.map(mkCell));
-    }
-
-    updateCount();
-  }
-
-  // Allow the grid to scroll without React Flow intercepting wheel events
-  grid.addEventListener("wheel", (e) => { e.stopPropagation(); }, { passive: true });
-
-  // ── Box-select / click via event delegation ───────────────────────────────
-  let dragState: DragState | null = null;
-  const DRAG_THRESHOLD = 5;
-
-  function findCellEl(el: HTMLElement | null) {
-    while (el && el !== grid) {
-      if (el.classList.contains("sfg-cell")) return el;
-      el = el.parentElement;
-    }
-    return null;
-  }
+  // ── Box-select / click ──────────────────────────────────────────────────
 
   // Convert a viewport point to the grid's local (pre-transform) coordinate space.
   // When React Flow zooms the canvas it applies a CSS scale to an ancestor; all
   // getBoundingClientRect values are in post-scale screen pixels, but CSS position
   // values (left/top) and scrollLeft/scrollTop are in pre-scale local pixels.
-  function clientToLocal(clientX: number, clientY: number) {
+  function clientToLocal(grid: HTMLElement, clientX: number, clientY: number) {
     const gr    = grid.getBoundingClientRect();
     const scale = gr.width > 0 ? gr.width / grid.offsetWidth : 1;
     return {
@@ -481,7 +494,7 @@ export default function SelectFromGrid(
   }
 
   // Return a cell's rect in the same local coordinate space as clientToLocal.
-  function cellLocalRect(cell: Element) {
+  function cellLocalRect(grid: HTMLElement, cell: Element): Rect {
     const cr    = cell.getBoundingClientRect();
     const gr    = grid.getBoundingClientRect();
     const scale = gr.width > 0 ? gr.width / grid.offsetWidth : 1;
@@ -493,176 +506,175 @@ export default function SelectFromGrid(
     };
   }
 
-  function onGridPointerDown(e: PointerEvent) {
-    if (isDisabled || e.button !== 0) return;
-    e.stopPropagation();
+  function selectionBox(drag: DragState, curX: number, curY: number) {
+    return {
+      left:   Math.min(drag.startX, curX),
+      top:    Math.min(drag.startY, curY),
+      right:  Math.max(drag.startX, curX),
+      bottom: Math.max(drag.startY, curY),
+    };
+  }
 
-    const { x: startX, y: startY } = clientToLocal(e.clientX, e.clientY);
+  function onGridPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (disabled || e.button !== 0) return;
+    e.stopPropagation();
+    const grid = e.currentTarget;
+
+    const { x: startX, y: startY } = clientToLocal(grid, e.clientX, e.clientY);
 
     // Lasso is only created in multi-select mode
-    let lasso: HTMLDivElement | null = null;
-    if (multiSelect) {
-      lasso = (
-        <div class="sfg-lasso" style={{ left: startX + "px", top: startY + "px", width: "0", height: "0" }} />
-      ) as HTMLDivElement;
-      grid.appendChild(lasso);
-    }
+    if (multiSelect) setLasso({ left: startX, top: startY, width: 0, height: 0 });
 
-    dragState = { startX, startY, lasso, dragging: false, startCell: findCellEl(e.target as HTMLElement) };
+    const startCellEl = (e.target as Element).closest(".sfg-cell");
+    const startCell = startCellEl && grid.contains(startCellEl) ? cellIndex(startCellEl) : null;
+    dragRef.current = { startX, startY, lasso: multiSelect, dragging: false, startCell };
     grid.setPointerCapture(e.pointerId);
   }
 
-  function onGridPointerMove(e: PointerEvent) {
-    if (!dragState) return;
-    const { x: curX, y: curY } = clientToLocal(e.clientX, e.clientY);
-    const dx = curX - dragState.startX;
-    const dy = curY - dragState.startY;
+  function onGridPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const grid = e.currentTarget;
+    const { x: curX, y: curY } = clientToLocal(grid, e.clientX, e.clientY);
+    const dx = curX - drag.startX;
+    const dy = curY - drag.startY;
 
-    if (!dragState.dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD) dragState.dragging = true;
+    if (!drag.dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD) drag.dragging = true;
 
-    if (dragState.dragging && dragState.lasso) {
-      const selLeft   = Math.min(dragState.startX, curX);
-      const selTop    = Math.min(dragState.startY, curY);
-      const selRight  = Math.max(dragState.startX, curX);
-      const selBottom = Math.max(dragState.startY, curY);
+    if (drag.dragging && drag.lasso) {
+      const box = selectionBox(drag, curX, curY);
+      setLasso({ left: box.left, top: box.top, width: Math.abs(dx), height: Math.abs(dy) });
 
-      Object.assign(dragState.lasso.style, {
-        left:   selLeft  + "px",
-        top:    selTop   + "px",
-        width:  Math.abs(dx) + "px",
-        height: Math.abs(dy) + "px",
+      const next = new Set<number>();
+      grid.querySelectorAll(".sfg-cell").forEach((cell) => {
+        const idx = cellIndex(cell);
+        if (overlaps(cellLocalRect(grid, cell), box) && !selected.includes(idx)) next.add(idx);
       });
-
-      grid.querySelectorAll<HTMLElement>(".sfg-cell").forEach((cell) => {
-        const { left: cLeft, top: cTop, width: cW, height: cH } = cellLocalRect(cell);
-        const overlaps = cLeft < selRight  && (cLeft + cW) > selLeft &&
-                         cTop  < selBottom && (cTop  + cH) > selTop;
-        const idx = parseInt(cell.dataset.idx as string, 10);
-        cell.classList.toggle("pending", overlaps && !selectedIndices.includes(idx));
-      });
+      setPending(next);
     }
   }
 
-  function onGridPointerUp(e: PointerEvent) {
-    if (!dragState) return;
-    if (dragState.lasso) dragState.lasso.remove();
-    grid.querySelectorAll(".sfg-cell.pending").forEach((c) => c.classList.remove("pending"));
+  function endDrag() {
+    dragRef.current = null;
+    setLasso(null);
+    setPending(new Set());
+  }
 
-    if (dragState.dragging && dragState.lasso) {
+  function onGridPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const grid = e.currentTarget;
+    endDrag();
+
+    if (drag.dragging && drag.lasso) {
       // Multi-select lasso: add all cells in the rect to the selection
-      const { x: curX, y: curY } = clientToLocal(e.clientX, e.clientY);
-      const selLeft   = Math.min(dragState.startX, curX);
-      const selTop    = Math.min(dragState.startY, curY);
-      const selRight  = Math.max(dragState.startX, curX);
-      const selBottom = Math.max(dragState.startY, curY);
+      const { x: curX, y: curY } = clientToLocal(grid, e.clientX, e.clientY);
+      const box = selectionBox(drag, curX, curY);
 
-      let changed = false;
-      grid.querySelectorAll<HTMLElement>(".sfg-cell").forEach((cell) => {
-        const { left: cLeft, top: cTop, width: cW, height: cH } = cellLocalRect(cell);
-        if (cLeft < selRight && (cLeft + cW) > selLeft &&
-            cTop  < selBottom && (cTop  + cH) > selTop) {
-          const idx = parseInt(cell.dataset.idx as string, 10);
-          if (!isNaN(idx) && !selectedIndices.includes(idx)) {
-            selectedIndices = [...selectedIndices, idx];
-            cell.classList.add("selected");
-            changed = true;
-          }
-        }
+      const next = [...selected];
+      grid.querySelectorAll(".sfg-cell").forEach((cell) => {
+        if (!overlaps(cellLocalRect(grid, cell), box)) return;
+        const idx = cellIndex(cell);
+        if (!isNaN(idx) && !next.includes(idx)) next.push(idx);
       });
 
-      if (changed) { updateCount(); emitChange(); viewer.refresh(); }
-    } else if (!dragState.dragging && dragState.startCell) {
-      const idx = parseInt(dragState.startCell.dataset.idx as string, 10);
-      if (!isNaN(idx)) toggleSelection(idx);
-    }
-
-    dragState = null;
-  }
-
-  function onGridPointerCancel() {
-    if (dragState) {
-      if (dragState.lasso) dragState.lasso.remove();
-      grid.querySelectorAll(".sfg-cell.pending").forEach((c) => c.classList.remove("pending"));
-      dragState = null;
+      if (next.length !== selected.length) setSelection(next);
+    } else if (!drag.dragging && drag.startCell !== null) {
+      if (!isNaN(drag.startCell)) toggleSelection(drag.startCell);
     }
   }
 
-  // ── Initial render ────────────────────────────────────────────────────────
-  renderGrid();
+  // ── Viewer ──────────────────────────────────────────────────────────────
 
-  // ── Update handler ────────────────────────────────────────────────────────
-  function handleUpdate(newProps: SelectFromGridProps) {
-    onChangeRef = newProps.onChange;
-    const disabledChanged = (newProps.disabled || false) !== isDisabled;
-    isDisabled  = newProps.disabled || false;
-    setDisabled(isDisabled);
-
-    const newVal: GridValue = newProps.value || {};
-    const newItems       = newVal.items             || [];
-    const newSelected    = newVal.selected_indices   || [];
-    const newColumns     = newVal.columns            || 3;
-    const newLayout      = newVal.layout             || "grid";
-    const newMultiSelect = (newVal.settings?.multi_select) !== false;
-    const newShowLabels  = newVal.show_labels !== false;
-    const newLabelSize   = newVal.label_size  || 10;
-
-    let needsRender = false;
-
-    if (JSON.stringify(newItems) !== JSON.stringify(items)) {
-      items = newItems;
-      needsRender = true;
-    }
-    if (JSON.stringify(newSelected) !== JSON.stringify(selectedIndices)) {
-      selectedIndices = newSelected;
-      needsRender = true;
-    }
-    if (newColumns !== columns) {
-      columns = newColumns;
-      colSlider.value   = String(columns);
-      colVal.textContent = String(columns);
-      needsRender = true;
-    }
-    if (newLayout !== layout) {
-      layout = newLayout;
-      gridBtn.classList.toggle("active",  layout === "grid");
-      masonryBtn.classList.toggle("active", layout === "masonry");
-      needsRender = true;
-    }
-    const multiSelectChanged = newMultiSelect !== multiSelect;
-    if (multiSelectChanged) {
-      multiSelect = newMultiSelect;
-      // If switching to single-select with multiple items selected, clear down to none
-      if (!multiSelect && selectedIndices.length > 1) {
-        selectedIndices = [];
-        needsRender = true;
-      }
-    }
-    if (newShowLabels !== showLabels) {
-      showLabels = newShowLabels;
-      labelsBtn.classList.toggle("active", showLabels);
-      wrapper.classList.toggle("sfg-hide-labels", !showLabels);
-    }
-    if (newLabelSize !== labelSize) {
-      labelSize = newLabelSize;
-      labelSizeSlider.value  = String(labelSize);
-      labelSizeVal.textContent = String(labelSize);
-      wrapper.style.setProperty("--sfg-label-size", labelSize + "px");
-    }
-
-    latestValue = newVal;
-    if (needsRender) renderGrid();
-    if (needsRender || disabledChanged || multiSelectChanged) viewer.refresh();
+  function openViewer(idx: number) {
+    if (!items.length) return;
+    setViewerAt(Math.max(0, Math.min(items.length - 1, idx)));
   }
 
-  // ── Cleanup ───────────────────────────────────────────────────────────────
-  function cleanup() {
-    gridRO.disconnect();
-    cellObserver.disconnect();
-    viewer.destroy();
-    wrapper.remove();
-    delete container._sfgInst;
+  // ── Render ──────────────────────────────────────────────────────────────
+
+  const masonry = shownLayout === "masonry";
+  let gridStyle: CSSProperties | undefined;
+  if (!masonry) {
+    // Set grid-auto-rows to the pixel column width so cells are always 1:1.
+    // CSS aspect-ratio on grid items is unreliable for row-track sizing cross-browser.
+    const rowH = (gridWidth - (columns - 1) * GRID_GAP) / columns;
+    gridStyle = {
+      gridTemplateColumns: `repeat(${columns}, 1fr)`,
+      gridAutoRows: rowH > 0 ? `${rowH}px` : undefined,
+    };
   }
 
-  container._sfgInst = { wrapper, handleUpdate, cleanup };
-  return { cleanup, update: handleUpdate };
+  const renderCell = (item: GridItem, idx: number) => (
+    <Cell
+      key={`${idx}|${item.type}|${item.url ?? ""}`}
+      item={item} idx={idx} masonry={masonry}
+      selected={selected.includes(idx)} pending={pending.has(idx)} skeleton={skeleton}
+      watch={watch} onExpand={openViewer}
+    />
+  );
+
+  let cells;
+  if (items.length === 0) {
+    cells = <div className="sfg-empty">Connect a list to display items here</div>;
+  } else if (masonry) {
+    cells = Array.from({ length: columns }, (_, col) => (
+      <div key={col} className="sfg-masonry-col">
+        {items.map((item, idx) => (idx % columns === col ? renderCell(item, idx) : null))}
+      </div>
+    ));
+  } else {
+    cells = items.map(renderCell);
+  }
+
+  return (
+    <div
+      className={"sfg-widget nodrag nowheel" + (showLabels ? "" : " sfg-hide-labels")}
+      style={{ "--sfg-label-size": labelSize + "px" } as CSSProperties}
+    >
+      <Toolbar
+        layout={layout} columns={columns} disabled={disabled}
+        showLabels={showLabels} labelSize={labelSize} selectedCount={selected.length}
+        onColumnsChange={(n) => setState({ ...state, columns: n, shownLayout: layout, skeleton: true })}
+        onColumnsCommit={(n) => { animateGridChange(); commit({ ...state, columns: n }); }}
+        onLayoutChange={(l) => { animateGridChange(); commit({ ...state, layout: l }); }}
+        onClear={() => { if (selected.length) setSelection([]); }}
+        onLabelsToggle={(v) => commit({ ...state, showLabels: v })}
+        onLabelSizeChange={(n) => setState({ ...state, labelSize: n })}
+        onLabelSizeCommit={(n) => commit({ ...state, labelSize: n })}
+        onFullscreen={() => openViewer(selected[0] ?? 0)}
+      />
+      <div
+        ref={gridRef}
+        className={"sfg-grid" + (masonry ? " layout-masonry" : "") + (selected.length ? " has-selection" : "")}
+        style={gridStyle}
+        onPointerDown={onGridPointerDown}
+        onPointerMove={onGridPointerMove}
+        onPointerUp={onGridPointerUp}
+        onPointerCancel={() => { if (dragRef.current) endDrag(); }}
+        // Allow the grid to scroll without React Flow intercepting wheel events
+        onWheel={stopPropagation}
+      >
+        {cells}
+        {lasso ? (
+          <div
+            className="sfg-lasso"
+            style={{ left: lasso.left + "px", top: lasso.top + "px", width: lasso.width + "px", height: lasso.height + "px" }}
+          />
+        ) : null}
+      </div>
+      {viewerAt !== null && items.length > 0 ? (
+        <Viewer
+          items={items} selected={selected} multiSelect={multiSelect} disabled={disabled}
+          current={Math.min(viewerAt, items.length - 1)}
+          onShow={openViewer}
+          onClose={() => setViewerAt(null)}
+          onToggle={toggleSelection}
+          onRemove={(idx) => setSelection(selected.filter((i) => i !== idx))}
+        />
+      ) : null}
+    </div>
+  );
 }
+
+export default reactWidget(SelectFromGrid);

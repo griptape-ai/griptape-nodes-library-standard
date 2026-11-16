@@ -11,9 +11,9 @@ export function Icon({ name, size = 14 }: { name: IconName; size?: number }) {
   return (
     <svg
       viewBox="0 0 24 24" width={size} height={size}
-      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-      style="display:block;flex-shrink:0;pointer-events:none;"
-      innerHTML={ICON_PATHS[name] || ""}
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: "block", flexShrink: 0, pointerEvents: "none" }}
+      dangerouslySetInnerHTML={{ __html: ICON_PATHS[name] || "" }}
     />
   );
 }

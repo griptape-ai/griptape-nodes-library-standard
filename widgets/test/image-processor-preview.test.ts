@@ -6,7 +6,7 @@ import type { ImageProcessorPreviewProps, PreviewValue } from "../src/ImageProce
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
 import { type DomFakes, FakeImage, installDomFakes } from "./support/dom";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { flush, type MountedWidget, mountWidget, settle, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<ImageProcessorPreviewProps>;
 type Props = Partial<ImageProcessorPreviewProps>;
@@ -161,8 +161,8 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -367,6 +367,27 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
       expect([...out.data.slice(0, 4)]).toEqual([255, 255, 255, 255]);
     });
 
+    it("waits for the new masks when they change, never pairing a mode with the wrong mask", () => {
+      // Given two loaded masks with different modes
+      const images = [{ url: "https://example.test/a.png", mode: "1" }, { url: "https://example.test/b.png", mode: "L" }];
+      const handle = mount({ value: { operation: "combine_masks", images } });
+      for (const m of masks(2)) loadMask(m, 100, 50);
+      const puts = canvases.all("putImageData").length;
+
+      // When their order swaps
+      handle.update({ value: { operation: "combine_masks", images: [images[1]!, images[0]!] } });
+
+      // Then nothing is combined until the masks for the new order load
+      expect(canvases.all("putImageData")).toHaveLength(puts);
+      expect(statusText()).toBe("Loading");
+      const [b, a] = masks(2);
+      if (!a || !b) throw new Error("masks not loaded");
+      expect([b.src, a.src]).toEqual(["https://example.test/b.png", "https://example.test/a.png"]);
+      loadMask(b, 100, 50);
+      loadMask(a, 100, 50);
+      expect(statusText()).toBe("2 masks  →  100 × 50 px");
+    });
+
     it("refuses masks of different sizes", () => {
       mount({ value: { operation: "combine_masks", images: [{ url: "https://example.test/a.png" }, { url: "https://example.test/b.png" }] } });
       const [a, b] = masks(2);
@@ -409,13 +430,13 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
       Object.defineProperty(video, "duration", { configurable: true, value: 10 });
       Object.defineProperty(video, "videoWidth", { configurable: true, value: 320 });
       Object.defineProperty(video, "videoHeight", { configurable: true, value: 160 });
-      video.dispatchEvent(new Event("loadeddata"));
-      video.dispatchEvent(new Event("seeked"));
+      flush(() => video.dispatchEvent(new Event("loadeddata")));
+      flush(() => video.dispatchEvent(new Event("seeked")));
       expect(statusText()).toBe("320 × 160 px");
 
       // When the scrubber moves to the middle
       scrubber().value = "500";
-      scrubber().dispatchEvent(new Event("input", { bubbles: true }));
+      flush(() => scrubber().dispatchEvent(new Event("input", { bubbles: true })));
 
       // Then the video seeks there and the time shows
       expect(video.currentTime).toBe(5);
@@ -446,8 +467,7 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
       const handle = mount({ value });
       handle.update({ value });
       const rendersBefore = canvases.all("fillRect").length;
-      await Promise.resolve();
-      await Promise.resolve();
+      await settle();
 
       // Then the font is loaded once, added to the document, and the preview redrawn
       expect(FakeFontFace.instances).toHaveLength(1);
@@ -460,7 +480,7 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
   });
 
   describe("commits", () => {
-    it("never commits or shows live values, disabled or not", () => {
+    it("never commits or shows live values, disabled or not", async () => {
       for (const disabled of [false, true]) {
         // Given a preview, mounted on a fresh container
         container.replaceChildren();
@@ -468,43 +488,35 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
 
         // When settings change and the scrubber moves
         handle.update({ value: { operation: "flip", media: "image", image_url: IMAGE_URL, direction: "both" }, disabled });
-        scrubber().dispatchEvent(new Event("input", { bubbles: true }));
+        flush(() => scrubber().dispatchEvent(new Event("input", { bubbles: true })));
 
         // Then it only draws
         expect(statusText()).toBe("both  →  200 × 100 px");
         expect(onChange).not.toHaveBeenCalled();
         expect(onLiveChange).not.toHaveBeenCalled();
-        handle.cleanup();
+        await handle.cleanup();
       }
     });
   });
 
   describe("repeated mount on the same container", () => {
-    it("reuses the preview and applies the new props", () => {
+    it("builds a separate preview for each mount", async () => {
       // Given a mounted, loaded preview
       const first = mountLoaded({ operation: "flip" });
 
-      // When the loader mounts again on the same container with new props
+      // When the loader mounts again on the same container
       const second = mount({ value: { operation: "flip", media: "image", image_url: IMAGE_URL, direction: "vertical" } });
 
-      // Then no second preview is built and the new value is shown
+      // Then each mount has its own preview, and cleaning one up leaves the other
+      expect(previews()).toHaveLength(2);
+      await first.handle.cleanup();
       expect(previews()).toHaveLength(1);
-      expect(statusText()).toBe("vertical  →  200 × 100 px");
-      expect(second.result).toEqual(first.handle.result);
-    });
-
-    it("builds a fresh preview when the previous one was removed from the document", () => {
-      mount({ value: { operation: "flip" } });
-      const stale = previews()[0];
-      stale?.remove();
-      mount({ value: { operation: "flip" } });
-      expect(previews()).toHaveLength(1);
-      expect(previews()[0]).not.toBe(stale);
+      expect(second.result).not.toBe(first.handle.result);
     });
   });
 
   describe("cleanup", () => {
-    it("removes the preview, stops observing resizes, releases the video, and forgets the preview", () => {
+    it("removes the preview, stops observing resizes, and releases the video", async () => {
       // Given a mounted video preview
       const handle = mount({ value: { operation: "video_eq", media: "video", video_url: VIDEO_URL } });
       const ro = fakes.lastResizeObserver();
@@ -513,14 +525,13 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
       expect(ro.observed).toHaveLength(1);
 
       // When the loader cleans it up
-      handle.cleanup();
+      await handle.cleanup();
 
       // Then its DOM, resize observation, and media player are gone
       expect(previews()).toHaveLength(0);
       expect(ro.disconnected).toBe(true);
       expect(pause).toHaveBeenCalled();
       expect(video.hasAttribute("src")).toBe(false);
-      expect((container as HTMLElement & { _imagePreview?: unknown })._imagePreview).toBeUndefined();
     });
 
     it("registers no listeners outside its own DOM", () => {
@@ -533,7 +544,7 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
       expect(onContainer).not.toHaveBeenCalled();
     });
 
-    it("re-renders on resize until cleaned up", () => {
+    it("re-renders on resize until cleaned up", async () => {
       const { handle } = mountLoaded({ operation: "flip" });
       const ro = fakes.lastResizeObserver();
       const draws = () => canvases.all("drawImage").length;
@@ -542,14 +553,14 @@ describe.each(implementations)("ImageProcessorPreview (%s)", (_label, load) => {
       ro.trigger();
       expect(draws()).toBe(before + 1);
 
-      handle.cleanup();
+      await handle.cleanup();
       ro.trigger();
       expect(draws()).toBe(before + 1);
     });
 
-    it("mounts a fresh, working preview on the same container after cleanup", () => {
+    it("mounts a fresh, working preview on the same container after cleanup", async () => {
       const first = mount({ value: { operation: "flip" } });
-      first.cleanup();
+      await first.cleanup();
 
       const second = mountLoaded({ operation: "flip", direction: "vertical" });
 

@@ -1,5 +1,6 @@
 // Preset sidebar for CropVideoEditor — aspect ratio, resolution, and position shortcuts.
 
+import { type CSSProperties, type SyntheticEvent, useState } from 'react';
 import { type IconName, Icon } from './_icons';
 import type { CropRect } from './_types';
 
@@ -12,15 +13,13 @@ type PositionName =
   | "left-center" | "center" | "right-center"
   | "bottom-left" | "bottom-center" | "bottom-right";
 
-export interface SidebarOptions {
-  getImgSize: () => { imgNatW: number; imgNatH: number };
-  getCropRect: () => { l: number; t: number; w: number; h: number };
+export interface SidebarProps {
+  imgNatW: number;
+  imgNatH: number;
+  crop: { l: number; t: number; w: number; h: number };
+  lockedParams: readonly string[];
+  disabled: boolean;
   onApply: (crop: CropRect) => void;
-}
-
-export interface Sidebar {
-  el: HTMLDivElement;
-  syncDisabled: (lockedParams: readonly string[], disabled: boolean) => void;
 }
 
 const RATIO_PRESETS: readonly RatioPreset[] = [
@@ -103,86 +102,85 @@ function calcPositionRect(
   return { left: Math.max(0, l), top: Math.max(0, t), width: w, height: h };
 }
 
-const stopPropagation = (e: Event) => e.stopPropagation();
+const stopPropagation = (e: SyntheticEvent) => e.stopPropagation();
 
 function Divider() {
-  return <div style="height:1px;background:var(--border);margin:2px 0;flex-shrink:0;" />;
+  return <div style={{ height: "1px", background: "var(--border)", margin: "2px 0", flexShrink: 0 }} />;
 }
 
 function Label({ text }: { text: string }) {
-  return <div style="font-size:9px;color:var(--muted-foreground);text-align:center;padding:2px 0;">{text}</div>;
+  return <div style={{ fontSize: "9px", color: "var(--muted-foreground)", textAlign: "center", padding: "2px 0" }}>{text}</div>;
 }
 
-export function createSidebar({ getImgSize, getCropRect, onApply }: SidebarOptions): Sidebar {
-  const allBtns: HTMLButtonElement[] = [];
+const GRID_2: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "2px" };
+const GRID_3: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "2px" };
 
-  function Btn({ label, icon, title, onClick }: {
-    label?: string; icon?: IconName; title: string; onClick: () => void;
-  }): HTMLButtonElement {
-    const btn = (
-      <button
-        title={title}
-        style={{
-          width: "100%", padding: "4px 2px", borderRadius: "4px",
-          border: "1px solid var(--border)",
-          background: "var(--background)", color: "var(--foreground)", cursor: "pointer",
-          fontSize: "10px", fontWeight: "500", lineHeight: "1.3",
-          whiteSpace: "nowrap", boxSizing: "border-box",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: "3px",
-        }}
-        onMouseEnter={() => { if (!btn.disabled) btn.style.background = "var(--accent)"; }}
-        onMouseLeave={() => { btn.style.background = "var(--background)"; }}
-        onMouseDown={stopPropagation}
-        onPointerDown={stopPropagation}
-        onClick={(e) => { e.stopPropagation(); if (!btn.disabled) onClick(); }}
-      >
-        {icon && <Icon name={icon} size={12} />}
-        {label}
-      </button>
-    ) as HTMLButtonElement;
-    allBtns.push(btn);
-    return btn;
-  }
+function Btn({ label, icon, title, disabled, onClick }: {
+  label?: string; icon?: IconName; title: string; disabled: boolean; onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      title={title}
+      disabled={disabled}
+      style={{
+        width: "100%", padding: "4px 2px", borderRadius: "4px",
+        border: "1px solid var(--border)",
+        background: hovered && !disabled ? "var(--accent)" : "var(--background)",
+        color: "var(--foreground)", cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? "0.35" : "1",
+        fontSize: "10px", fontWeight: "500", lineHeight: "1.3",
+        whiteSpace: "nowrap", boxSizing: "border-box",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: "3px",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onMouseDown={stopPropagation}
+      onPointerDown={stopPropagation}
+      onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
+    >
+      {icon && <Icon name={icon} size={12} />}
+      {label}
+    </button>
+  );
+}
 
-  const el = (
+export function Sidebar({ imgNatW: vw, imgNatH: vh, crop, lockedParams, disabled, onApply }: SidebarProps) {
+  const coordLocked = ["left", "top", "width", "height"].some(f => lockedParams.includes(f));
+  const off = coordLocked || disabled;
+  const { l, t, w, h } = crop;
+
+  return (
     <div
-      class="nodrag nowheel"
+      className="nodrag nowheel"
       style={{
         display: "flex", flexDirection: "column", gap: "3px",
-        width: "108px", flexShrink: "0",
+        width: "108px", flexShrink: 0,
         background: "var(--muted)", borderRadius: "6px", padding: "4px",
         overflowY: "auto", boxSizing: "border-box",
       }}
     >
       {/* ── Reset ──────────────────────────────────────────────────────────── */}
-      <Btn icon="rotate-ccw" label="Reset" title="Reset crop to full video frame" onClick={() => {
-        const { imgNatW: vw, imgNatH: vh } = getImgSize();
-        onApply({ left: 0, top: 0, width: vw, height: vh });
-      }} />
+      <Btn icon="rotate-ccw" label="Reset" title="Reset crop to full video frame" disabled={off}
+        onClick={() => onApply({ left: 0, top: 0, width: vw, height: vh })} />
 
       {/* ── Aspect ratios ──────────────────────────────────────────────────── */}
       <Divider />
       <Label text="Ratio" />
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px;">
+      <div style={GRID_2}>
         {RATIO_PRESETS.map(({ label, rw, rh }) => (
-          <Btn label={label} title={label} onClick={() => {
-            const { imgNatW: vw, imgNatH: vh } = getImgSize();
-            const { l, t, w, h } = getCropRect();
-            onApply(calcRatioRect(rw, rh, vw, vh, l, t, w, h));
-          }} />
+          <Btn key={label} label={label} title={label} disabled={off}
+            onClick={() => onApply(calcRatioRect(rw, rh, vw, vh, l, t, w, h))} />
         ))}
       </div>
 
       {/* ── Resolutions ────────────────────────────────────────────────────── */}
       <Divider />
       <Label text="Res" />
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px;">
+      <div style={GRID_2}>
         {RESOLUTION_PRESETS.map(({ label, w: pw, h: ph }) => (
-          <Btn label={label} title={`${pw}×${ph}`} onClick={() => {
-            const { imgNatW: vw, imgNatH: vh } = getImgSize();
-            const { l, t, w, h } = getCropRect();
-            onApply(calcResolutionRect(pw, ph, vw, vh, l, t, w, h));
-          }} />
+          <Btn key={label} label={label} title={`${pw}×${ph}`} disabled={off}
+            onClick={() => onApply(calcResolutionRect(pw, ph, vw, vh, l, t, w, h))} />
         ))}
       </div>
 
@@ -190,27 +188,12 @@ export function createSidebar({ getImgSize, getCropRect, onApply }: SidebarOptio
       <Divider />
       <Label text="Pos" />
       {/* 3×3 grid for position shortcuts */}
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;">
+      <div style={GRID_3}>
         {POSITION_PRESETS.map(({ label, title, pos }) => (
-          <Btn label={label} title={title} onClick={() => {
-            const { imgNatW: vw, imgNatH: vh } = getImgSize();
-            const { l, t, w, h } = getCropRect();
-            onApply(calcPositionRect(pos, vw, vh, l, t, w, h));
-          }} />
+          <Btn key={pos} label={label} title={title} disabled={off}
+            onClick={() => onApply(calcPositionRect(pos, vw, vh, l, t, w, h))} />
         ))}
       </div>
     </div>
-  ) as HTMLDivElement;
-
-  function syncDisabled(lockedParams: readonly string[], disabled: boolean): void {
-    const coordLocked = ["left", "top", "width", "height"].some(f => lockedParams.includes(f));
-    const off = coordLocked || disabled;
-    for (const btn of allBtns) {
-      btn.disabled = off;
-      btn.style.opacity = off ? "0.35" : "1";
-      btn.style.cursor  = off ? "not-allowed" : "pointer";
-    }
-  }
-
-  return { el, syncDisabled };
+  );
 }

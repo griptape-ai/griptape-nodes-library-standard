@@ -3,212 +3,159 @@
 // Layout:
 //   [Columns ──●── N]  [Grid|Masonry]  [☑ Labels] [Aa ──●── N]  · · ·  [N selected]  [Clear]  [⤢]
 //
-// createToolbar(opts) →
-//   { controls, colSlider, colVal, gridBtn, masonryBtn, countEl, clearBtn,
-//     labelsBtn, labelSizeSlider, labelSizeVal, fullscreenBtn, setDisabled }
+// The toolbar holds no state: it shows the values it's given and reports edits
+// through the callbacks.
+
+import { useEffect, useLayoutEffect, useRef, type SyntheticEvent } from 'react';
 
 import { Icon } from './_icons';
 import type { GridLayout } from './_types';
 
-export interface ToolbarOptions {
+export interface ToolbarProps {
   layout: GridLayout;
   columns: number;
-  isDisabled: boolean;
+  disabled: boolean;
   showLabels: boolean;
   labelSize: number;
+  selectedCount: number;
   onColumnsChange: (n: number) => void;
-  onColumnsCommit?: (n: number) => void;
+  onColumnsCommit: (n: number) => void;
   onLayoutChange: (layout: GridLayout) => void;
   onClear: () => void;
-  onLabelsToggle?: (show: boolean) => void;
-  onLabelSizeChange?: (n: number) => void;
-  onLabelSizeCommit?: (n: number) => void;
+  onLabelsToggle: (show: boolean) => void;
+  onLabelSizeChange: (n: number) => void;
+  onLabelSizeCommit: (n: number) => void;
   onFullscreen: () => void;
 }
 
-export interface Toolbar {
-  controls: HTMLDivElement;
-  colSlider: HTMLInputElement;
-  colVal: HTMLSpanElement;
-  gridBtn: HTMLButtonElement;
-  masonryBtn: HTMLButtonElement;
-  countEl: HTMLSpanElement;
-  clearBtn: HTMLButtonElement;
-  labelsBtn: HTMLButtonElement;
-  labelSizeSlider: HTMLInputElement;
-  labelSizeVal: HTMLSpanElement;
-  fullscreenBtn: HTMLButtonElement;
-  setDisabled: (disabled: boolean) => void;
+const stopPropagation = (e: SyntheticEvent) => e.stopPropagation();
+
+interface SliderProps {
+  min: number;
+  max: number;
+  value: number;
+  disabled: boolean;
+  onInput: (n: number) => void;
+  onCommit: (n: number) => void;
 }
 
-export function createToolbar({
-  layout, columns, isDisabled,
-  showLabels, labelSize,
+// A range input that reports every step through onInput and the release through onCommit.
+// React's onChange fires per step, so the release is taken from the native change event.
+function Slider({ min, max, value, disabled, onInput, onCommit }: SliderProps) {
+  const ref = useRef<HTMLInputElement>(null);
+  const commitRef = useRef(onCommit);
+  useLayoutEffect(() => { commitRef.current = onCommit; });
+
+  useEffect(() => {
+    const input = ref.current;
+    if (!input) return;
+    const onChange = () => commitRef.current(parseInt(input.value, 10));
+    input.addEventListener("change", onChange);
+    return () => input.removeEventListener("change", onChange);
+  }, []);
+
+  return (
+    <input
+      ref={ref}
+      type="range" className="sfg-slider" min={min} max={max}
+      value={String(value)} disabled={disabled}
+      onPointerDown={stopPropagation}
+      onChange={(e) => onInput(parseInt(e.currentTarget.value, 10))}
+    />
+  );
+}
+
+export function Toolbar({
+  layout, columns, disabled,
+  showLabels, labelSize, selectedCount,
   onColumnsChange, onColumnsCommit,
   onLayoutChange,
   onClear,
   onLabelsToggle,
   onLabelSizeChange, onLabelSizeCommit,
   onFullscreen,
-}: ToolbarOptions): Toolbar {
+}: ToolbarProps) {
+  const hasSelection = selectedCount > 0;
 
-  const stopPropagation = (e: Event) => e.stopPropagation();
-
-  // ── Column slider ──────────────────────────────────────────────────────────
-
-  const colSlider = (
-    <input
-      type="range" class="sfg-slider" min="1" max="8"
-      value={String(columns)} disabled={isDisabled}
-      onPointerDown={stopPropagation}
-      onInput={() => {
-        colVal.textContent = colSlider.value;
-        onColumnsChange(parseInt(colSlider.value, 10));
-      }}
-      onChange={() => {
-        if (onColumnsCommit) onColumnsCommit(parseInt(colSlider.value, 10));
-      }}
-    />
-  ) as HTMLInputElement;
-
-  const colVal = (<span>{String(columns)}</span>) as HTMLSpanElement;
-
-  // ── Layout toggle — segmented control ─────────────────────────────────────
-
-  const gridBtn = (
+  const layoutButton = (target: GridLayout, text: string) => (
     <button
-      type="button" class={"sfg-layout-btn" + (layout === "grid" ? " active" : "")}
-      disabled={isDisabled}
+      type="button" className={"sfg-layout-btn" + (layout === target ? " active" : "")}
+      disabled={disabled}
       onPointerDown={stopPropagation}
       onClick={(e) => {
         e.stopPropagation();
-        gridBtn.classList.add("active");
-        masonryBtn.classList.remove("active");
-        onLayoutChange("grid");
+        onLayoutChange(target);
       }}
     >
-      Grid
+      {text}
     </button>
-  ) as HTMLButtonElement;
+  );
 
-  const masonryBtn = (
-    <button
-      type="button" class={"sfg-layout-btn" + (layout === "masonry" ? " active" : "")}
-      disabled={isDisabled}
-      onPointerDown={stopPropagation}
-      onClick={(e) => {
-        e.stopPropagation();
-        masonryBtn.classList.add("active");
-        gridBtn.classList.remove("active");
-        onLayoutChange("masonry");
-      }}
-    >
-      Masonry
-    </button>
-  ) as HTMLButtonElement;
+  return (
+    <div className="sfg-controls">
+      <label className="sfg-label">
+        {"Columns "}
+        <Slider
+          min={1} max={8} value={columns} disabled={disabled}
+          onInput={onColumnsChange} onCommit={onColumnsCommit}
+        />
+        <span>{String(columns)}</span>
+      </label>
 
-  // ── Labels checkbox toggle ─────────────────────────────────────────────────
+      {/* Layout toggle — segmented control */}
+      <div className="sfg-layout-btns">
+        {layoutButton("grid", "Grid")}
+        {layoutButton("masonry", "Masonry")}
+      </div>
 
-  const labelsBtn = (
-    <button
-      type="button" class={"sfg-labels-btn" + (showLabels !== false ? " active" : "")}
-      disabled={isDisabled}
-      onPointerDown={stopPropagation}
-      onClick={(e) => {
-        e.stopPropagation();
-        labelsBtn.classList.toggle("active");
-        if (onLabelsToggle) onLabelsToggle(labelsBtn.classList.contains("active"));
-      }}
-    >
-      <span class="sfg-cb-box"><Icon name="check" size={9} /></span>
-      Labels
-    </button>
-  ) as HTMLButtonElement;
+      <button
+        type="button" className={"sfg-labels-btn" + (showLabels ? " active" : "")}
+        disabled={disabled}
+        onPointerDown={stopPropagation}
+        onClick={(e) => {
+          e.stopPropagation();
+          onLabelsToggle(!showLabels);
+        }}
+      >
+        <span className="sfg-cb-box"><Icon name="check" size={9} /></span>
+        Labels
+      </button>
 
-  // ── Label size slider ──────────────────────────────────────────────────────
+      <label className="sfg-label sfg-label-size-group">
+        {"Aa "}
+        <Slider
+          min={8} max={32} value={labelSize} disabled={disabled}
+          onInput={onLabelSizeChange} onCommit={onLabelSizeCommit}
+        />
+        <span>{String(labelSize)}</span>
+      </label>
 
-  const labelSizeSlider = (
-    <input
-      type="range" class="sfg-slider" min="8" max="32"
-      value={String(labelSize || 10)} disabled={isDisabled}
-      onPointerDown={stopPropagation}
-      onInput={() => {
-        const n = parseInt(labelSizeSlider.value, 10);
-        labelSizeVal.textContent = String(n);
-        if (onLabelSizeChange) onLabelSizeChange(n);
-      }}
-      onChange={() => {
-        if (onLabelSizeCommit) onLabelSizeCommit(parseInt(labelSizeSlider.value, 10));
-      }}
-    />
-  ) as HTMLInputElement;
+      <span className={"sfg-count" + (hasSelection ? " active" : "")}>
+        {hasSelection ? `${selectedCount} selected` : ""}
+      </span>
 
-  const labelSizeVal = (<span>{String(labelSize || 10)}</span>) as HTMLSpanElement;
+      <button
+        type="button" className={"sfg-clear-btn" + (hasSelection ? " active" : "")} disabled={disabled}
+        onPointerDown={stopPropagation}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClear();
+        }}
+      >
+        Clear
+      </button>
 
-  // ── Selection count + clear ────────────────────────────────────────────────
-
-  const countEl = (<span class="sfg-count" />) as HTMLSpanElement;
-
-  const clearBtn = (
-    <button
-      type="button" class="sfg-clear-btn" disabled={isDisabled}
-      onPointerDown={stopPropagation}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClear();
-      }}
-    >
-      Clear
-    </button>
-  ) as HTMLButtonElement;
-
-  // ── Fullscreen viewer ──────────────────────────────────────────────────────
-  // Stays enabled while the node is disabled: browsing doesn't change the value.
-
-  const fullscreenBtn = (
-    <button
-      type="button" class="sfg-fullscreen-btn" title="Fullscreen"
-      onPointerDown={stopPropagation}
-      onClick={(e) => {
-        e.stopPropagation();
-        onFullscreen();
-      }}
-    >
-      <Icon name="maximize-2" size={12} />
-    </button>
-  ) as HTMLButtonElement;
-
-  // ── Assemble ───────────────────────────────────────────────────────────────
-
-  const controls = (
-    <div class="sfg-controls">
-      <label class="sfg-label">{"Columns "}{colSlider}{colVal}</label>
-      <div class="sfg-layout-btns">{gridBtn}{masonryBtn}</div>
-      {labelsBtn}
-      <label class="sfg-label sfg-label-size-group">{"Aa "}{labelSizeSlider}{labelSizeVal}</label>
-      {countEl}
-      {clearBtn}
-      {fullscreenBtn}
+      {/* Stays enabled while the node is disabled: browsing doesn't change the value */}
+      <button
+        type="button" className="sfg-fullscreen-btn" title="Fullscreen"
+        onPointerDown={stopPropagation}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFullscreen();
+        }}
+      >
+        <Icon name="maximize-2" size={12} />
+      </button>
     </div>
-  ) as HTMLDivElement;
-
-  // ── Toolbar API ────────────────────────────────────────────────────────────
-
-  function setDisabled(disabled: boolean) {
-    colSlider.disabled      = disabled;
-    gridBtn.disabled        = disabled;
-    masonryBtn.disabled     = disabled;
-    clearBtn.disabled       = disabled;
-    labelsBtn.disabled      = disabled;
-    labelSizeSlider.disabled = disabled;
-  }
-
-  return {
-    controls, colSlider, colVal,
-    gridBtn, masonryBtn,
-    countEl, clearBtn,
-    labelsBtn, labelSizeSlider, labelSizeVal,
-    fullscreenBtn,
-    setDisabled,
-  };
+  );
 }

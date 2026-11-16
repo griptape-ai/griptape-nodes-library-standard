@@ -6,7 +6,7 @@ import type { CropVideoEditorProps, CropVideoValue, LiveCropVideoValue } from ".
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
 import { type DomFakes, installDomFakes, pointer } from "./support/dom";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { type MountedWidget, flush, mountWidget, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<CropVideoEditorProps>;
 type Props = Partial<CropVideoEditorProps>;
@@ -65,7 +65,21 @@ function loadMetadata(video: HTMLVideoElement, { width = 200, height = 100, dura
   Object.defineProperty(video, "videoWidth", { configurable: true, value: width });
   Object.defineProperty(video, "videoHeight", { configurable: true, value: height });
   Object.defineProperty(video, "duration", { configurable: true, value: duration });
-  video.dispatchEvent(new Event("loadedmetadata"));
+  flush(() => video.dispatchEvent(new Event("loadedmetadata")));
+}
+
+function click(el: HTMLElement): void {
+  flush(() => el.click());
+}
+
+// Sets the value the way the user does, past React's tracking of the `value` property, so the input
+// event reads as a change.
+function scrubTo(input: HTMLInputElement, frame: number): void {
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  flush(() => {
+    setValue?.call(input, String(frame));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }
 
 describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
@@ -85,8 +99,8 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -95,7 +109,13 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
   // Mounts with the editor's props filled in around the ones a test cares about.
   function mount(props: Props) {
     const mounted = mountWidget(CropVideoEditor, container, widgetProps(props));
-    const handle = { ...mounted, update: (next: Props) => mounted.update(widgetProps(next)) };
+    // Cleans up once, whether a test or afterEach asks first.
+    let cleaned: Promise<void> | undefined;
+    const handle = {
+      ...mounted,
+      cleanup: () => (cleaned ??= mounted.cleanup()),
+      update: (next: Props) => mounted.update(widgetProps(next)),
+    };
     handles.push(handle);
     return handle;
   }
@@ -108,7 +128,8 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
     return { handle, onChange, onLiveChange };
   }
 
-  const wrapper = () => container.firstElementChild as HTMLElement | null;
+  // The editor's root element, inside the element its React root renders into.
+  const wrapper = () => container.firstElementChild?.firstElementChild as HTMLElement | null;
   const video = () => {
     const el = container.querySelector("video");
     if (!el) throw new Error("video not mounted");
@@ -230,6 +251,15 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
       expect(video().src).toBe("https://example.test/other.mp4");
       expect(statusText()).toBe("No video connected");
     });
+
+    it("keeps the previous video's canvas size until a new video without dims loads its metadata", () => {
+      const { handle } = mountLoaded();
+      handle.update({ value: { video_url: "https://example.test/other.mp4" } });
+      expect([canvas().width, canvas().height]).toEqual([480, 240]);
+
+      loadMetadata(video(), { width: 100, height: 100 });
+      expect([canvas().width, canvas().height]).toEqual([360, 360]);
+    });
   });
 
   describe("crop drag and resize", () => {
@@ -292,10 +322,10 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
   describe("sidebar presets", () => {
     it("applies an aspect ratio around the current crop centre and commits it as a custom box", () => {
       const { onChange } = mountLoaded();
-      sidebarButton("1:1").click();
+      click(sidebarButton("1:1"));
       expect(onChange).toHaveBeenLastCalledWith(committed({ l: 75, t: 25, w: 50, h: 50 }));
 
-      sidebarButton("Reset crop to full video frame").click();
+      click(sidebarButton("Reset crop to full video frame"));
       expect(onChange).toHaveBeenLastCalledWith(committed({ l: 0, t: 0, w: 200, h: 100 }));
     });
   });
@@ -303,8 +333,7 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
   describe("frame scrubber", () => {
     it("seeks the video to the chosen frame without committing anything", () => {
       const { onChange } = mountLoaded();
-      scrubber().value = "10";
-      scrubber().dispatchEvent(new Event("input", { bubbles: true }));
+      scrubTo(scrubber(), 10);
 
       // Frame 10 of 50 in a 2 s video
       expect(video().currentTime).toBeCloseTo(0.4);
@@ -326,9 +355,8 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
 
       // When the user drags, clicks a preset, and scrubs
       drag(at(100, 50), at(110, 60));
-      sidebarButton("1:1").click();
-      scrubber().value = "10";
-      scrubber().dispatchEvent(new Event("input", { bubbles: true }));
+      click(sidebarButton("1:1"));
+      scrubTo(scrubber(), 10);
 
       // Then nothing is emitted or seeked, and the controls show as disabled
       expect(onChange).not.toHaveBeenCalled();
@@ -356,7 +384,7 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
       // When the user drags inside and outside the crop and clicks a preset
       drag(at(100, 50), at(110, 60));
       drag(at(10, 10), at(40, 30));
-      sidebarButton("1:1").click();
+      click(sidebarButton("1:1"));
 
       // Then nothing commits, and the status names the locked edges
       expect(onChange).not.toHaveBeenCalled();
@@ -399,7 +427,7 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
       expect(oldLive).not.toHaveBeenCalled();
     });
 
-    it("reuses the editor on a repeated mount of the same container", () => {
+    it("keeps each mount's state apart when one container holds two", async () => {
       // Given a mounted, loaded editor
       const first = mountLoaded();
 
@@ -407,19 +435,21 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
       const onChange = vi.fn<(value: CropVideoValue) => void>();
       const second = mount({ value: baseValue({ custom_left: 10, custom_top: 5 }), onChange });
 
-      // Then no second editor is built, the new value shows, and the new callback receives commits
-      expect(container.children).toHaveLength(1);
-      expect(container.querySelectorAll("video")).toHaveLength(1);
+      // Then the second editor is its own, and its commits reach only its callback
+      expect(container.children).toHaveLength(2);
+      expect(container.querySelectorAll("video")).toHaveLength(2);
+      expect(second.result).not.toBe(first.handle.result);
+      await first.handle.cleanup();
+      loadMetadata(video());
       expect(statusText()).toBe("x: 10  y: 5  →  100 × 50 px");
-      expect(second.result).toEqual(first.handle.result);
-      sidebarButton("Reset crop to full video frame").click();
+      click(sidebarButton("Reset crop to full video frame"));
       expect(onChange).toHaveBeenCalledTimes(1);
       expect(first.onChange).not.toHaveBeenCalled();
     });
   });
 
   describe("cleanup", () => {
-    it("removes the editor DOM, releases the video, stops observing resizes, and forgets the editor", () => {
+    it("removes the editor DOM, releases the video, and stops observing resizes", async () => {
       // Given a mounted, loaded editor
       mountLoaded();
       const el = video();
@@ -428,14 +458,13 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
       const ctx = fakes.lastContext();
 
       // When the loader cleans it up
-      handles[0]?.cleanup();
+      await handles[0]?.cleanup();
 
       // Then its DOM, video source, and resize observation are gone
       expect(container.children).toHaveLength(0);
       expect(pause).toHaveBeenCalled();
       expect(el.hasAttribute("src")).toBe(false);
       expect(ro.disconnected).toBe(true);
-      expect((container as HTMLElement & { _instance?: unknown })._instance).toBeUndefined();
       ctx.reset();
       ro.trigger();
       expect(ctx.calls).toHaveLength(0);
@@ -451,9 +480,9 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
       expect(onContainer).not.toHaveBeenCalled();
     });
 
-    it("mounts a fresh editor on the same container after cleanup", () => {
+    it("mounts a fresh editor on the same container after cleanup", async () => {
       const first = mount({ value: baseValue() });
-      first.cleanup();
+      await first.cleanup();
 
       const onChange = vi.fn<(value: CropVideoValue) => void>();
       mount({ value: baseValue(), onChange });
@@ -461,7 +490,7 @@ describe.each(implementations)("CropVideoEditor (%s)", (_label, load) => {
 
       expect(container.children).toHaveLength(1);
       expect(fakes.lastResizeObserver().disconnected).toBe(false);
-      sidebarButton("1:1").click();
+      click(sidebarButton("1:1"));
       expect(onChange).toHaveBeenCalledTimes(1);
     });
   });

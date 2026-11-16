@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { KlingMultiShotEditorProps, KlingShot } from "../src/KlingMultiShotEditor/KlingMultiShotEditor";
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { type MountedWidget, flush, mountWidget, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<KlingMultiShotEditorProps>;
 type Props = Partial<KlingMultiShotEditorProps>;
@@ -37,8 +37,20 @@ function shots(...durations: number[]): KlingShot[] {
 }
 
 function down(target: Element, init: PointerEventInit = {}): void {
-  target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, ...init }));
+  flush(() => {
+    target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, ...init }));
+  });
 }
+
+// Fires an event on the target and lets the editor render what it changed.
+function fire(target: EventTarget, event: Event): void {
+  flush(() => {
+    target.dispatchEvent(event);
+  });
+}
+
+// Leaving a field: React listens for the bubbling focusout the browser sends with blur.
+const blur = () => new FocusEvent("focusout", { bubbles: true });
 
 describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
   let KlingMultiShotEditor: Mount;
@@ -55,8 +67,8 @@ describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     document.body.innerHTML = "";
     vi.restoreAllMocks();
@@ -94,9 +106,9 @@ describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
   const lastCommit = (onChange: ReturnType<typeof vi.fn>) => onChange.mock.lastCall?.[0] as KlingShot[];
 
   describe("mount", () => {
-    it("returns a bare cleanup function and builds the editor inside the container", () => {
+    it("returns a handle and builds the editor inside the container", () => {
       const handle = mount({ value: shots(3, 2) });
-      expect(typeof handle.result).toBe("function");
+      expect(handle.result).toEqual({ update: expect.any(Function), cleanup: expect.any(Function) });
       expect(container.querySelectorAll(".multi-shot-container")).toHaveLength(1);
       expect(badges()).toEqual(["Shot1", "Shot2"]);
       expect(durations()).toEqual(["3 s", "2 s"]);
@@ -130,13 +142,14 @@ describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
   });
 
   describe("update", () => {
-    it("has no update: a fresh mount on the container applies a new value", () => {
+    it("keeps the shots it mounted with on update: a fresh mount applies a new value", async () => {
       // Given a mounted editor
       const first = mount({ value: shots(3) });
       first.update(widgetProps({ value: shots(4, 4) }));
       expect(badges()).toEqual(["Shot1"]);
 
-      // When the editor mounts again with a new value
+      // When the editor is cleaned up and mounts again with a new value
+      await first.cleanup();
       mount({ value: shots(4, 4) });
 
       // Then the container holds just the new editor
@@ -177,6 +190,38 @@ describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
       down(stepper(0, "+"));
       expect(onChange).not.toHaveBeenCalled();
       expect(stepper(0, "+").style.cursor).toBe("default");
+    });
+
+    it("drops the hover colour of a + that re-enables after the pointer left it", () => {
+      // Given a + hovered until the budget runs out, then left
+      mount({ value: shots(10, 4) });
+      fire(stepper(0, "+"), new PointerEvent("pointerover", { bubbles: true }));
+      down(stepper(0, "+"));
+      expect(stepper(0, "+").style.cursor).toBe("default");
+      fire(stepper(0, "+"), new PointerEvent("pointerout", { bubbles: true }));
+
+      // When - frees the budget again
+      down(stepper(0, "-"));
+
+      // Then + is enabled without the hover colour
+      expect(stepper(0, "+").style.cursor).toBe("pointer");
+      expect(stepper(0, "+").style.background).toBe("transparent");
+    });
+
+    it("drops the hover colour of + Shot that re-enables after the pointer left it", () => {
+      // Given + Shot hovered until six shots, then left
+      mount({ value: shots(2, 2, 2, 2, 2) });
+      fire(addButton(), new PointerEvent("pointerover", { bubbles: true }));
+      down(addButton());
+      expect(addButton().style.cursor).toBe("not-allowed");
+      fire(addButton(), new PointerEvent("pointerout", { bubbles: true }));
+
+      // When a shot is removed
+      down(trash(0)!);
+
+      // Then + Shot is enabled without the hover colour
+      expect(addButton().style.cursor).toBe("pointer");
+      expect(addButton().style.background).toBe("#252525");
     });
 
     it("blocks - when the total would drop below 3 s", () => {
@@ -241,14 +286,14 @@ describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
 
       // When the user types
       ta.value = "hello";
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      fire(ta, new Event("input", { bubbles: true }));
 
       // Then the counter follows without committing
       expect(counter(0)).toBe("5 / 512");
       expect(onChange).not.toHaveBeenCalled();
 
       // And leaving the field commits the text
-      ta.dispatchEvent(new Event("blur"));
+      fire(ta, blur());
       expect(lastCommit(onChange)[0]?.description).toBe("hello");
     });
 
@@ -271,8 +316,8 @@ describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
     });
 
     const handleOf = (index: number) => items()[index]!.querySelector<HTMLElement>(".drag-handle")!;
-    const move = (y: number) => document.dispatchEvent(new PointerEvent("pointermove", { clientY: y, cancelable: true }));
-    const up = () => document.dispatchEvent(new PointerEvent("pointerup", {}));
+    const move = (y: number) => fire(document, new PointerEvent("pointermove", { clientY: y, cancelable: true }));
+    const up = () => fire(document, new PointerEvent("pointerup", {}));
 
     it("moves a shot below another and commits the new order", () => {
       // Given three shots
@@ -327,30 +372,31 @@ describe.each(implementations)("KlingMultiShotEditor (%s)", (_label, load) => {
       down(addButton());
       down(items()[0]!.querySelector(".drag-handle")!);
       expect(document.body.querySelectorAll(".shot-item")).toHaveLength(2);
-      textarea(0).dispatchEvent(new Event("blur"));
+      fire(textarea(0), blur());
       expect(onChange).not.toHaveBeenCalled();
     });
   });
 
   describe("cleanup", () => {
-    it("removes a drag in progress and stops listening on the document", () => {
+    it("removes a drag in progress and stops listening on the document", async () => {
       // Given a drag under way
       vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
         return new DOMRect(0, Number((this as HTMLElement).dataset?.index ?? 0) * 100, 300, 100);
       });
       const { cleanup, onChange } = mount({ value: shots(3, 2) });
       down(items()[0]!.querySelector(".drag-handle")!, { clientY: 10 });
+      expect(document.body.querySelectorAll(".shot-item")).toHaveLength(3);
       const removeSpy = vi.spyOn(document, "removeEventListener");
 
       // When the widget is cleaned up
-      cleanup();
+      await cleanup();
 
-      // Then the clone is gone and a later drop does nothing
+      // Then the editor and its clone are gone and a later drop does nothing
       expect(removeSpy).toHaveBeenCalledWith("pointermove", expect.any(Function));
       expect(removeSpy).toHaveBeenCalledWith("pointerup", expect.any(Function));
-      expect(document.body.querySelectorAll(".shot-item")).toHaveLength(2);
-      document.dispatchEvent(new PointerEvent("pointermove", { clientY: 190 }));
-      document.dispatchEvent(new PointerEvent("pointerup", {}));
+      expect(document.body.querySelectorAll(".shot-item")).toHaveLength(0);
+      fire(document, new PointerEvent("pointermove", { clientY: 190 }));
+      fire(document, new PointerEvent("pointerup", {}));
       expect(onChange).not.toHaveBeenCalled();
     });
   });

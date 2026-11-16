@@ -1,24 +1,19 @@
-import { Icon } from './_icons';
-import type { IconName } from './_icons';
-import type { VideoCaptureLiveValues, VideoCaptureValue } from './_types';
-import type { WidgetHandle, WidgetProps } from '@griptape-ai/nodes-widget-api';
-import type { StyleProp } from '@griptape-ai/nodes-widget-api/jsx-runtime';
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
+
+import { reactWidget } from "@griptape-ai/nodes-widget-api/react";
+import type { WidgetProps } from "@griptape-ai/nodes-widget-api";
+
+import { Icon } from "./_icons";
+import type { IconName } from "./_icons";
+import type { VideoCaptureLiveValues, VideoCaptureValue } from "./_types";
 
 export type {
   VideoCaptureAccepted, VideoCaptureError, VideoCaptureIdle, VideoCaptureLiveValues, VideoCaptureProcessed,
   VideoCaptureRequestingUploadUrl, VideoCaptureUploadReady, VideoCaptureValue,
-} from './_types';
+} from "./_types";
 
 export type VideoCaptureProps = WidgetProps<VideoCaptureValue, VideoCaptureLiveValues>;
-
-// A mounted widget, kept on its container so a repeated mount updates it instead of building
-// a second one.
-interface VideoCaptureInstance {
-  handleUpdate: (props: VideoCaptureProps) => void;
-  cleanup: () => void;
-  wrapper: HTMLDivElement;
-}
-type VideoCaptureContainer = HTMLElement & { _vcInst?: VideoCaptureInstance };
 
 const PREFERRED_MIMES = [
   "video/mp4;codecs=avc1,mp4a.40.2",
@@ -41,28 +36,6 @@ function fmtTime(s: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function injectStyles(): void {
-  if (document.getElementById("vc-styles")) return;
-  document.head.append(<style id="vc-styles">{"@keyframes vc-spin{to{transform:rotate(360deg)}}"}</style>);
-}
-
-const stopPropagation = (e: Event) => e.stopPropagation();
-
-function DeviceSelect({ onChange }: { onChange: () => void }) {
-  return (
-    <select
-      style={{
-        flex: "1", minWidth: "0", padding: "4px 6px", borderRadius: "5px",
-        border: "1px solid var(--border)", background: "var(--background)",
-        color: "var(--foreground)", fontSize: "12px", cursor: "pointer",
-      }}
-      onPointerDown={stopPropagation}
-      onMouseDown={stopPropagation}
-      onChange={onChange}
-    />
-  );
-}
-
 function cameraErrorMessage(err: unknown): string {
   const name = (err as { name?: string } | null | undefined)?.name;
   switch (name) {
@@ -80,21 +53,107 @@ function cameraErrorMessage(err: unknown): string {
   }
 }
 
-function OverlayButton({ icon, label, style, onClick }: {
+// Where the camera view is: opening the camera, unable to open it, showing the live stream,
+// recording it, or reviewing the finished recording.
+type Phase =
+  | { kind: "starting" }
+  | { kind: "failed"; message: string }
+  | { kind: "streaming" }
+  | { kind: "recording" }
+  | { kind: "review" };
+
+const STARTING: Phase = { kind: "starting" };
+const STREAMING: Phase = { kind: "streaming" };
+const RECORDING: Phase = { kind: "recording" };
+const REVIEW: Phase = { kind: "review" };
+
+// The overlay over an accepted recording: a spinner while it uploads, or the node's error.
+interface EncodingOverlay {
+  error?: string;
+}
+
+interface DeviceLists {
+  video: MediaDeviceInfo[];
+  audio: MediaDeviceInfo[];
+  videoId: string;
+  audioId: string;
+}
+
+// The selector's previous choice if the device is still listed, else the first device.
+function keepSelection(previous: string, list: MediaDeviceInfo[]): string {
+  if (previous && list.some((d) => d.deviceId === previous)) return previous;
+  return list[0]?.deviceId ?? "";
+}
+
+// Media handles and handshake bookkeeping the async camera, recorder, and upload code shares.
+interface MediaSession {
+  stream: MediaStream | null;
+  recorder: MediaRecorder | null;
+  chunks: Blob[];
+  blob: Blob | null;
+  blobUrl: string | null;
+  // The devices the camera is (re)opened on; empty means the browser's default.
+  videoId: string;
+  audioId: string;
+  // Bumped by each camera start and by unmount, so a superseded getUserMedia stops its tracks.
+  startSeq: number;
+  // Guards against duplicate upload_ready deliveries within one accept.
+  uploading: boolean;
+  emitSeq: number;
+  // Set on unmount, so a recorder stop or upload that lands afterwards touches nothing.
+  unmounted: boolean;
+}
+
+const stopPropagation = (e: SyntheticEvent) => e.stopPropagation();
+
+const deviceSelectStyle: CSSProperties = {
+  flex: "1", minWidth: "0", padding: "4px 6px", borderRadius: "5px",
+  border: "1px solid var(--border)", background: "var(--background)",
+  color: "var(--foreground)", fontSize: "12px", cursor: "pointer",
+};
+
+function DeviceSelect({ devices, value, disabled, onChange }: {
+  devices: MediaDeviceInfo[];
+  value: string;
+  disabled: boolean;
+  onChange: (deviceId: string) => void;
+}) {
+  return (
+    <select
+      style={deviceSelectStyle}
+      value={value}
+      disabled={disabled}
+      onPointerDown={stopPropagation}
+      onMouseDown={stopPropagation}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {devices.map((d, i) => (
+        <option key={i} value={d.deviceId}>{d.label || `Device ${i + 1}`}</option>
+      ))}
+    </select>
+  );
+}
+
+const overlayButtonStyle: CSSProperties = {
+  display: "flex", alignItems: "center", gap: "6px",
+  padding: "6px 14px", borderRadius: "6px", border: "none",
+  cursor: "pointer", fontSize: "13px", fontWeight: "500",
+  background: "rgba(0,0,0,0.6)", color: "white", backdropFilter: "blur(4px)",
+};
+
+function OverlayButton({ icon, label, style, hidden, disabled, onClick }: {
   icon: IconName;
   label: string;
-  style?: Exclude<StyleProp, string>;
+  style?: CSSProperties;
+  hidden?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
-      style={{
-        display: "flex", alignItems: "center", gap: "6px",
-        padding: "6px 14px", borderRadius: "6px", border: "none",
-        cursor: "pointer", fontSize: "13px", fontWeight: "500",
-        background: "rgba(0,0,0,0.6)", color: "white", backdropFilter: "blur(4px)",
-        ...style,
-      }}
+      style={{ ...overlayButtonStyle, ...style }}
+      hidden={hidden}
+      disabled={disabled}
       onPointerDown={stopPropagation}
       onMouseDown={stopPropagation}
       onClick={onClick}
@@ -105,444 +164,390 @@ function OverlayButton({ icon, label, style, onClick }: {
   );
 }
 
-export default function VideoCapture(
-  host: HTMLElement,
-  props: VideoCaptureProps,
-): WidgetHandle<VideoCaptureProps> {
-  const container = host as VideoCaptureContainer;
-  if (container._vcInst?.wrapper?.isConnected) {
-    container._vcInst.handleUpdate(props);
-    return { cleanup: container._vcInst.cleanup, update: container._vcInst.handleUpdate };
-  }
+const SPIN_KEYFRAMES = "@keyframes vc-spin{to{transform:rotate(360deg)}}";
 
-  injectStyles();
+const wrapperStyle: CSSProperties = {
+  display: "flex", flexDirection: "column", height: "100%", padding: "8px", boxSizing: "border-box",
+};
+const viewStyle: CSSProperties = {
+  position: "relative", background: "#111", borderRadius: "8px",
+  flex: "1 1 0", minHeight: "180px", overflow: "hidden",
+  display: "flex", alignItems: "center", justifyContent: "center",
+};
+const placeholderStyle: CSSProperties = {
+  position: "absolute", color: "var(--muted-foreground)", fontSize: "13px", textAlign: "center",
+  padding: "24px", userSelect: "none",
+};
+const videoStyle: CSSProperties = { width: "100%", height: "100%", objectFit: "contain", display: "block" };
+const recBadgeStyle: CSSProperties = {
+  position: "absolute", top: "10px", left: "10px",
+  background: "rgba(200,0,0,0.85)", color: "#fff",
+  fontSize: "11px", fontWeight: "700", padding: "2px 8px",
+  borderRadius: "4px", fontFamily: "monospace", pointerEvents: "none",
+};
+const micBadgeStyle: CSSProperties = {
+  position: "absolute", top: "10px", right: "10px",
+  background: "rgba(0,0,0,0.6)", color: "#fff",
+  fontSize: "11px", padding: "2px 8px",
+  borderRadius: "4px", border: "none", cursor: "pointer",
+};
+const encodingOverlayStyle: CSSProperties = {
+  position: "absolute", inset: "0", zIndex: "10",
+  background: "rgba(0,0,0,0.75)",
+  display: "flex", flexDirection: "column",
+  alignItems: "center", justifyContent: "center", gap: "10px",
+  color: "white", fontSize: "13px", fontWeight: "500",
+  borderRadius: "8px",
+};
+const spinnerStyle: CSSProperties = {
+  width: "28px", height: "28px", border: "3px solid rgba(255,255,255,0.25)", borderTopColor: "white",
+  borderRadius: "50%", animation: "vc-spin 0.75s linear infinite",
+};
+const recordBtnStyle: CSSProperties = {
+  position: "absolute", bottom: "12px", left: "50%",
+  width: "52px", height: "52px", borderRadius: "50%",
+  border: "3px solid rgba(255,255,255,0.85)", background: "rgba(20,20,20,0.55)",
+  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+  backdropFilter: "blur(4px)", transition: "transform 0.1s,opacity 0.15s",
+};
+const innerDotStyle: CSSProperties = {
+  width: "20px", height: "20px", borderRadius: "50%", background: "#e53e3e",
+  transition: "border-radius 0.2s,width 0.2s,height 0.2s",
+};
+// The record button's red dot becomes a stop square while recording.
+const stopSquareStyle: CSSProperties = { ...innerDotStyle, width: "18px", height: "18px", borderRadius: "3px" };
+const reviewOverlayStyle: CSSProperties = {
+  position: "absolute", bottom: "12px", left: "0", right: "0",
+  display: "flex", justifyContent: "center", gap: "8px", flexWrap: "wrap",
+};
+const retryBtnStyle: CSSProperties = { position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)" };
+const deviceRowStyle: CSSProperties = {
+  display: "flex", alignItems: "center", gap: "6px", marginTop: "6px", transition: "opacity 0.15s",
+  color: "var(--muted-foreground)",
+};
 
-  let { onChange } = props;
-  let _emitSeq = 0;
+function VideoCapture({ value, onChange }: VideoCaptureProps) {
+  const [mime] = useState(getSupportedMime);
+  const [phase, setPhase] = useState<Phase>(STARTING);
+  const [micUnavailable, setMicUnavailable] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [paused, setPaused] = useState(true);
+  const [pressed, setPressed] = useState(false);
+  const [overlay, setOverlay] = useState<EncodingOverlay | null>(null);
+  const [devices, setDevices] = useState<DeviceLists>({ video: [], audio: [], videoId: "", audioId: "" });
 
-  let isStreaming  = false;
-  let isRecording  = false;
-  let hasRecording = false;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const session = useRef<MediaSession>({
+    stream: null, recorder: null, chunks: [], blob: null, blobUrl: null,
+    videoId: "", audioId: "", startSeq: 0, uploading: false, emitSeq: 0, unmounted: false,
+  });
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
 
-  let _uploading = false;
-  let stream: MediaStream | null = null, recorder: MediaRecorder | null = null, chunks: Blob[] = [];
-  let blob: Blob | null = null, blobUrl: string | null = null;
-  let elapsed = 0, timer: ReturnType<typeof setInterval> | undefined;
-  const mime = getSupportedMime();
-
-  let currentVideoId = "";
-  let currentAudioId = "";
-  let cameraFailed = false;
-  let micUnavailable = false;
-  let _startSeq = 0;
-
-  // ── DOM ──────────────────────────────────────────────────────────────────
-
-  const releaseRecordBtn = () => { recordBtn.style.transform = "translateX(-50%)"; };
-
-  const video = (
-    <video
-      style="width:100%;height:100%;object-fit:contain;display:block;"
-      autoplay muted playsInline
-      onPlay={syncPlayPauseBtn}
-      onPause={syncPlayPauseBtn}
-      onEnded={syncPlayPauseBtn}
-    />
-  ) as HTMLVideoElement;
-
-  const placeholder = (
-    <div style="position:absolute;color:var(--muted-foreground);font-size:13px;text-align:center;padding:24px;user-select:none;">
-      Starting camera…
-    </div>
-  ) as HTMLDivElement;
-
-  // REC badge
-  const recBadge = (
-    <div
-      style={{
-        position: "absolute", top: "10px", left: "10px",
-        background: "rgba(200,0,0,0.85)", color: "#fff",
-        fontSize: "11px", fontWeight: "700", padding: "2px 8px",
-        borderRadius: "4px", fontFamily: "monospace", pointerEvents: "none",
-      }}
-      hidden
-    />
-  ) as HTMLDivElement;
-
-  // Shown when the camera streams but the microphone could not be opened; click to retry the mic
-  const micBadge = (
-    <button
-      style={{
-        position: "absolute", top: "10px", right: "10px",
-        background: "rgba(0,0,0,0.6)", color: "#fff",
-        fontSize: "11px", padding: "2px 8px",
-        borderRadius: "4px", border: "none", cursor: "pointer",
-      }}
-      hidden
-      onPointerDown={stopPropagation}
-      onMouseDown={stopPropagation}
-      onClick={() => switchDevices({ defaultMic: true })}
-    >
-      No microphone — recording video only (retry)
-    </button>
-  ) as HTMLButtonElement;
-
-  const retryBtn = (
-    <OverlayButton
-      icon="rotate-ccw" label="Retry"
-      style={{ position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)" }}
-      onClick={retryCamera}
-    />
-  ) as HTMLButtonElement;
-
-  // Encoding overlay
-  const spinner = (
-    <div style="width:28px;height:28px;border:3px solid rgba(255,255,255,0.25);border-top-color:white;border-radius:50%;animation:vc-spin 0.75s linear infinite;" />
-  ) as HTMLDivElement;
-  const encodingOverlay = (
-    <div
-      style={{
-        position: "absolute", inset: "0", zIndex: "10",
-        background: "rgba(0,0,0,0.75)",
-        display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", gap: "10px",
-        color: "white", fontSize: "13px", fontWeight: "500",
-        borderRadius: "8px",
-      }}
-      hidden
-    >
-      {spinner}
-      <span>Processing…</span>
-    </div>
-  ) as HTMLDivElement;
-
-  // Circular record button — red dot morphs to stop square when recording
-  const innerDot = (
-    <div style="width:20px;height:20px;border-radius:50%;background:#e53e3e;transition:border-radius 0.2s,width 0.2s,height 0.2s;" />
-  ) as HTMLDivElement;
-  const recordBtn = (
-    <button
-      style={{
-        position: "absolute", bottom: "12px", left: "50%", transform: "translateX(-50%)",
-        width: "52px", height: "52px", borderRadius: "50%",
-        border: "3px solid rgba(255,255,255,0.85)", background: "rgba(20,20,20,0.55)",
-        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-        backdropFilter: "blur(4px)", transition: "transform 0.1s,opacity 0.15s",
-      }}
-      onPointerDown={(e) => { e.stopPropagation(); recordBtn.style.transform = "translateX(-50%) scale(0.88)"; }}
-      onPointerUp={releaseRecordBtn}
-      onPointerLeave={releaseRecordBtn}
-      onMouseDown={stopPropagation}
-      onClick={toggleRecord}
-    >
-      {innerDot}
-    </button>
-  ) as HTMLButtonElement;
-
-  // Review controls (shown after recording stops)
-  const playPauseBtn = (<OverlayButton icon="play"       label="Play"      onClick={togglePlayPause} />) as HTMLButtonElement;
-  const acceptBtn    = (<OverlayButton icon="check"      label="Accept"    onClick={accept} />) as HTMLButtonElement;
-  const discardBtn   = (<OverlayButton icon="rotate-ccw" label="Re-record" onClick={discard} />) as HTMLButtonElement;
-
-  const reviewOverlay = (
-    <div style="position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
-      {playPauseBtn}
-      {acceptBtn}
-      {discardBtn}
-    </div>
-  ) as HTMLDivElement;
-
-  // Device selector row
-  const videoSel = (<DeviceSelect onChange={() => switchDevices()} />) as HTMLSelectElement;
-  const audioSel = (<DeviceSelect onChange={() => switchDevices()} />) as HTMLSelectElement;
-  const deviceRow = (
-    <div style="display:flex;align-items:center;gap:6px;margin-top:6px;transition:opacity 0.15s;color:var(--muted-foreground);">
-      <Icon name="camera" size={15} />
-      {videoSel}
-      <Icon name="mic" size={15} />
-      {audioSel}
-    </div>
-  ) as HTMLDivElement;
-
-  const wrapper = (
-    <div
-      class="nodrag nowheel"
-      style="display:flex;flex-direction:column;height:100%;padding:8px;box-sizing:border-box;"
-    >
-      <div
-        style={{
-          position: "relative", background: "#111", borderRadius: "8px",
-          flex: "1 1 0", minHeight: "180px", overflow: "hidden",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}
-      >
-        {placeholder}
-        {video}
-        {recBadge}
-        {micBadge}
-        {encodingOverlay}
-        {recordBtn}
-        {reviewOverlay}
-        {retryBtn}
-      </div>
-      {deviceRow}
-    </div>
-  ) as HTMLDivElement;
-  container.append(wrapper);
-
-  // ── Play/pause button sync ────────────────────────────────────────────────
-
-  function syncPlayPauseBtn() {
-    const isPaused = video.paused || video.ended;
-    playPauseBtn.removeChild(playPauseBtn.firstChild!);
-    playPauseBtn.insertBefore(<Icon name={isPaused ? "play" : "pause"} size={14} />, playPauseBtn.firstChild);
-    playPauseBtn.querySelector("span")!.textContent = isPaused ? "Play" : "Pause";
-  }
-
-  // ── Render ───────────────────────────────────────────────────────────────
-
-  function render(): void {
-    placeholder.hidden      = isStreaming || hasRecording;
-    video.hidden            = !isStreaming && !hasRecording;
-    recordBtn.hidden        = hasRecording || cameraFailed;
-    recordBtn.disabled      = !isStreaming && !isRecording;
-    recordBtn.style.opacity = (isStreaming || isRecording) ? "1" : "0.4";
-    reviewOverlay.hidden    = !hasRecording;
-    recBadge.hidden         = !isRecording;
-    micBadge.hidden         = !isStreaming || !micUnavailable;
-    micBadge.disabled       = isRecording;
-    retryBtn.hidden         = !cameraFailed || isStreaming || hasRecording;
-
-    const devicesLocked          = isRecording || hasRecording;
-    videoSel.disabled            = devicesLocked;
-    audioSel.disabled            = devicesLocked;
-    deviceRow.style.opacity      = devicesLocked ? "0.4" : "1";
-    deviceRow.style.pointerEvents = devicesLocked ? "none" : "";
-  }
+  const streaming = phase.kind === "streaming" || phase.kind === "recording";
+  const recording = phase.kind === "recording";
+  const reviewing = phase.kind === "review";
+  const failed = phase.kind === "failed";
+  const devicesLocked = recording || reviewing;
+  const busy = overlay !== null;
 
   // ── Camera / Recording ───────────────────────────────────────────────────
 
   async function populateDevices(): Promise<void> {
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      function repopulate(sel: HTMLSelectElement, list: MediaDeviceInfo[]) {
-        const current = sel.value;
-        sel.innerHTML = "";
-        sel.append(...list.map((d, i) => <option value={d.deviceId}>{d.label || `Device ${i + 1}`}</option>));
-        if (current && [...sel.options].some((o) => o.value === current)) sel.value = current;
-      }
-      repopulate(videoSel, devices.filter((d) => d.kind === "videoinput"));
-      repopulate(audioSel, devices.filter((d) => d.kind === "audioinput"));
-      if (stream) {
-        const vs = stream.getVideoTracks()[0]?.getSettings?.()?.deviceId;
-        const as = stream.getAudioTracks()[0]?.getSettings?.()?.deviceId;
-        if (vs) { currentVideoId = vs; videoSel.value = vs; }
-        if (as) { currentAudioId = as; audioSel.value = as; }
-      }
+      const list = await navigator.mediaDevices.enumerateDevices();
+      const s = session.current;
+      const vs = s.stream?.getVideoTracks()[0]?.getSettings?.()?.deviceId;
+      const as = s.stream?.getAudioTracks()[0]?.getSettings?.()?.deviceId;
+      if (vs) s.videoId = vs;
+      if (as) s.audioId = as;
+      const video = list.filter((d) => d.kind === "videoinput");
+      const audio = list.filter((d) => d.kind === "audioinput");
+      setDevices((prev) => ({
+        video,
+        audio,
+        videoId: vs || keepSelection(prev.videoId, video),
+        audioId: as || keepSelection(prev.audioId, audio),
+      }));
     } catch { /* permission not yet granted */ }
-  }
-
-  async function switchDevices({ defaultMic = false }: { defaultMic?: boolean } = {}): Promise<void> {
-    if (isRecording || hasRecording) return;
-    currentVideoId = videoSel.value;
-    currentAudioId = defaultMic ? "" : audioSel.value;
-    stream?.getTracks().forEach((t) => t.stop());
-    stream = null;
-    isStreaming = false;
-    render();
-    await startCamera();
   }
 
   // getUserMedia fails the whole request if any track fails, so a missing or
   // blocked microphone would otherwise take the camera down with it. Fall back
   // to a video-only stream before reporting the camera as unavailable.
   async function startCamera(): Promise<void> {
-    const seq = ++_startSeq;
-    const videoConstraint = currentVideoId ? { deviceId: { exact: currentVideoId } } : true;
-    const audioConstraint = currentAudioId ? { deviceId: { exact: currentAudioId } } : true;
-    cameraFailed = false;
-    placeholder.textContent = "Starting camera…";
-    render();
+    const s = session.current;
+    const seq = ++s.startSeq;
+    const videoConstraint = s.videoId ? { deviceId: { exact: s.videoId } } : true;
+    const audioConstraint = s.audioId ? { deviceId: { exact: s.audioId } } : true;
+    setPhase(STARTING);
 
-    let s: MediaStream | null = null;
+    let stream: MediaStream | null = null;
     let audioMissing = false;
     try {
-      s = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: audioConstraint });
+      stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: audioConstraint });
     } catch (avErr) {
-      if (seq !== _startSeq) return;
+      if (seq !== s.startSeq) return;
       try {
         // A previously selected microphone may have been unplugged; try the default one first.
-        if (currentAudioId) {
-          s = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: true }).catch(() => null);
+        if (s.audioId) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: true }).catch(() => null);
         }
-        if (!s) {
-          s = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+        if (!stream) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
           audioMissing = true;
           console.warn("VideoCapture: microphone unavailable, recording video only:", avErr);
         }
       } catch (vErr) {
         console.warn("VideoCapture: camera unavailable:", vErr);
-        if (seq !== _startSeq) return;
-        if (!hasRecording) {
-          placeholder.textContent = cameraErrorMessage(vErr);
-          cameraFailed = true;
-          render();
-        }
+        if (seq !== s.startSeq) return;
+        setPhase({ kind: "failed", message: cameraErrorMessage(vErr) });
         await populateDevices();
         return;
       }
     }
 
-    if (seq !== _startSeq || hasRecording) { s.getTracks().forEach((t) => t.stop()); return; }
-    stream = s;
-    micUnavailable = audioMissing;
+    if (seq !== s.startSeq) { stream.getTracks().forEach((t) => t.stop()); return; }
+    s.stream = stream;
+    const video = videoRef.current!;
     video.srcObject = stream;
     video.muted = true;
-    isStreaming = true;
-    render();
+    setMicUnavailable(audioMissing);
+    setPhase(STREAMING);
     await populateDevices();
+  }
+
+  async function switchDevices(videoId: string, audioId: string): Promise<void> {
+    if (devicesLocked) return;
+    const s = session.current;
+    s.videoId = videoId;
+    s.audioId = audioId;
+    s.stream?.getTracks().forEach((t) => t.stop());
+    s.stream = null;
+    await startCamera();
   }
 
   // A previously selected camera may have been unplugged, so retry with the defaults.
   function retryCamera(): void {
-    currentVideoId = "";
-    currentAudioId = "";
-    startCamera();
+    session.current.videoId = "";
+    session.current.audioId = "";
+    void startCamera();
   }
 
   function startRecording(): void {
-    if (!stream) return;
-    chunks = [];
-    elapsed = 0;
-    recBadge.textContent = "● REC 00:00";
-    recorder = new MediaRecorder(stream, { mimeType: mime });
-    recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
+    const s = session.current;
+    if (!s.stream) return;
+    s.chunks = [];
+    setElapsed(0);
+    const recorder = new MediaRecorder(s.stream, { mimeType: mime });
+    recorder.ondataavailable = (e) => { if (e.data?.size > 0) s.chunks.push(e.data); };
     recorder.onstop = onStop;
     recorder.start(100);
-    isRecording = true;
-    // Morph dot to stop square
-    innerDot.style.borderRadius = "3px";
-    innerDot.style.width = "18px";
-    innerDot.style.height = "18px";
-    render();
-    timer = setInterval(() => { elapsed++; recBadge.textContent = `● REC ${fmtTime(elapsed)}`; }, 1000);
+    s.recorder = recorder;
+    setPhase(RECORDING);
   }
 
   function stopRecording(): void {
-    clearInterval(timer);
+    const recorder = session.current.recorder;
     if (recorder && recorder.state !== "inactive") recorder.stop();
   }
 
   function onStop(): void {
-    blob = new Blob(chunks, { type: mime });
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
-    blobUrl = URL.createObjectURL(blob);
-    stream?.getTracks().forEach((t) => t.stop());
-    stream = null;
+    const s = session.current;
+    if (s.unmounted) return;
+    s.blob = new Blob(s.chunks, { type: mime });
+    if (s.blobUrl) URL.revokeObjectURL(s.blobUrl);
+    s.blobUrl = URL.createObjectURL(s.blob);
+    s.stream?.getTracks().forEach((t) => t.stop());
+    s.stream = null;
+    const video = videoRef.current!;
     video.srcObject = null;
-    video.src = blobUrl;
+    video.src = s.blobUrl;
     video.muted = false;
     video.loop = false;
     video.play().catch(() => {});
-    isStreaming = false;
-    isRecording = false;
-    hasRecording = true;
-    // Reset dot back to circle for next time
-    innerDot.style.borderRadius = "50%";
-    innerDot.style.width = "20px";
-    innerDot.style.height = "20px";
-    render();
-  }
-
-  function hideEncodingOverlay(): void {
-    encodingOverlay.hidden = true;
-    acceptBtn.disabled = false;
-    discardBtn.disabled = false;
-    playPauseBtn.disabled = false;
+    setPhase(REVIEW);
   }
 
   function accept(): void {
-    if (!blob) return;
-    encodingOverlay.hidden = false;
-    acceptBtn.disabled = true;
-    discardBtn.disabled = true;
-    playPauseBtn.disabled = true;
-    // _uploading only guards against duplicate upload_ready deliveries within
+    const s = session.current;
+    if (!s.blob) return;
+    setOverlay({});
+    // `uploading` only guards against duplicate upload_ready deliveries within
     // one accept. Clear it here so a second Accept on the same recording uploads.
-    _uploading = false;
+    s.uploading = false;
     requestAnimationFrame(() => {
-      _emitSeq++;
-      onChange?.({ state: "requesting_upload_url", _mime: mime, _emitSeq });
+      s.emitSeq++;
+      onChangeRef.current({ state: "requesting_upload_url", _mime: mime, _emitSeq: s.emitSeq });
     });
   }
 
   function doUpload(uploadUrl: string): void {
-    if (_uploading) return;
-    _uploading = true;
-    fetch(uploadUrl, { method: "PUT", body: blob })
+    const s = session.current;
+    if (s.uploading || !s.blob) return;
+    s.uploading = true;
+    fetch(uploadUrl, { method: "PUT", body: s.blob })
       .then((r) => { if (!r.ok) throw new Error(r.statusText); })
-      .then(() => { onChange?.({ state: "accepted", _emitSeq }); })
-      .catch(() => { _uploading = false; hideEncodingOverlay(); });
+      .then(() => { onChangeRef.current({ state: "accepted", _emitSeq: s.emitSeq }); })
+      .catch(() => { s.uploading = false; setOverlay(null); });
   }
 
   function discard(): void {
-    _uploading = false;
+    const s = session.current;
+    s.uploading = false;
+    const video = videoRef.current!;
     video.src = "";
     video.muted = true;
-    if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
-    blob = null; chunks = [];
-    isStreaming = false; isRecording = false; hasRecording = false;
-    placeholder.textContent = "Starting camera…";
-    render();
-    startCamera();
+    if (s.blobUrl) { URL.revokeObjectURL(s.blobUrl); s.blobUrl = null; }
+    s.blob = null; s.chunks = [];
+    void startCamera();
   }
 
   function togglePlayPause(): void {
+    const video = videoRef.current!;
     if (video.paused || video.ended) { video.currentTime = 0; video.play().catch(() => {}); }
     else video.pause();
   }
 
-  function toggleRecord(): void {
-    if (isRecording) stopRecording();
-    else startRecording();
+  function syncPaused(): void {
+    const video = videoRef.current!;
+    setPaused(video.paused || video.ended);
   }
 
-  // ── handleUpdate ─────────────────────────────────────────────────────────
+  function onRecordPointerDown(e: ReactPointerEvent): void {
+    e.stopPropagation();
+    setPressed(true);
+  }
 
-  function handleUpdate(newProps: VideoCaptureProps): void {
-    onChange = newProps.onChange;
-    const v: VideoCaptureValue | { state?: undefined } = newProps.value ?? {};
-    if (v.state === "processed") { hideEncodingOverlay(); return; }
+  // ── Effects ──────────────────────────────────────────────────────────────
+
+  // Opens the camera on mount, follows device changes, and releases every media handle on unmount.
+  useEffect(() => {
+    const s = session.current;
+    const video = videoRef.current!;
+    const mediaDevices = navigator.mediaDevices;
+    const onDeviceChange = () => { void populateDevices(); };
+    mediaDevices.addEventListener("devicechange", onDeviceChange);
+    void startCamera();
+    return () => {
+      s.startSeq++; // a getUserMedia still in flight stops its tracks instead of attaching them
+      mediaDevices.removeEventListener("devicechange", onDeviceChange);
+      s.unmounted = true;
+      if (s.recorder) {
+        s.recorder.onstop = null;
+        s.recorder.ondataavailable = null;
+        if (s.recorder.state !== "inactive") s.recorder.stop();
+      }
+      s.stream?.getTracks().forEach((t) => t.stop());
+      if (s.blobUrl) URL.revokeObjectURL(s.blobUrl);
+      video.src = ""; video.srcObject = null;
+    };
+  }, []);
+
+  // Counts the recording's seconds for the REC badge.
+  useEffect(() => {
+    if (!recording) return;
+    const timer = setInterval(() => setElapsed((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [recording]);
+
+  // Follows the node's side of the upload handshake.
+  useEffect(() => {
+    const v: VideoCaptureValue | { state?: undefined } = value ?? {};
+    if (v.state === "processed") { setOverlay(null); return; }
     if (v.state === "error") {
-      spinner.hidden = true;
-      encodingOverlay.querySelector("span")!.textContent = v.message || "Upload failed.";
-      setTimeout(hideEncodingOverlay, 4000);
-      return;
+      const message = v.message || "Upload failed.";
+      setOverlay((o) => (o ? { error: message } : o));
+      const timer = setTimeout(() => setOverlay(null), 4000);
+      return () => clearTimeout(timer);
     }
-    if (v.state === "upload_ready" && v._uploadUrl) { doUpload(v._uploadUrl); return; }
-  }
+    if (v.state === "upload_ready" && v._uploadUrl) doUpload(v._uploadUrl);
+  }, [value]);
 
-  // ── Cleanup ───────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────
 
-  function cleanup(): void {
-    _startSeq++; // a getUserMedia still in flight stops its tracks instead of attaching them
-    clearInterval(timer);
-    navigator.mediaDevices.removeEventListener("devicechange", populateDevices);
-    if (recorder && recorder.state !== "inactive") { recorder.onstop = null; recorder.stop(); }
-    stream?.getTracks().forEach((t) => t.stop());
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
-    video.src = ""; video.srcObject = null;
-    wrapper.remove();
-    delete container._vcInst;
-  }
-
-  // ── Wire up & init ────────────────────────────────────────────────────────
-
-  navigator.mediaDevices.addEventListener("devicechange", populateDevices);
-
-  container._vcInst = { handleUpdate, cleanup, wrapper };
-
-  startCamera();
-  render();
-  return { cleanup, update: handleUpdate };
+  return (
+    <div className="nodrag nowheel" style={wrapperStyle}>
+      <style>{SPIN_KEYFRAMES}</style>
+      <div style={viewStyle}>
+        <div style={placeholderStyle} hidden={streaming || reviewing}>
+          {phase.kind === "failed" ? phase.message : "Starting camera…"}
+        </div>
+        <video
+          ref={videoRef}
+          style={videoStyle}
+          hidden={!streaming && !reviewing}
+          autoPlay muted playsInline
+          onPlay={syncPaused}
+          onPause={syncPaused}
+          onEnded={syncPaused}
+        />
+        <div style={recBadgeStyle} hidden={!recording}>{`● REC ${fmtTime(elapsed)}`}</div>
+        {/* Shown when the camera streams but the microphone could not be opened; click to retry the mic */}
+        <button
+          style={micBadgeStyle}
+          hidden={!streaming || !micUnavailable}
+          disabled={recording}
+          onPointerDown={stopPropagation}
+          onMouseDown={stopPropagation}
+          onClick={() => void switchDevices(devices.videoId, "")}
+        >
+          No microphone — recording video only (retry)
+        </button>
+        <div style={encodingOverlayStyle} hidden={!busy}>
+          <div style={spinnerStyle} hidden={overlay?.error !== undefined} />
+          <span>{overlay?.error ?? "Processing…"}</span>
+        </div>
+        <button
+          style={{
+            ...recordBtnStyle,
+            transform: pressed ? "translateX(-50%) scale(0.88)" : "translateX(-50%)",
+            opacity: streaming ? "1" : "0.4",
+          }}
+          hidden={reviewing || failed}
+          disabled={!streaming}
+          onPointerDown={onRecordPointerDown}
+          onPointerUp={() => setPressed(false)}
+          onPointerLeave={() => setPressed(false)}
+          onMouseDown={stopPropagation}
+          onClick={recording ? stopRecording : startRecording}
+        >
+          <div style={recording ? stopSquareStyle : innerDotStyle} />
+        </button>
+        <div style={reviewOverlayStyle} hidden={!reviewing}>
+          <OverlayButton
+            icon={paused ? "play" : "pause"} label={paused ? "Play" : "Pause"}
+            disabled={busy} onClick={togglePlayPause}
+          />
+          <OverlayButton icon="check" label="Accept" disabled={busy} onClick={accept} />
+          <OverlayButton icon="rotate-ccw" label="Re-record" disabled={busy} onClick={discard} />
+        </div>
+        <OverlayButton icon="rotate-ccw" label="Retry" style={retryBtnStyle} hidden={!failed} onClick={retryCamera} />
+      </div>
+      <div
+        style={{ ...deviceRowStyle, opacity: devicesLocked ? "0.4" : "1", pointerEvents: devicesLocked ? "none" : undefined }}
+      >
+        <Icon name="camera" size={15} />
+        <DeviceSelect
+          devices={devices.video} value={devices.videoId} disabled={devicesLocked}
+          onChange={(videoId) => {
+            setDevices((d) => ({ ...d, videoId }));
+            void switchDevices(videoId, devices.audioId);
+          }}
+        />
+        <Icon name="mic" size={15} />
+        <DeviceSelect
+          devices={devices.audio} value={devices.audioId} disabled={devicesLocked}
+          onChange={(audioId) => {
+            setDevices((d) => ({ ...d, audioId }));
+            void switchDevices(devices.videoId, audioId);
+          }}
+        />
+      </div>
+    </div>
+  );
 }
+
+export default reactWidget(VideoCapture);

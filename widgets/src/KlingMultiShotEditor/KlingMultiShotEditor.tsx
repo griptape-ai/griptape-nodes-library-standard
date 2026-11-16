@@ -4,6 +4,10 @@
  * and per-shot description text.
  */
 
+import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
+import { reactWidget } from "@griptape-ai/nodes-widget-api/react";
+
 import type { KlingShot, KlingShotList } from './_types';
 import type { WidgetProps } from '@griptape-ai/nodes-widget-api';
 
@@ -12,18 +16,78 @@ export type { KlingShot, KlingShotList } from './_types';
 export type KlingMultiShotEditorProps = WidgetProps<KlingShotList>;
 
 interface ShotItemRect {
-  el: HTMLElement;
   rect: DOMRect;
   index: number;
 }
 
+// Pointer-drag scratch state: the floating clone and the item rects taken when the drag began.
+interface DragScratch {
+  source: number;
+  over: number | null;
+  offsetY: number;
+  clone: HTMLElement;
+  rects: ShotItemRect[];
+}
+
+// What the drag renders: the dimmed source item and the drop marker.
+interface DragView {
+  source: number;
+  over: number | null;
+}
+
 const WIDGET_VERSION = "0.6.1";
 
-const stopPropagation = (e: Event) => e.stopPropagation();
+const MAX_SHOTS = 6;
+const MAX_DESCRIPTION_LENGTH = 512;
+const MAX_TOTAL_DURATION = 15;
+const MIN_TOTAL_DURATION = 3;
+const MIN_DURATION = 1;
+const MAX_DURATION = 15;
+const PLACEHOLDER =
+  "Describe the shot information, such as: who is where and what is happening.";
+const DROP_MARKER = "2px solid #4a9eff";
+const ITEM_DIVIDER = "1px solid #2a2a2a";
+
+const stopPropagation = (e: SyntheticEvent) => e.stopPropagation();
+
+// -- helpers ------------------------------------------------------------
+
+// Gives a shot an id if it has none, and keeps `nextId` past every id seen.
+function assignId(shot: KlingShot, nextId: { current: number }): KlingShot {
+  if (!shot.id) {
+    shot.id = `shot-${nextId.current++}`;
+  } else {
+    const num = parseInt(shot.id.replace("shot-", ""), 10);
+    if (!isNaN(num) && num >= nextId.current) {
+      nextId.current = num + 1;
+    }
+  }
+  return shot;
+}
+
+function renumberShots(shots: KlingShot[]): KlingShot[] {
+  return shots.map((shot, i) => ({ ...shot, name: `Shot${i + 1}` }));
+}
+
+function totalDuration(shots: KlingShot[]) {
+  return shots.reduce((sum, s) => sum + (s.duration || 0), 0);
+}
+
+function durationBudgetFor(shots: KlingShot[], index: number) {
+  const othersTotal = shots.reduce(
+    (sum, s, i) => sum + (i === index ? 0 : s.duration || 0),
+    0,
+  );
+  return MAX_TOTAL_DURATION - othersTotal;
+}
+
+function withShot(shots: KlingShot[], index: number, patch: Partial<KlingShot>): KlingShot[] {
+  return shots.map((s, i) => (i === index ? { ...s, ...patch } : s));
+}
 
 function TrashIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="3 6 5 6 21 6" />
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </svg>
@@ -35,9 +99,10 @@ function TrashIcon() {
 function StepperButton({ label, enabled, onPress }: {
   label: string;
   enabled: boolean;
-  onPress: (e: PointerEvent) => void;
+  onPress: (e: ReactPointerEvent) => void;
 }) {
-  const btn = (
+  const [hover, setHover] = useState(false);
+  return (
     <span
       style={{
         display: "flex",
@@ -50,175 +115,53 @@ function StepperButton({ label, enabled, onPress }: {
         cursor: enabled ? "pointer" : "default",
         userSelect: "none",
         opacity: enabled ? 1 : 0.4,
+        background: enabled && hover ? "#444" : "transparent",
       }}
-      onPointerEnter={enabled ? () => { btn.style.background = "#444"; } : undefined}
-      onPointerLeave={enabled ? () => { btn.style.background = "transparent"; } : undefined}
+      // Hover is tracked while disabled too, so a button that re-enables under or away from the pointer shows the right colour.
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
       onPointerDown={enabled ? onPress : stopPropagation}
     >
       {label}
     </span>
-  ) as HTMLSpanElement;
-  return btn;
+  );
 }
 
-export default function MultiShotEditor(
-  container: HTMLElement,
-  props: KlingMultiShotEditorProps,
-): () => void {
-  const { value, onChange, disabled } = props;
+function TrashButton({ onPress }: { onPress: (e: ReactPointerEvent) => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <span
+      style={{
+        cursor: "pointer",
+        flexShrink: "0",
+        display: "flex",
+        alignItems: "center",
+        opacity: hover ? 1 : 0.5,
+      }}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
+      onPointerDown={onPress}
+    >
+      <TrashIcon />
+    </span>
+  );
+}
 
-  let nextShotId = 1;
+// -- description field --------------------------------------------------
 
-  function assignId(shot: KlingShot): KlingShot {
-    if (!shot.id) {
-      shot.id = `shot-${nextShotId++}`;
-    } else {
-      const num = parseInt(shot.id.replace("shot-", ""), 10);
-      if (!isNaN(num) && num >= nextShotId) {
-        nextShotId = num + 1;
-      }
-    }
-    return shot;
-  }
-
-  let shots: KlingShot[] =
-    Array.isArray(value) && value.length > 0
-      ? value.map((s) => assignId({ ...s }))
-      : [assignId({ name: "Shot1", duration: 3, description: "" })];
-
-  let dragSourceIndex: number | null = null;
-  let dragOverIndex: number | null = null;
-
-  const MAX_SHOTS = 6;
-  const MIN_SHOTS = 1;
-  const MAX_DESCRIPTION_LENGTH = 512;
-  const MAX_TOTAL_DURATION = 15;
-  const MIN_TOTAL_DURATION = 3;
-  const MIN_DURATION = 1;
-  const MAX_DURATION = 15;
-  const PLACEHOLDER =
-    "Describe the shot information, such as: who is where and what is happening.";
-
-  // -- helpers ----------------------------------------------------------
-
-  function renumberShots() {
-    shots.forEach((shot, i) => {
-      shot.name = `Shot${i + 1}`;
-    });
-  }
-
-  function totalDuration() {
-    return shots.reduce((sum, s) => sum + (s.duration || 0), 0);
-  }
-
-  function durationBudgetFor(index: number) {
-    const othersTotal = shots.reduce(
-      (sum, s, i) => sum + (i === index ? 0 : s.duration || 0),
-      0,
-    );
-    return MAX_TOTAL_DURATION - othersTotal;
-  }
-
-  function emitChange() {
-    if (disabled || !onChange) return;
-    onChange(shots.map((s) => ({ ...s })));
-  }
-
-  // -- render ----------------------------------------------------------
-
-  function render() {
-    container.innerHTML = "";
-
-    container.append(
-      <div
-        class="multi-shot-container nodrag nowheel"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "0",
-          padding: "8px",
-          backgroundColor: "#1a1a1a",
-          borderRadius: "6px",
-          userSelect: "none",
-          boxSizing: "border-box",
-          width: "100%",
-          height: "100%",
-          maxHeight: "100%",
-          minHeight: "0",
-          overflowY: "auto",
-          overflowX: "hidden",
-          overscrollBehavior: "contain",
-        }}
-      >
-        {shots.map((shot, index) => buildShotItem(shot, index))}
-        {buildStatusBar()}
-        {buildAddButton()}
-        {buildVersionLabel()}
-      </div>,
-    );
-  }
-
-  // -- shot item -------------------------------------------------------
-
-  function buildShotItem(shot: KlingShot, index: number) {
-    // duration stepper (+ value -)
-    const budget = durationBudgetFor(index);
-    const wouldGoBelow = totalDuration() - 1 < MIN_TOTAL_DURATION;
-    const canIncrease = !disabled && shot.duration < MAX_DURATION && shot.duration < budget;
-    const canDecrease = !disabled && shot.duration > MIN_DURATION && !wouldGoBelow;
-
-    const onIncrease = (e: PointerEvent) => {
-      e.stopPropagation();
-      const maxAllowed = Math.min(MAX_DURATION, budget);
-      shots[index]!.duration = Math.min(maxAllowed, shots[index]!.duration + 1);
-      emitChange();
-      render();
-    };
-
-    const onDecrease = (e: PointerEvent) => {
-      e.stopPropagation();
-      shots[index]!.duration = Math.max(MIN_DURATION, shots[index]!.duration - 1);
-      emitChange();
-      render();
-    };
-
-    const onTrash = (e: PointerEvent) => {
-      e.stopPropagation();
-      if (shots.length <= 1) return;
-      shots.splice(index, 1);
-      renumberShots();
-      const total = totalDuration();
-      if (total < MIN_TOTAL_DURATION) {
-        const lastShot = shots[shots.length - 1]!;
-        lastShot.duration += MIN_TOTAL_DURATION - total;
-      }
-      emitChange();
-      render();
-    };
-
-    const trash = disabled ? null : (
-      <span
-        style={{
-          cursor: "pointer",
-          flexShrink: "0",
-          display: "flex",
-          alignItems: "center",
-          opacity: 0.5,
-        }}
-        onPointerEnter={() => { trash!.style.opacity = "1"; }}
-        onPointerLeave={() => { trash!.style.opacity = "0.5"; }}
-        onPointerDown={onTrash}
-      >
-        <TrashIcon />
-      </span>
-    ) as HTMLSpanElement;
-
-    // -- description textarea --
-    const descLength = (shot.description || "").length;
-    const textarea = (
+function DescriptionField({ description, disabled, onInput, onCommit }: {
+  description: string;
+  disabled: boolean;
+  onInput: (text: string) => void;
+  onCommit: (text: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const atLimit = description.length >= MAX_DESCRIPTION_LENGTH;
+  return (
+    <>
       <textarea
         placeholder={PLACEHOLDER}
-        value={shot.description || ""}
+        value={description}
         disabled={disabled}
         maxLength={MAX_DESCRIPTION_LENGTH}
         style={{
@@ -227,7 +170,7 @@ export default function MultiShotEditor(
           marginTop: "4px",
           padding: "8px 10px",
           background: "#252525",
-          border: `1px solid ${descLength >= MAX_DESCRIPTION_LENGTH ? "#c44" : "#333"}`,
+          border: `1px solid ${atLimit ? "#c44" : focused ? "#555" : "#333"}`,
           borderRadius: "6px",
           color: "#ccc",
           fontSize: "12px",
@@ -236,141 +179,343 @@ export default function MultiShotEditor(
           boxSizing: "border-box",
           outline: "none",
           userSelect: "text",
-          webkitUserSelect: "text",
+          WebkitUserSelect: "text",
         }}
-        onFocus={() => {
-          const len = shots[index]!.description.length;
-          textarea.style.borderColor =
-            len >= MAX_DESCRIPTION_LENGTH ? "#c44" : "#555";
+        onFocus={() => setFocused(true)}
+        onBlur={(e) => {
+          setFocused(false);
+          onCommit(e.currentTarget.value);
         }}
-        onBlur={() => {
-          shots[index]!.description = textarea.value;
-          const len = textarea.value.length;
-          textarea.style.borderColor =
-            len >= MAX_DESCRIPTION_LENGTH ? "#c44" : "#333";
-          counter.textContent = `${len} / ${MAX_DESCRIPTION_LENGTH}`;
-          counter.style.color = len >= MAX_DESCRIPTION_LENGTH ? "#c44" : "#555";
-          emitChange();
-        }}
-        onInput={(e) => {
-          const target = e.target as HTMLTextAreaElement;
-          shots[index]!.description = target.value;
-          counter.textContent = `${target.value.length} / ${MAX_DESCRIPTION_LENGTH}`;
-          counter.style.color =
-            target.value.length >= MAX_DESCRIPTION_LENGTH ? "#c44" : "#555";
-          textarea.style.borderColor =
-            target.value.length >= MAX_DESCRIPTION_LENGTH ? "#c44" : "#555";
-        }}
+        onInput={(e) => onInput(e.currentTarget.value)}
         // Prevent node-level drag and keyboard shortcuts (e.g. Delete deleting the node)
         onPointerDown={stopPropagation}
         onMouseDown={stopPropagation}
         onKeyDown={stopPropagation}
       />
-    ) as HTMLTextAreaElement;
-
-    const counter = (
       <div
         style={{
           fontSize: "10px",
-          color: descLength >= MAX_DESCRIPTION_LENGTH ? "#c44" : "#555",
+          color: atLimit ? "#c44" : "#555",
           textAlign: "right",
           marginTop: "2px",
         }}
       >
-        {`${descLength} / ${MAX_DESCRIPTION_LENGTH}`}
+        {`${description.length} / ${MAX_DESCRIPTION_LENGTH}`}
       </div>
-    ) as HTMLDivElement;
+    </>
+  );
+}
 
-    return (
-      <div
-        class="shot-item"
-        data-index={index}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "0",
-          borderBottom: "1px solid #2a2a2a",
-          paddingBottom: "8px",
-          marginBottom: "8px",
-          borderTop: dragOverIndex === index ? "2px solid #4a9eff" : null,
-        }}
-      >
-        {/* header row */}
-        <div style="display: flex; align-items: center; gap: 8px; height: 32px;">
-          {/* drag handle */}
-          <span
-            class="drag-handle"
-            style={{
-              fontSize: "18px",
-              color: "#666",
-              cursor: disabled ? "default" : "grab",
-              flexShrink: "0",
-              width: "20px",
-              textAlign: "center",
-              lineHeight: "1",
-            }}
-            onPointerDown={disabled ? undefined : (e) => onDragStart(e, index)}
-          >
-            |||
-          </span>
-          {/* shot name badge */}
-          <span
-            style={{
-              background: "#333",
-              color: "#ddd",
-              fontSize: "12px",
-              fontWeight: "600",
-              padding: "3px 10px",
-              borderRadius: "4px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {shot.name}
-          </span>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0",
-              background: "#333",
-              borderRadius: "4px",
-              overflow: "hidden",
-            }}
-          >
-            <StepperButton label="+" enabled={canIncrease} onPress={onIncrease} />
-            <span
-              style={{
-                color: "#ddd",
-                fontSize: "12px",
-                padding: "2px 8px",
-                minWidth: "32px",
-                textAlign: "center",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {`${shot.duration} s`}
-            </span>
-            <StepperButton label="-" enabled={canDecrease} onPress={onDecrease} />
-          </div>
-          {/* spacer */}
-          <div style="flex: 1;" />
-          {trash}
-        </div>
-        {textarea}
-        {counter}
-      </div>
-    ) as HTMLDivElement;
+// -- add-shot button ------------------------------------------------------
+
+function AddButton({ disabled, onPress }: {
+  disabled: boolean;
+  onPress: (e: ReactPointerEvent) => void;
+}) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "4px",
+        padding: "5px 12px",
+        marginTop: "4px",
+        background: !disabled && hover ? "#333" : "#252525",
+        border: "1px solid #333",
+        borderRadius: "6px",
+        color: "#ccc",
+        fontSize: "12px",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.4 : 1,
+        alignSelf: "flex-start",
+        userSelect: "none",
+      }}
+      // Hover is tracked while disabled too, so a button that re-enables under or away from the pointer shows the right colour.
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
+      onPointerDown={disabled ? undefined : onPress}
+    >
+      <span style={{ fontSize: "14px" }}>+</span>{" Shot"}
+    </div>
+  );
+}
+
+// -- editor -----------------------------------------------------------------
+
+function MultiShotEditor({ value, onChange, disabled = false }: KlingMultiShotEditorProps) {
+  const nextShotId = useRef(1);
+  // Seeded from the value at mount; later values are not applied.
+  const [shots, setShots] = useState<KlingShot[]>(() =>
+    Array.isArray(value) && value.length > 0
+      ? value.map((s) => assignId({ ...s }, nextShotId))
+      : [assignId({ name: "Shot1", duration: 3, description: "" }, nextShotId)],
+  );
+  const [drag, setDrag] = useState<DragView | null>(null);
+  const dragRef = useRef<DragScratch | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  function commit(next: KlingShot[]) {
+    if (disabled || !onChange) return;
+    onChange(next.map((s) => ({ ...s })));
   }
 
-  // -- status bar ------------------------------------------------------
+  function apply(next: KlingShot[]) {
+    setShots(next);
+    commit(next);
+  }
 
-  function buildStatusBar() {
-    const total = totalDuration();
-    const overBudget = total > MAX_TOTAL_DURATION;
-    const underBudget = total < MIN_TOTAL_DURATION;
-    const durationColor = overBudget || underBudget ? "#c44" : "#666";
+  const total = totalDuration(shots);
+  const remaining = MAX_TOTAL_DURATION - total;
+  const addDisabled = disabled || shots.length >= MAX_SHOTS || remaining < 1;
 
-    return (
+  // -- shot actions -------------------------------------------------------
+
+  function onAdd(e: ReactPointerEvent) {
+    e.stopPropagation();
+    const defaultDur = Math.min(2, remaining);
+    apply([
+      ...shots,
+      assignId({ name: `Shot${shots.length + 1}`, duration: defaultDur, description: "" }, nextShotId),
+    ]);
+  }
+
+  function onTrash(e: ReactPointerEvent, index: number) {
+    e.stopPropagation();
+    if (shots.length <= 1) return;
+    const next = renumberShots(shots.filter((_, i) => i !== index));
+    const nextTotal = totalDuration(next);
+    if (nextTotal < MIN_TOTAL_DURATION) {
+      const last = next.length - 1;
+      next[last] = { ...next[last]!, duration: next[last]!.duration + MIN_TOTAL_DURATION - nextTotal };
+    }
+    apply(next);
+  }
+
+  // -- drag-and-drop reordering ---------------------------------------------
+
+  function onDragStart(e: ReactPointerEvent<HTMLElement>, index: number) {
+    if (disabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const itemEl = e.currentTarget.closest<HTMLElement>(".shot-item");
+    if (!itemEl) return;
+
+    const rect = itemEl.getBoundingClientRect();
+
+    // Create a floating clone for visual feedback
+    const clone = itemEl.cloneNode(true) as HTMLElement;
+    Object.assign(clone.style, {
+      position: "fixed",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      opacity: "0.85",
+      pointerEvents: "none",
+      zIndex: "9999",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
+      background: "#1a1a1a",
+      borderRadius: "6px",
+    });
+    document.body.appendChild(clone);
+
+    // Collect all shot item rects for hit testing
+    const rects = Array.from(listRef.current?.querySelectorAll<HTMLElement>(".shot-item") ?? []).map(
+      (el) => ({ rect: el.getBoundingClientRect(), index: Number(el.dataset.index) }),
+    );
+
+    dragRef.current = { source: index, over: null, offsetY: e.clientY - rect.top, clone, rects };
+    setDrag({ source: index, over: null });
+  }
+
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+
+    const onDragMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      e.preventDefault();
+
+      d.clone.style.top = `${e.clientY - d.offsetY}px`;
+
+      // Determine which item we're hovering over
+      const hit = d.rects.find((item) => e.clientY < item.rect.top + item.rect.height / 2);
+      const over = hit ? hit.index : shots.length;
+      if (over !== d.over) {
+        d.over = over;
+        setDrag({ source: d.source, over });
+      }
+    };
+
+    const onDragEnd = () => {
+      const d = dragRef.current;
+      if (!d) return;
+      d.clone.remove();
+      dragRef.current = null;
+      setDrag(null);
+
+      if (d.over !== null && d.over !== d.source) {
+        const next = [...shots];
+        const [moved] = next.splice(d.source, 1);
+        const insertAt = d.over > d.source ? d.over - 1 : d.over;
+        next.splice(insertAt, 0, moved!);
+        apply(renumberShots(next));
+      }
+    };
+
+    document.addEventListener("pointermove", onDragMove);
+    document.addEventListener("pointerup", onDragEnd);
+    return () => {
+      document.removeEventListener("pointermove", onDragMove);
+      document.removeEventListener("pointerup", onDragEnd);
+    };
+  });
+
+  // Removes a drag clone left on the page when the widget goes away mid-drag.
+  useEffect(() => () => {
+    dragRef.current?.clone.remove();
+    dragRef.current = null;
+  }, []);
+
+  // -- render ---------------------------------------------------------------
+
+  const lastIndex = shots.length - 1;
+  const durationColor = total > MAX_TOTAL_DURATION || total < MIN_TOTAL_DURATION ? "#c44" : "#666";
+
+  return (
+    <div
+      ref={listRef}
+      className="multi-shot-container nodrag nowheel"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "0",
+        padding: "8px",
+        backgroundColor: "#1a1a1a",
+        borderRadius: "6px",
+        userSelect: "none",
+        boxSizing: "border-box",
+        width: "100%",
+        height: "100%",
+        maxHeight: "100%",
+        minHeight: "0",
+        overflowY: "auto",
+        overflowX: "hidden",
+        overscrollBehavior: "contain",
+      }}
+    >
+      {shots.map((shot, index) => {
+        // duration stepper (+ value -)
+        const budget = durationBudgetFor(shots, index);
+        const canIncrease = !disabled && shot.duration < MAX_DURATION && shot.duration < budget;
+        const canDecrease = !disabled && shot.duration > MIN_DURATION && total - 1 >= MIN_TOTAL_DURATION;
+        const isTarget = drag !== null && index !== drag.source;
+
+        return (
+          <div
+            key={shot.id}
+            className="shot-item"
+            data-index={index}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0",
+              borderBottom: isTarget && drag.over === shots.length && index === lastIndex ? DROP_MARKER : ITEM_DIVIDER,
+              paddingBottom: "8px",
+              marginBottom: "8px",
+              borderTop: isTarget && drag.over === index ? DROP_MARKER : undefined,
+              opacity: drag?.source === index ? 0.3 : undefined,
+            }}
+          >
+            {/* header row */}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", height: "32px" }}>
+              {/* drag handle */}
+              <span
+                className="drag-handle"
+                style={{
+                  fontSize: "18px",
+                  color: "#666",
+                  cursor: disabled ? "default" : "grab",
+                  flexShrink: "0",
+                  width: "20px",
+                  textAlign: "center",
+                  lineHeight: "1",
+                }}
+                onPointerDown={disabled ? undefined : (e) => onDragStart(e, index)}
+              >
+                |||
+              </span>
+              {/* shot name badge */}
+              <span
+                style={{
+                  background: "#333",
+                  color: "#ddd",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  padding: "3px 10px",
+                  borderRadius: "4px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {shot.name}
+              </span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0",
+                  background: "#333",
+                  borderRadius: "4px",
+                  overflow: "hidden",
+                }}
+              >
+                <StepperButton
+                  label="+"
+                  enabled={canIncrease}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    const maxAllowed = Math.min(MAX_DURATION, budget);
+                    apply(withShot(shots, index, { duration: Math.min(maxAllowed, shot.duration + 1) }));
+                  }}
+                />
+                <span
+                  style={{
+                    color: "#ddd",
+                    fontSize: "12px",
+                    padding: "2px 8px",
+                    minWidth: "32px",
+                    textAlign: "center",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {`${shot.duration} s`}
+                </span>
+                <StepperButton
+                  label="-"
+                  enabled={canDecrease}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    apply(withShot(shots, index, { duration: Math.max(MIN_DURATION, shot.duration - 1) }));
+                  }}
+                />
+              </div>
+              {/* spacer */}
+              <div style={{ flex: 1 }} />
+              {disabled ? null : <TrashButton onPress={(e) => onTrash(e, index)} />}
+            </div>
+            <DescriptionField
+              description={shot.description || ""}
+              disabled={disabled}
+              onInput={(text) => setShots(withShot(shots, index, { description: text }))}
+              onCommit={(text) => commit(withShot(shots, index, { description: text }))}
+            />
+          </div>
+        );
+      })}
+
+      {/* status bar */}
       <div
         style={{
           display: "flex",
@@ -383,68 +528,14 @@ export default function MultiShotEditor(
         }}
       >
         <span>{`${shots.length} / ${MAX_SHOTS} shots`}</span>
-        <span style={`color: ${durationColor};`}>
+        <span style={{ color: durationColor }}>
           {`${total}s (${MIN_TOTAL_DURATION}-${MAX_TOTAL_DURATION}s)`}
         </span>
       </div>
-    );
-  }
 
-  // -- add-shot button -------------------------------------------------
+      <AddButton disabled={addDisabled} onPress={onAdd} />
 
-  function buildAddButton() {
-    const atMaxShots = shots.length >= MAX_SHOTS;
-    const remaining = MAX_TOTAL_DURATION - totalDuration();
-    const cannotFitAnother = remaining < 1;
-    const addDisabled = disabled || atMaxShots || cannotFitAnother;
-
-    const onAdd = (e: PointerEvent) => {
-      e.stopPropagation();
-      const defaultDur = Math.min(2, remaining);
-      shots.push(
-        assignId({
-          name: `Shot${shots.length + 1}`,
-          duration: defaultDur,
-          description: "",
-        }),
-      );
-      emitChange();
-      render();
-    };
-
-    const btn = (
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "4px",
-          padding: "5px 12px",
-          marginTop: "4px",
-          background: "#252525",
-          border: "1px solid #333",
-          borderRadius: "6px",
-          color: "#ccc",
-          fontSize: "12px",
-          cursor: addDisabled ? "not-allowed" : "pointer",
-          opacity: addDisabled ? 0.4 : 1,
-          alignSelf: "flex-start",
-          userSelect: "none",
-        }}
-        onPointerEnter={addDisabled ? undefined : () => { btn.style.background = "#333"; }}
-        onPointerLeave={addDisabled ? undefined : () => { btn.style.background = "#252525"; }}
-        onPointerDown={addDisabled ? undefined : onAdd}
-      >
-        <span style="font-size:14px;">+</span>{" Shot"}
-      </div>
-    ) as HTMLDivElement;
-
-    return btn;
-  }
-
-  // -- version label --------------------------------------------------
-
-  function buildVersionLabel() {
-    return (
+      {/* version label */}
       <div
         style={{
           fontSize: "9px",
@@ -455,136 +546,8 @@ export default function MultiShotEditor(
       >
         {`v${WIDGET_VERSION}`}
       </div>
-    );
-  }
-
-  // -- drag-and-drop reordering ----------------------------------------
-
-  let dragClone: HTMLElement | null = null;
-  let dragOffsetY = 0;
-  let shotItems: ShotItemRect[] = [];
-
-  function onDragStart(e: PointerEvent, index: number) {
-    if (disabled) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    dragSourceIndex = index;
-    dragOverIndex = null;
-
-    const itemEl = (e.target as Element).closest<HTMLElement>(".shot-item");
-    if (!itemEl) return;
-
-    const rect = itemEl.getBoundingClientRect();
-    dragOffsetY = e.clientY - rect.top;
-
-    // Create a floating clone for visual feedback
-    dragClone = itemEl.cloneNode(true) as HTMLElement;
-    dragClone.style.position = "fixed";
-    dragClone.style.left = `${rect.left}px`;
-    dragClone.style.top = `${rect.top}px`;
-    dragClone.style.width = `${rect.width}px`;
-    dragClone.style.opacity = "0.85";
-    dragClone.style.pointerEvents = "none";
-    dragClone.style.zIndex = "9999";
-    dragClone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.6)";
-    dragClone.style.background = "#1a1a1a";
-    dragClone.style.borderRadius = "6px";
-    document.body.appendChild(dragClone);
-
-    // Dim the original
-    itemEl.style.opacity = "0.3";
-
-    // Collect all shot item rects for hit testing
-    shotItems = Array.from(container.querySelectorAll<HTMLElement>(".shot-item")).map(
-      (el) => ({
-        el,
-        rect: el.getBoundingClientRect(),
-        index: Number(el.dataset.index),
-      }),
-    );
-
-    document.addEventListener("pointermove", onDragMove);
-    document.addEventListener("pointerup", onDragEnd);
-  }
-
-  function onDragMove(e: PointerEvent) {
-    if (dragSourceIndex === null || !dragClone) return;
-    e.preventDefault();
-
-    dragClone.style.top = `${e.clientY - dragOffsetY}px`;
-
-    // Determine which item we're hovering over
-    let newOverIndex = null;
-    for (const item of shotItems) {
-      const midY = item.rect.top + item.rect.height / 2;
-      if (e.clientY < midY) {
-        newOverIndex = item.index;
-        break;
-      }
-    }
-    if (newOverIndex === null) {
-      newOverIndex = shots.length;
-    }
-
-    if (newOverIndex !== dragOverIndex) {
-      dragOverIndex = newOverIndex;
-      const lastIndex = shots.length - 1;
-      shotItems.forEach((item) => {
-        item.el.style.borderTop = "none";
-        item.el.style.borderBottom = "1px solid #2a2a2a";
-
-        if (item.index === dragSourceIndex) return;
-
-        if (dragOverIndex === shots.length && item.index === lastIndex) {
-          item.el.style.borderBottom = "2px solid #4a9eff";
-        } else if (item.index === dragOverIndex) {
-          item.el.style.borderTop = "2px solid #4a9eff";
-        }
-      });
-    }
-  }
-
-  function onDragEnd(_e: PointerEvent) {
-    document.removeEventListener("pointermove", onDragMove);
-    document.removeEventListener("pointerup", onDragEnd);
-
-    if (dragClone) {
-      dragClone.remove();
-      dragClone = null;
-    }
-
-    if (
-      dragSourceIndex !== null &&
-      dragOverIndex !== null &&
-      dragOverIndex !== dragSourceIndex
-    ) {
-      const [moved] = shots.splice(dragSourceIndex, 1);
-      const insertAt =
-        dragOverIndex > dragSourceIndex ? dragOverIndex - 1 : dragOverIndex;
-      shots.splice(insertAt, 0, moved!);
-      renumberShots();
-      emitChange();
-    }
-
-    dragSourceIndex = null;
-    dragOverIndex = null;
-    shotItems = [];
-    render();
-  }
-
-  // -- init -------------------------------------------------------------
-
-  render();
-
-  // -- cleanup ---------------------------------------------------------
-
-  return () => {
-    document.removeEventListener("pointermove", onDragMove);
-    document.removeEventListener("pointerup", onDragEnd);
-    if (dragClone) {
-      dragClone.remove();
-      dragClone = null;
-    }
-  };
+    </div>
+  );
 }
+
+export default reactWidget(MultiShotEditor);

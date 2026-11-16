@@ -1,5 +1,8 @@
 // Preset sidebar for CropImageEditor — aspect ratio, resolution, and position shortcuts.
 
+import { useState } from 'react';
+import type { ReactNode, SyntheticEvent } from 'react';
+
 import { type IconName, Icon } from './_icons';
 import type { CropRect } from './_types';
 
@@ -15,15 +18,14 @@ type PositionName =
 /** A crop in image pixels, as the sidebar hands it to `onApply`. Reset also resets the transform. */
 export type AppliedCrop = CropRect | (CropRect & { zoom: number; rotate: number });
 
-export interface SidebarOptions {
-  getImgSize: () => { imgNatW: number; imgNatH: number };
-  getCropRect: () => { l: number; t: number; w: number; h: number };
+export interface CropSidebarProps {
+  imgNatW: number;
+  imgNatH: number;
+  /** The crop the presets start from, in image pixels. */
+  cropRect: { l: number; t: number; w: number; h: number };
+  /** Every preset is off while a crop coordinate is connected or the widget is disabled. */
+  off: boolean;
   onApply: (crop: AppliedCrop) => void;
-}
-
-export interface Sidebar {
-  el: HTMLDivElement;
-  syncDisabled: (lockedParams: readonly string[], disabled: boolean) => void;
 }
 
 const RATIO_PRESETS: readonly RatioPreset[] = [
@@ -106,107 +108,103 @@ function calcPositionRect(
   return { left: Math.max(0, l), top: Math.max(0, t), width: w, height: h };
 }
 
-const stopPropagation = (e: Event) => e.stopPropagation();
+const stopPropagation = (e: SyntheticEvent) => e.stopPropagation();
 
 function Divider() {
-  return <div style="height:1px;background:var(--border);margin:2px 0;flex-shrink:0;" />;
+  return <div style={{ height: "1px", background: "var(--border)", margin: "2px 0", flexShrink: 0 }} />;
 }
 
 function Label({ text }: { text: string }) {
-  return <div style="font-size:9px;color:var(--muted-foreground);text-align:center;padding:2px 0;">{text}</div>;
+  return <div style={{ fontSize: "9px", color: "var(--muted-foreground)", textAlign: "center", padding: "2px 0" }}>{text}</div>;
 }
 
-export function createSidebar({ getImgSize, getCropRect, onApply }: SidebarOptions): Sidebar {
-  const allBtns: HTMLButtonElement[] = [];
+function Grid({ columns, children }: { columns: number; children: ReactNode }) {
+  return <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns},1fr)`, gap: "2px" }}>{children}</div>;
+}
 
-  function makeBtn({ label, icon, title, onClick }: {
-    label?: string; icon?: IconName; title: string; onClick: () => void;
-  }): HTMLButtonElement {
-    const btn = (
-      <button
-        title={title}
-        style={{
-          width: "100%", padding: "4px 2px", borderRadius: "4px",
-          border: "1px solid var(--border)",
-          background: "var(--background)", color: "var(--foreground)", cursor: "pointer",
-          fontSize: "10px", fontWeight: "500", lineHeight: "1.3",
-          whiteSpace: "nowrap", boxSizing: "border-box",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: "3px",
-        }}
-        onMouseEnter={() => { if (!btn.disabled) btn.style.background = "var(--accent)"; }}
-        onMouseLeave={() => { btn.style.background = "var(--background)"; }}
-        onMouseDown={stopPropagation}
-        onPointerDown={stopPropagation}
-        onClick={(e) => { e.stopPropagation(); if (!btn.disabled) onClick(); }}
-      >
-        {icon && <Icon name={icon} size={12} />}
-        {label}
-      </button>
-    ) as HTMLButtonElement;
-    allBtns.push(btn);
-    return btn;
-  }
+function PresetButton({ label, icon, title, off, onClick }: {
+  label?: string; icon?: IconName; title: string; off: boolean; onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      title={title}
+      disabled={off}
+      style={{
+        width: "100%", padding: "4px 2px", borderRadius: "4px",
+        border: "1px solid var(--border)",
+        background: hovered && !off ? "var(--accent)" : "var(--background)",
+        color: "var(--foreground)", cursor: off ? "not-allowed" : "pointer",
+        opacity: off ? 0.35 : 1,
+        fontSize: "10px", fontWeight: "500", lineHeight: "1.3",
+        whiteSpace: "nowrap", boxSizing: "border-box",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: "3px",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onMouseDown={stopPropagation}
+      onPointerDown={stopPropagation}
+      onClick={(e) => { e.stopPropagation(); if (!off) onClick(); }}
+    >
+      {icon && <Icon name={icon} size={12} />}
+      {label}
+    </button>
+  );
+}
 
-  const el = (
+export function CropSidebar({ imgNatW, imgNatH, cropRect, off, onApply }: CropSidebarProps) {
+  const { l, t, w, h } = cropRect;
+  return (
     <div
-      class="nodrag nowheel"
+      className="nodrag nowheel"
       style={{
         display: "flex", flexDirection: "column", gap: "3px",
-        width: "108px", flexShrink: "0",
+        width: "108px", flexShrink: 0,
         background: "var(--muted)", borderRadius: "6px", padding: "4px",
         overflowY: "auto", boxSizing: "border-box",
       }}
     >
       {/* ── Reset ── */}
-      {makeBtn({ icon: "rotate-ccw", label: "Reset", title: "Reset crop to full image", onClick: () => {
-        const { imgNatW, imgNatH } = getImgSize();
-        onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH, zoom: 100, rotate: 0 });
-      }})}
+      <PresetButton
+        icon="rotate-ccw" label="Reset" title="Reset crop to full image" off={off}
+        onClick={() => onApply({ left: 0, top: 0, width: imgNatW, height: imgNatH, zoom: 100, rotate: 0 })}
+      />
 
       {/* ── Aspect ratios ── */}
       <Divider />
       <Label text="Ratio" />
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px;">
-        {RATIO_PRESETS.map(({ label, rw, rh }) => makeBtn({ label, title: label, onClick: () => {
-          const { imgNatW, imgNatH } = getImgSize();
-          const { l, t, w, h } = getCropRect();
-          onApply(calcRatioRect(rw, rh, imgNatW, imgNatH, l, t, w, h));
-        }}))}
-      </div>
+      <Grid columns={2}>
+        {RATIO_PRESETS.map(({ label, rw, rh }) => (
+          <PresetButton
+            key={label} label={label} title={label} off={off}
+            onClick={() => onApply(calcRatioRect(rw, rh, imgNatW, imgNatH, l, t, w, h))}
+          />
+        ))}
+      </Grid>
 
       {/* ── Resolutions ── */}
       <Divider />
       <Label text="Res" />
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:2px;">
-        {RESOLUTION_PRESETS.map(({ label, w: pw, h: ph }) => makeBtn({ label, title: `${pw}×${ph}`, onClick: () => {
-          const { imgNatW, imgNatH } = getImgSize();
-          const { l, t, w, h } = getCropRect();
-          onApply(calcResolutionRect(pw, ph, imgNatW, imgNatH, l, t, w, h));
-        }}))}
-      </div>
+      <Grid columns={2}>
+        {RESOLUTION_PRESETS.map(({ label, w: pw, h: ph }) => (
+          <PresetButton
+            key={label} label={label} title={`${pw}×${ph}`} off={off}
+            onClick={() => onApply(calcResolutionRect(pw, ph, imgNatW, imgNatH, l, t, w, h))}
+          />
+        ))}
+      </Grid>
 
       {/* ── Positions ── */}
       <Divider />
       <Label text="Pos" />
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;">
-        {POSITION_PRESETS.map(({ label, title, pos }) => makeBtn({ label, title, onClick: () => {
-          const { imgNatW, imgNatH } = getImgSize();
-          const { l, t, w, h } = getCropRect();
-          onApply(calcPositionRect(pos, imgNatW, imgNatH, l, t, w, h));
-        }}))}
-      </div>
+      <Grid columns={3}>
+        {POSITION_PRESETS.map(({ label, title, pos }) => (
+          <PresetButton
+            key={pos} label={label} title={title} off={off}
+            onClick={() => onApply(calcPositionRect(pos, imgNatW, imgNatH, l, t, w, h))}
+          />
+        ))}
+      </Grid>
     </div>
-  ) as HTMLDivElement;
-
-  function syncDisabled(lockedParams: readonly string[], disabled: boolean): void {
-    const coordLocked = ["left", "top", "width", "height"].some(f => lockedParams.includes(f));
-    const off = coordLocked || disabled;
-    for (const btn of allBtns) {
-      btn.disabled = off;
-      btn.style.opacity = off ? "0.35" : "1";
-      btn.style.cursor  = off ? "not-allowed" : "pointer";
-    }
-  }
-
-  return { el, syncDisabled };
+  );
 }

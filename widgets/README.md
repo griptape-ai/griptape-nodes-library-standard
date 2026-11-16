@@ -29,14 +29,39 @@ The props a widget is mounted with, the handle it returns, and the module shape 
 are typed by `@griptape-ai/nodes-widget-api`, which the Griptape Nodes editor publishes from its
 widget loader. Widgets import its types with `import type`.
 
-The package is also the JSX import source (`widgets/tsconfig.json`): its runtime turns `<div>` into
-an `HTMLDivElement` directly, with no React and no re-rendering, and about 2 KB of it is bundled into
-each widget. Its README has the rules for props, listeners, and styles.
+Each widget is a React function component, exported through the package's `reactWidget`:
+
+```tsx
+import { reactWidget } from "@griptape-ai/nodes-widget-api/react";
+
+function CropImageEditor(props: CropImageEditorProps) {
+  const [box, setBox] = useState(…);
+  …
+}
+
+export default reactWidget(CropImageEditor);
+```
+
+`reactWidget` keeps the editor's `mount(container, props)` contract: each mount gets its own React
+root, the editor's `update` re-renders the component with the new props, and `cleanup` unmounts it.
+State lives in hooks, and canvases, media elements, and three.js stay imperative behind refs and
+effects.
+
+React isn't bundled. The build's `editorReact()` esbuild plugin, from the same package, resolves
+`react`, `react-dom`, `react-dom/client`, and `react/jsx-runtime` to the React the editor shares
+when it loads a widget, so every widget renders with the editor's copy and version, and its bundle
+still imports nothing. Any other React module fails the build. `react` and `react-dom` are dev
+dependencies only for types and tests, pinned to the editor's major, which is the package's peer
+range. An editor that doesn't share React fails to load the widget and shows the parameter's plain
+controls.
 
 For now the package is published only to a local registry, which `.npmrc` points the
 `@griptape-ai` scope at (`http://localhost:4873/`). Start that registry and publish the package
 from a checkout of the editor (`npm run registry:local`, then `npm run publish:widget-api:local`)
 before `make widgets/install`. Without it, `npm ci` fails to fetch the package.
+
+Tests run each widget with real React under happy-dom. `test/support/setup.ts` shares React the way
+the editor does, and the helpers in `test/support/` wrap mounts, updates, and events in `act`.
 
 ## Authoring
 
@@ -71,7 +96,7 @@ largest bundle.
 
 - One ES module per entry, `dist/<Name>.js`, whose only export is the default mount function.
 - Helpers, styles, and icons are bundled into the entry: no imports of any kind, no shared
-  chunks, no CSS or asset sidecars. The build fails rather than emit them.
+  chunks, no CSS or asset sidecars, and no copy of React. The build fails rather than emit them.
 - The same sources produce the same bytes: no timestamps, absolute paths, or source maps.
 - The bundle is built into `.build-tmp/`, checked, and only then moved into `dist/`; a failed
   build leaves `dist/` as it was. Files in `dist/` the build didn't produce are removed.

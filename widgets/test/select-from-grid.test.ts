@@ -6,7 +6,7 @@ import type { GridItem, GridValue, SelectFromGridProps } from "../src/SelectFrom
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
 import { type DomFakes, installDomFakes, pointer } from "./support/dom";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { type MountedWidget, flush, mountWidget, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<SelectFromGridProps>;
 type Props = Partial<SelectFromGridProps>;
@@ -111,8 +111,8 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     document.getElementById("sfg-widget-styles")?.remove();
     vi.useRealTimers();
@@ -173,14 +173,31 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
     pointer(grid(), "pointerup", ...to);
   }
 
+  // Drags a slider to `value`. The value goes through the prototype's setter, as a browser sets it,
+  // so React sees the input as a change.
+  function dragSlider(slider: HTMLInputElement, value: number) {
+    flush(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(slider, String(value));
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  // Drags a slider to `value` and releases it.
   function setSlider(slider: HTMLInputElement, value: number) {
-    slider.value = String(value);
-    slider.dispatchEvent(new Event("input"));
-    slider.dispatchEvent(new Event("change"));
+    dragSlider(slider, value);
+    flush(() => {
+      slider.dispatchEvent(new Event("change", { bubbles: true }));
+    });
   }
 
   function key(k: string) {
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    flush(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    });
+  }
+
+  function click(el: HTMLElement) {
+    flush(() => el.click());
   }
 
   describe("mount", () => {
@@ -209,7 +226,7 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
       expect(cell(0).querySelector(".sfg-item-label")?.textContent).toBe("A");
 
       // When both scroll into view
-      FakeIntersectionObserver.instances.at(-1)?.intersectAll();
+      flush(() => FakeIntersectionObserver.instances.at(-1)?.intersectAll());
 
       // Then the resolved one gets its image and the placeholder keeps waiting
       expect(cell(0).querySelector("img")?.getAttribute("src")).toBe("https://example.test/a.png");
@@ -217,16 +234,24 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
       expect(cell(1).querySelector("img")).toBeNull();
     });
 
-    it("updates the existing grid when mounted again into the same container", () => {
+    it("builds a separate grid for each mount on the same container, each cleaned up on its own", async () => {
       // Given a mounted grid
-      mount({ value: baseValue() });
+      const first = mountWith(baseValue());
 
-      // When the editor mounts into the same container with new items
-      mount({ value: baseValue({ items: textItems(2) }) });
+      // When the editor mounts again on the same container with new items
+      const second = mountWith(baseValue({ items: textItems(2) }));
+      expect(container.querySelectorAll(".sfg-widget")).toHaveLength(2);
 
-      // Then there is still one grid, showing the new items
+      // Then cleaning up the first leaves the second working with its own callback
+      await first.handle.cleanup();
       expect(container.querySelectorAll(".sfg-widget")).toHaveLength(1);
       expect(cells()).toHaveLength(2);
+      clickCell(1);
+      expect(lastCommit(second.onChange).selected_indices).toEqual([1]);
+      expect(first.onChange).not.toHaveBeenCalled();
+
+      await second.handle.cleanup();
+      expect(container.querySelector(".sfg-widget")).toBeNull();
     });
   });
 
@@ -286,11 +311,11 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
       expect(lastCommit(onChange).selected_indices).toEqual([]);
     });
 
-    it("adds to the selection in multi-select and replaces it in single-select", () => {
+    it("adds to the selection in multi-select and replaces it in single-select", async () => {
       const multi = mountWith(baseValue({ selected_indices: [0] }));
       clickCell(2);
       expect(lastCommit(multi.onChange).selected_indices).toEqual([0, 2]);
-      multi.handle.cleanup();
+      await multi.handle.cleanup();
 
       const single = mountWith(baseValue({ selected_indices: [0], settings: { multi_select: false } }));
       clickCell(2);
@@ -321,7 +346,7 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
 
     it("clears the selection from the toolbar", () => {
       const { onChange } = mountWith(baseValue({ selected_indices: [0, 2] }));
-      button("sfg-clear-btn").click();
+      click(button("sfg-clear-btn"));
       expect(lastCommit(onChange).selected_indices).toEqual([]);
       expect(selected()).toEqual([]);
     });
@@ -340,15 +365,43 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
     it("commits the layout and rebuilds the grid after the exit animation", () => {
       vi.useFakeTimers();
       const { onChange } = mountWith(baseValue());
-      layoutButton("Masonry").click();
+      click(layoutButton("Masonry"));
       expect(lastCommit(onChange).layout).toBe("masonry");
-      vi.advanceTimersByTime(500);
+      flush(() => vi.advanceTimersByTime(500));
       expect(container.querySelectorAll(".sfg-masonry-col")).toHaveLength(3);
+    });
+
+    it("keeps the exit animation running when the editor echoes the committed layout", () => {
+      // Given a grid fading out its cells after the user picked Masonry
+      vi.useFakeTimers();
+      const { handle, onChange } = mountWith(baseValue());
+      click(layoutButton("Masonry"));
+
+      // When the editor sends the committed value back before the fade ends
+      handle.update({ value: lastCommit(onChange), onChange });
+
+      // Then the cells stay faded out in the grid layout until the timer rearranges them
+      expect(container.querySelectorAll(".sfg-masonry-col")).toHaveLength(0);
+      expect(cells().every((c) => c.style.opacity === "0")).toBe(true);
+      flush(() => vi.advanceTimersByTime(500));
+      expect(container.querySelectorAll(".sfg-masonry-col")).toHaveLength(3);
+    });
+
+    it("keeps the column-drag placeholders when an unrelated update arrives mid-drag", () => {
+      const { handle, onChange } = mountWith(baseValue());
+      const colSlider = sliders()[0];
+      if (!colSlider) throw new Error("no column slider");
+      dragSlider(colSlider, 5);
+      expect(container.querySelector(".sfg-quote-card")).toBeNull();
+
+      handle.update({ value: baseValue({ columns: 5, extra: "synced" }), onChange });
+      expect(container.querySelector(".sfg-quote-card")).toBeNull();
+      expect(grid().style.gridTemplateColumns).toBe("repeat(5, 1fr)");
     });
 
     it("commits the labels toggle and the label size", () => {
       const { onChange } = mountWith(baseValue());
-      button("sfg-labels-btn").click();
+      click(button("sfg-labels-btn"));
       expect(lastCommit(onChange).show_labels).toBe(false);
       expect(container.querySelector(".sfg-widget")?.classList.contains("sfg-hide-labels")).toBe(true);
 
@@ -389,7 +442,7 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
 
     it("blocks selection from the fullscreen viewer", () => {
       const { onChange } = mountWith(baseValue(), { disabled: true });
-      button("sfg-fullscreen-btn").click();
+      click(button("sfg-fullscreen-btn"));
       key(" ");
       expect(onChange).not.toHaveBeenCalled();
       expect(button("sfg-viewer-select", document.body).disabled).toBe(true);
@@ -399,7 +452,7 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
   describe("fullscreen viewer", () => {
     it("opens on the first selected item, steps with the arrow keys, and closes on Escape", () => {
       mountWith(baseValue({ selected_indices: [2] }));
-      button("sfg-fullscreen-btn").click();
+      click(button("sfg-fullscreen-btn"));
       expect(viewer()).not.toBeNull();
       const counter = () => document.body.querySelector(".sfg-viewer-counter")?.textContent;
       expect(counter()).toBe("3 / 6");
@@ -418,7 +471,7 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
     it("toggles the shown item with Space and removes items from the strip", () => {
       // Given the viewer opened from a cell's expand button
       const { onChange } = mountWith(baseValue({ selected_indices: [0] }));
-      button("sfg-expand-btn", cell(3)).click();
+      click(button("sfg-expand-btn", cell(3)));
       expect(document.body.querySelector(".sfg-viewer-counter")?.textContent).toBe("4 / 6");
 
       // When the user presses Space
@@ -432,22 +485,22 @@ describe.each(implementations)("SelectFromGrid (%s)", (_label, load) => {
       // And removing a thumbnail from the strip deselects it
       const thumb = document.body.querySelector<HTMLElement>('.sfg-viewer-thumb[data-idx="0"]');
       if (!thumb) throw new Error("no thumbnail for item 0");
-      button("sfg-viewer-thumb-remove", thumb).click();
+      click(button("sfg-viewer-thumb-remove", thumb));
       expect(lastCommit(onChange).selected_indices).toEqual([3]);
     });
   });
 
   describe("cleanup", () => {
-    it("removes the grid and the open viewer and stops its observers and key listener", () => {
+    it("removes the grid and the open viewer and stops its observers and key listener", async () => {
       // Given a grid with its fullscreen viewer open
       const onChange = vi.fn<(value: GridValue) => void>();
       const mounted = mountWidget(SelectFromGrid, container, widgetProps<GridValue>({ value: baseValue(), onChange }));
-      button("sfg-fullscreen-btn").click();
+      click(button("sfg-fullscreen-btn"));
       const ro = fakes.lastResizeObserver();
       const io = FakeIntersectionObserver.instances.at(-1);
 
       // When the widget is cleaned up
-      mounted.cleanup();
+      await mounted.cleanup();
 
       // Then everything it added is gone and nothing reacts any more
       expect(container.querySelector(".sfg-widget")).toBeNull();

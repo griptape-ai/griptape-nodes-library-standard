@@ -6,7 +6,7 @@ import type { GalleryItem, WebcamCaptureProps, WebcamCaptureValue } from "../src
 import type { WidgetMount } from "@griptape-ai/nodes-widget-api";
 import { buildIntoScratch, importMount, removeDir } from "./support/bundle";
 import { type DomFakes, installDomFakes } from "./support/dom";
-import { type MountedWidget, mountWidget, widgetProps } from "./support/widget";
+import { type MountedWidget, flush, mountWidget, settle, widgetProps } from "./support/widget";
 
 type Mount = WidgetMount<WebcamCaptureProps>;
 type Props = Partial<WebcamCaptureProps>;
@@ -82,11 +82,6 @@ class FakeMediaDevices extends EventTarget {
   enumerateDevices = vi.fn(async () => DEVICES);
 }
 
-// Lets the widget's async chains (getUserMedia → enumerateDevices, fetch → then) settle.
-async function flush(): Promise<void> {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
-}
-
 const JPEG_BYTES = "JPEGDATA";
 const DATA_URL = `data:image/jpeg;base64,${btoa(JPEG_BYTES)}`;
 const uploadUrl = (seq: number) => `http://localhost:8124/static-uploads/temp/_wc_node_${seq}.jpg`;
@@ -136,8 +131,8 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
     handles = [];
   });
 
-  afterEach(() => {
-    for (const h of handles) h.cleanup();
+  afterEach(async () => {
+    for (const h of handles) await h.cleanup();
     container.remove();
     if (srcObjectDescriptor) Object.defineProperty(HTMLMediaElement.prototype, "srcObject", srcObjectDescriptor);
     delete (navigator as { mediaDevices?: unknown }).mediaDevices;
@@ -156,13 +151,14 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
   async function mountStreaming(props: Props = {}) {
     const onChange = vi.fn<(value: WebcamCaptureValue) => void>();
     const handle = mount({ onChange, ...props });
-    await flush();
+    await settle();
     // Every later update carries the same callback unless a test says otherwise.
     const update = (value: WebcamCaptureValue) => handle.update({ value, onChange });
     return { handle, onChange, update };
   }
 
-  const wrappers = () => container.querySelectorAll(":scope > div");
+  // The React root sits in a `display: contents` element, with the widget inside it.
+  const wrappers = () => container.querySelectorAll(":scope > div > div");
   const video = () => container.querySelector("video")!;
   const placeholder = () => video().parentElement!.children[0] as HTMLDivElement;
   const shutterBtn = () => video().parentElement!.querySelector("button")!;
@@ -231,7 +227,7 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
       const { onChange } = await mountStreaming();
 
       // When the shutter is clicked
-      shutterBtn().click();
+      flush(() => shutterBtn().click());
 
       // Then the frame is drawn at the fallback size and encoded once as JPEG
       expect(fakes.lastContext().count("drawImage")).toBe(1);
@@ -248,12 +244,12 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
     it("uploads the capture to the URL the node returns and commits accepted, ignoring a repeat", async () => {
       // Given a capture awaiting its URL
       const { onChange, update } = await mountStreaming();
-      shutterBtn().click();
+      flush(() => shutterBtn().click());
 
       // When the node replies with the URL, twice
       update({ state: "upload_ready", _uploadUrl: uploadUrl(1), _emitSeq: 1 });
       update({ state: "upload_ready", _uploadUrl: uploadUrl(1), _emitSeq: 1 });
-      await flush();
+      await settle();
 
       // Then the decoded JPEG is PUT once and accepted is committed with the same sequence
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -269,17 +265,17 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
     it("still commits accepted when the upload fails, so the pending thumbnail can clear", async () => {
       fetchMock.mockRejectedValue(new Error("network"));
       const { onChange, update } = await mountStreaming();
-      shutterBtn().click();
+      flush(() => shutterBtn().click());
       update({ state: "upload_ready", _uploadUrl: uploadUrl(1), _emitSeq: 1 });
-      await flush();
+      await settle();
       expect(onChange).toHaveBeenLastCalledWith({ state: "accepted", _emitSeq: 1 });
     });
 
     it("queues captures and sends the next only once the node has processed the previous", async () => {
       // Given two captures in quick succession
       const { onChange, update } = await mountStreaming();
-      shutterBtn().click();
-      shutterBtn().click();
+      flush(() => shutterBtn().click());
+      flush(() => shutterBtn().click());
 
       // Then only the first asks for a URL, and both show pending
       expect(onChange).toHaveBeenCalledTimes(1);
@@ -287,7 +283,7 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
 
       // When the first is uploaded and processed
       update({ state: "upload_ready", _uploadUrl: uploadUrl(1), _emitSeq: 1 });
-      await flush();
+      await settle();
       update(processed(1, [item(1)]));
 
       // Then the photo joins the gallery, selected, and the second capture asks for its URL
@@ -321,7 +317,7 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
       });
 
       // When the first is clicked
-      thumbs()[0]!.click();
+      flush(() => thumbs()[0]!.click());
 
       // Then it is highlighted and the selection is committed with the gallery
       expect(thumbs()[0]?.classList.contains("selected")).toBe(true);
@@ -334,17 +330,17 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
       const { onChange, update } = await mountStreaming({
         value: { state: "idle", gallery_items: [item(1)], selected_index: 0, gallery_count: 1 },
       });
-      shutterBtn().click();
+      flush(() => shutterBtn().click());
 
       // When Clear is clicked
-      clearBtn().click();
+      flush(() => clearBtn().click());
 
       // Then the node is asked to clear
       expect(onChange).toHaveBeenLastCalledWith({ state: "clear_gallery", _emitSeq: 2 });
 
       // And a late URL for the dropped capture is not uploaded
       update({ state: "upload_ready", _uploadUrl: uploadUrl(1), _emitSeq: 1 });
-      await flush();
+      await settle();
       expect(fetchMock).not.toHaveBeenCalled();
 
       // When the node replies idle
@@ -364,7 +360,7 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
       handle.update({ value: { state: "selection_confirmed", gallery_items: [], selected_index: -1, gallery_count: 0, _emitSeq: 0 }, onChange });
 
       // When a photo is taken
-      shutterBtn().click();
+      flush(() => shutterBtn().click());
 
       // Then only the new callback hears it
       expect(onChange).toHaveBeenCalledWith({ state: "requesting_upload_url", _emitSeq: 1 });
@@ -378,9 +374,11 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
       await mountStreaming();
 
       // When another camera is picked
-      videoSel().value = "cam-2";
-      videoSel().dispatchEvent(new Event("change"));
-      await flush();
+      flush(() => {
+        videoSel().value = "cam-2";
+        videoSel().dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settle();
 
       // Then the old stream stops and the picked camera opens
       expect(media.streams[0]!.tracks[0]!.stopped).toBe(true);
@@ -391,27 +389,38 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
     it("repopulates the cameras when the devices change", async () => {
       await mountStreaming();
       media.enumerateDevices.mockClear();
-      media.dispatchEvent(new Event("devicechange"));
+      flush(() => media.dispatchEvent(new Event("devicechange")));
       expect(media.enumerateDevices).toHaveBeenCalledTimes(1);
+      await settle();
     });
   });
 
   describe("repeated mount on the same container", () => {
-    it("reuses the widget and applies the new props", async () => {
-      // Given a mounted widget
+    it("builds a separate widget for each mount, each cleaned up on its own", async () => {
+      // Given a streaming widget
       const first = await mountStreaming();
 
-      // When the loader mounts again with a new callback
+      // When the loader mounts again on the same container with a new callback
       const onChange = vi.fn<(value: WebcamCaptureValue) => void>();
-      const second = mount({ value: { state: "idle", gallery_items: [], selected_index: -1, gallery_count: 0 }, onChange });
+      const second = mount({ onChange });
+      await settle();
+      expect(wrappers()).toHaveLength(2);
+      expect(media.requests).toHaveLength(2);
 
-      // Then no second widget or camera request is made, and the new callback receives commits
+      // Then cleaning up the first stops only its camera and leaves the second working
+      await first.handle.cleanup();
       expect(wrappers()).toHaveLength(1);
-      expect(media.requests).toHaveLength(1);
-      expect(second.result).toEqual(first.handle.result);
-      shutterBtn().click();
+      expect(media.streams[0]!.tracks[0]!.stopped).toBe(true);
+      expect(media.streams[1]!.tracks[0]!.stopped).toBe(false);
+      flush(() => shutterBtn().click());
       expect(onChange).toHaveBeenCalledTimes(1);
       expect(first.onChange).not.toHaveBeenCalled();
+      expect(second.result).not.toBe(first.handle.result);
+
+      // And the second cleans up on its own
+      await second.cleanup();
+      expect(wrappers()).toHaveLength(0);
+      expect(media.streams[1]!.tracks[0]!.stopped).toBe(true);
     });
   });
 
@@ -422,7 +431,7 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
       const removeListener = vi.spyOn(media, "removeEventListener");
 
       // When the widget is cleaned up
-      handle.cleanup();
+      await handle.cleanup();
 
       // Then the DOM is gone and the camera is released
       expect(wrappers()).toHaveLength(0);
@@ -438,7 +447,7 @@ describe.each(implementations)("WebcamCapture (%s)", (_label, load) => {
     it("mounts a fresh widget on the same container after cleanup", async () => {
       const first = await mountStreaming();
       const stale = wrappers()[0];
-      first.handle.cleanup();
+      await first.handle.cleanup();
       mount();
       expect(wrappers()).toHaveLength(1);
       expect(wrappers()[0]).not.toBe(stale);
