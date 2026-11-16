@@ -335,6 +335,34 @@ def test_matte_is_scaled_to_the_overlay_size(tmp_path: Path, black_base: Path) -
     _assert_close(_render_pixel(cmd, output, tmp_path), 255, tolerance=10)
 
 
+@pytest.mark.parametrize("sizing", AddOverlay.SIZING_OPTIONS)
+def test_matte_stays_registered_with_the_overlay_in_a_blend_mode(tmp_path: Path, black_base: Path, sizing: str) -> None:
+    # A 64x32 matte is white only in its left quarter. It is stretched over the 64x64 overlay, so x=8 is
+    # visible and x=56 is hidden. Without the pre-scale, "Scale to cover" crops the matte to its middle
+    # half, which is all black, and the visible quarter disappears.
+    from PIL import Image  # noqa: PLC0415
+
+    overlay = _make_input(tmp_path / "white.png", f"color=c=white:s={SIZE}", frames=1)
+    matte = tmp_path / "matte.png"
+    image = Image.new("L", (64, 32), 0)
+    image.paste(255, (0, 0, 16, 32))
+    image.save(matte)
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(
+        AddOverlay(name="Add Overlay"),
+        black_base,
+        output,
+        overlay,
+        blend_mode="screen",
+        matte_video=matte,
+        sizing=sizing,
+    )
+
+    _assert_close(_render_pixel(cmd, output, tmp_path, xy=(8, 32)), 255, tolerance=10)
+    _assert_close(_render_pixel(cmd, output, tmp_path, xy=(56, 32)), 0)
+
+
 def test_matte_is_the_third_ffmpeg_input_and_absent_without_one(node: AddOverlay, captured_paths: list[str]) -> None:  # noqa: ARG001
     with_matte = node._build_ffmpeg_command(
         "/base.mp4",

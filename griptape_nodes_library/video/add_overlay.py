@@ -73,7 +73,7 @@ class AddOverlay(BaseVideoProcessor):
     # have an image extension, so the artifact type is the reliable signal and the extension is the fallback.
     _still_base_url: str | None = None
 
-    # Edge cleanup limits
+    # Edge cleanup range. The maximums only size the slider track: a typed value may go past them.
     MIN_CHOKE = 0
     MAX_CHOKE = 10
     MIN_EDGE_SOFTNESS = 0.0
@@ -95,6 +95,7 @@ class AddOverlay(BaseVideoProcessor):
             )
         overlay_param = ParameterVideo(
             name="overlay_video",
+            display_name="Overlay (Video or Image)",
             input_types=["VideoArtifact", "VideoUrlArtifact", "ImageArtifact", "ImageUrlArtifact"],
             type="VideoUrlArtifact",
             tooltip="The video or image to overlay on top of the base video (PNG with transparency supported)",
@@ -104,6 +105,7 @@ class AddOverlay(BaseVideoProcessor):
 
         matte_param = ParameterVideo(
             name="matte_video",
+            display_name="Matte (Video or Image)",
             input_types=["VideoArtifact", "VideoUrlArtifact", "ImageArtifact", "ImageUrlArtifact"],
             type="VideoUrlArtifact",
             tooltip=(
@@ -153,7 +155,7 @@ class AddOverlay(BaseVideoProcessor):
                 "removes the most contaminated edge pixels. 0 leaves the edge alone."
             ),
         )
-        choke_param.add_trait(Slider(min_val=self.MIN_CHOKE, max_val=self.MAX_CHOKE))
+        choke_param.add_trait(Slider(min_val=self.MIN_CHOKE, max_val=self.MAX_CHOKE, soft_limits=True))
         self.add_parameter(choke_param)
 
         edge_softness_param = ParameterFloat(
@@ -161,7 +163,9 @@ class AddOverlay(BaseVideoProcessor):
             default_value=self.MIN_EDGE_SOFTNESS,
             tooltip="Blurs the overlay's alpha by this many pixels after choking, so a choked edge does not look hard.",
         )
-        edge_softness_param.add_trait(Slider(min_val=self.MIN_EDGE_SOFTNESS, max_val=self.MAX_EDGE_SOFTNESS))
+        edge_softness_param.add_trait(
+            Slider(min_val=self.MIN_EDGE_SOFTNESS, max_val=self.MAX_EDGE_SOFTNESS, soft_limits=True)
+        )
         self.add_parameter(edge_softness_param)
 
         sizing_param = ParameterString(
@@ -264,24 +268,25 @@ class AddOverlay(BaseVideoProcessor):
                 msg = f"Unknown alpha convention: {alpha_convention!r}"
                 raise ValueError(msg)
 
-        if blend_mode == "overlay":
-            # The overlay filter accepts any overlay size, so the overlay stays at its own size.
-            match_size_filter = ""
-            if matte_url:
-                _, (overlay_width, overlay_height), _ = self._detect_video_properties(overlay_url, ffprobe_path)
-                match_size_filter = f"scale={overlay_width}:{overlay_height},"
-        else:
+        # The matte is stretched to the overlay's own size first, in every mode, so the pair is then sized
+        # together and the matte stays registered with the overlay. scale2ref would do this without probing,
+        # but FFmpeg 7.0 aborts on it when an input is a still image, so size it explicitly.
+        matte_filters = ""
+        if matte_url:
+            _, (overlay_width, overlay_height), _ = self._detect_video_properties(overlay_url, ffprobe_path)
+            matte_filters = f"scale={overlay_width}:{overlay_height},"
+
+        if blend_mode != "overlay":
             # The blend filter requires both inputs to share size and pixel format, so scale the overlay
-            # (and its matte, the same way) to the base video.
+            # (and its matte, the same way) to the base video. The overlay filter accepts any overlay
+            # size, so overlay mode keeps the overlay at its own size.
             sizing_filter = self._get_sizing_filter(kwargs.get("sizing", "Scale to cover"), base_width, base_height)
             graph.append(f"[{source}]{sizing_filter},setsar=1[sized]")
             source = "sized"
-            match_size_filter = f"{sizing_filter},setsar=1,"
+            matte_filters += f"{sizing_filter},setsar=1,"
 
         if matte_url:
-            # scale2ref would size the matte to the overlay without probing, but FFmpeg 7.0 aborts on it
-            # when an input is a still image, so size it explicitly.
-            graph.append(f"[2]{match_size_filter}format=gray[matte];[{source}][matte]alphamerge,format=rgba[matted]")
+            graph.append(f"[2]{matte_filters}format=gray[matte];[{source}][matte]alphamerge,format=rgba[matted]")
             source = "matted"
 
         choke = int(kwargs.get("choke") or 0)
@@ -480,15 +485,13 @@ class AddOverlay(BaseVideoProcessor):
             exceptions.append(ValueError(msg))
 
         choke = self.get_parameter_value("choke")
-        if choke is not None and (choke < self.MIN_CHOKE or choke > self.MAX_CHOKE):
-            msg = f"Choke must be between {self.MIN_CHOKE} and {self.MAX_CHOKE}, got {choke}."
+        if choke is not None and choke < self.MIN_CHOKE:
+            msg = f"Choke must be at least {self.MIN_CHOKE}, got {choke}."
             exceptions.append(ValueError(msg))
 
         edge_softness = self.get_parameter_value("edge_softness")
-        if edge_softness is not None and (
-            edge_softness < self.MIN_EDGE_SOFTNESS or edge_softness > self.MAX_EDGE_SOFTNESS
-        ):
-            msg = f"Edge softness must be between {self.MIN_EDGE_SOFTNESS} and {self.MAX_EDGE_SOFTNESS}, got {edge_softness}."
+        if edge_softness is not None and edge_softness < self.MIN_EDGE_SOFTNESS:
+            msg = f"Edge softness must be at least {self.MIN_EDGE_SOFTNESS}, got {edge_softness}."
             exceptions.append(ValueError(msg))
 
         alpha_convention = self.get_parameter_value("alpha_convention")
