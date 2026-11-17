@@ -1,11 +1,11 @@
-import pathlib
 from enum import StrEnum
 from io import BytesIO
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import NodeError, NodeMessageResult, Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, NodeDependencies, SuccessFailureNode
+from griptape_nodes.exe_types.param_components.project_directory_parameter import ProjectDirectoryParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
 from griptape_nodes.files.project_file import ProjectFileDestination
@@ -14,22 +14,17 @@ from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
-from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 from PIL import Image
 from pypdf import PdfReader
 
 from griptape_nodes_library.image.image_preview import ImagePreviewMixin
-from griptape_nodes_library.utils.versioned_output_directory import (
-    build_directory_parameter,
-    clear_directory_value,
-    configure_directory_with_settings_node,
-    normalize_directory_value,
-    resolve_output_dir,
-)
+from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 
-DEFAULT_DIRECTORY = "{outputs}/extracted_v{###}"
+DEFAULT_DIRECTORY_NAME = "extracted"
+# Saved workflows from before this folder-name default may still hold the old template value.
+OLD_DEFAULT_DIRECTORY = "{outputs}/extracted_v{###}"
 DEFAULT_PREFIX = "page"
 DEFAULT_PADDING = 3
 PADDING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8"]
@@ -80,6 +75,11 @@ class ExtractedImage:
     def __init__(self, data: bytes, extension: str) -> None:
         self.data = data
         self.extension = extension
+
+
+def _migrate_old_default_directory(value: Any) -> Any:
+    """Rewrite the pre-folder-name default directory template to the new default folder name."""
+    return DEFAULT_DIRECTORY_NAME if value == OLD_DEFAULT_DIRECTORY else value
 
 
 class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
@@ -151,18 +151,17 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
         file_format.add_trait(Options(choices=[f.value for f in OutputFormat]))
         self.add_parameter(file_format)
 
-        self.add_parameter(
-            build_directory_parameter(
-                default_directory=DEFAULT_DIRECTORY,
-                tooltip=(
-                    "Folder the images are saved in. Use {###} for auto-incrementing versions "
-                    "(e.g. {outputs}/extracted_v{###} → extracted_v001, extracted_v002, …). "
-                    "Click the gear to connect a FileOutputSettings node."
-                ),
-                on_configure_clicked=self._on_configure_output_dir_clicked,
-                on_connection_removed=self._on_output_dir_connection_removed,
-            )
+        self._directory_param = ProjectDirectoryParameter(self, "directory", default_dirname=DEFAULT_DIRECTORY_NAME)
+        self._directory_param.add_parameter()
+        directory_parameter = self.get_parameter_by_name("directory")
+        assert directory_parameter is not None
+        directory_parameter.tooltip = (
+            "Folder the images are saved in. A plain name (e.g. 'extracted') is versioned and placed "
+            "by the project's output directory setting; an absolute path is used as given. "
+            "Click the gear to connect a Directory Output Settings node."
         )
+        directory_parameter.allow_variable_substitution = False
+        directory_parameter.add_converter(_migrate_old_default_directory)
 
         self.add_parameter(
             ParameterString(
@@ -218,11 +217,6 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
 
     # ── Lifecycle hooks ─────────────────────────────────────────────────────────
 
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name == "directory":
-            normalize_directory_value(self, value)
-        super().after_value_set(parameter, value)
-
     def get_node_dependencies(self) -> NodeDependencies | None:
         deps = super().get_node_dependencies()
         if deps is None:
@@ -236,19 +230,6 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
         if not self.get_parameter_value("path"):
             return [ValueError("Set 'path' to the PDF file to extract images from.")]
         return None
-
-    # ── Output directory ────────────────────────────────────────────────────────
-
-    def _on_configure_output_dir_clicked(
-        self, _button: Button, button_details: ButtonDetailsMessagePayload
-    ) -> NodeMessageResult:
-        return configure_directory_with_settings_node(self, button_details)
-
-    def _on_output_dir_connection_removed(self, *_: object) -> None:
-        clear_directory_value(self)
-
-    def _resolve_output_dir(self) -> pathlib.Path:
-        return resolve_output_dir(self, DEFAULT_DIRECTORY)
 
     # ── Preview ─────────────────────────────────────────────────────────────────
 
@@ -333,7 +314,8 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
             msg = f"No embedded images found in '{path}'. The PDF may hold text and vector graphics only."
             raise NodeError(msg)
 
-        output_dir = self._resolve_output_dir()
+        reject_connected_file_destination(self)
+        output_dir = self._directory_param.build_directory().create().resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         artifacts: list[ImageUrlArtifact] = []
         for index, image in enumerate(extracted, start=1):
