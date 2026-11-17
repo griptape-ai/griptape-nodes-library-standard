@@ -925,6 +925,16 @@ def test_default_mode_and_visibility() -> None:
     assert _parameter_by_name(node, "resolution").ui_options.get("hide", False) is False
 
 
+def test_draft_task_id_input_and_output_are_distinguishable() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    draft_input = _parameter_by_name(node, "draft_task_id")
+    draft_output = _parameter_by_name(node, "draft_task_id_output")
+    assert draft_input.ui_options["display_name"] != draft_output.ui_options["display_name"]
+    assert draft_input.ui_options["placeholder_text"]
+    assert draft_output.ui_options["placeholder_text"]
+    assert draft_input.ui_options["placeholder_text"] != draft_output.ui_options["placeholder_text"]
+
+
 @pytest.mark.parametrize("initial_setup", [False, True])
 def test_mode_visibility_and_workflow_load(initial_setup: bool) -> None:
     node = Seedance25VideoGeneration(name="Seedance25")

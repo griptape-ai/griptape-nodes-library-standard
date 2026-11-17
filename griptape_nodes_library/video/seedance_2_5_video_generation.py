@@ -53,6 +53,9 @@ MAX_DURATION = 30
 SMART_DURATION = -1
 
 RESOLUTION_CHOICES = ["480p", "720p", "1080p"]
+# The provider accepts only 480p for a Draft and only 1080p (or 4K, not yet offered) for its Final.
+DRAFT_RESOLUTION = "480p"
+FINAL_RESOLUTION = "1080p"
 OUTPUT_FORMAT_CHOICES = ["mp4", "mov"]
 DEFAULT_OUTPUT_FORMAT = "mp4"
 OUTPUT_FILENAME_BASE = "seedance_2_5_video"
@@ -280,7 +283,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 tooltip=(
                     "Normal generates a video in one step. Draft generates a 480p preview. "
                     "Final generates a 1080p video from a completed Draft task ID using the same "
-                    "organisation and compatible credentials. Each step is billed separately; Draft IDs expire."
+                    "organisation and compatible credentials. Each step is billed separately; Draft IDs expire after 14 days."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Mode"},
@@ -292,6 +295,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 name="draft_task_id",
                 default_value="",
                 tooltip="Provider Draft task ID from a completed Draft, not the generation ID.",
+                placeholder_text="Paste or connect the Draft Task ID from a Draft run",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Draft Task ID"},
             )
@@ -491,9 +495,10 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             ParameterString(
                 name="draft_task_id_output",
                 tooltip="Provider task ID of the completed Draft, for use in Final mode. Not the generation ID.",
+                placeholder_text="Filled in when the Draft finishes. Connect to a Final node's Draft Task ID.",
                 allowed_modes={ParameterMode.OUTPUT},
                 settable=False,
-                ui_options={"display_name": "Draft Task ID"},
+                ui_options={"display_name": "Draft Task ID (for Final)"},
             )
         )
         self.add_parameter(
@@ -763,7 +768,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         if mode == GenerationMode.FINAL:
             draft_task_id = params.get("draft_task_id")
             if not isinstance(draft_task_id, str) or not draft_task_id.strip():
-                msg = "Final mode requires a completed provider Draft Task ID, not a generation ID."
+                msg = "Final mode requires a completed provider Draft Task ID."
                 raise ValueError(msg)
             return
 
@@ -968,7 +973,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         if params["mode"] == GenerationMode.FINAL:
             return {
                 "model": SEEDANCE_2_5_MODEL_ID,
-                "resolution": "1080p",
+                "resolution": FINAL_RESOLUTION,
                 "content": [{"type": "draft_task", "draft_task": {"id": params["draft_task_id"].strip()}}],
                 "output_format": params["output_format"],
                 "watermark": bool(params["watermark"]),
@@ -989,7 +994,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         payload: dict[str, Any] = {"model": SEEDANCE_2_5_MODEL_ID}
         if params["mode"] == GenerationMode.DRAFT:
             payload["draft"] = True
-            payload["resolution"] = "480p"
+            payload["resolution"] = DRAFT_RESOLUTION
         elif params["resolution"]:
             payload["resolution"] = params["resolution"]
         if params["ratio"]:
