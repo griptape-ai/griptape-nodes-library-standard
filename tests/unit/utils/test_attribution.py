@@ -261,16 +261,9 @@ _RUNNING_NODE: contextvars.ContextVar[str | None] = contextvars.ContextVar("test
 
 @_VARIANTS
 def test_the_lookup_sees_the_callers_context(variant: Callable[[], Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    """The engine answers from the caller's ContextVars, so they have to reach it.
+    """The engine sees the caller's ContextVars, which is how it knows the node and run.
 
-    The engine finds the running node, and through it the run, in ContextVars set around the
-    node's `aprocess()`. The sync spelling asks from a thread of its own, and a new thread
-    starts with an empty context: without a copy, every answer it gets is about no node and no
-    run, and that spend drops out of the run's total. Nothing else here notices, because the
-    header still arrives, just with fewer tags in it.
-
-    A ContextVar of the test's own stands in for the engine's, so this holds for every one
-    the engine reads now or later, rather than for whichever is current.
+    Uses a ContextVar of its own so it doesn't depend on which ones the engine reads.
     """
     seen_in_handler: list[str | None] = []
 

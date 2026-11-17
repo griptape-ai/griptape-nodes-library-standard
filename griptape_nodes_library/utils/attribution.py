@@ -95,10 +95,8 @@ def _ask_on_a_daemon_thread(answers: queue.Queue[object]) -> None:
     a wedged engine would turn a hung node into a hung quit.
     `test_a_wedged_engine_does_not_outlive_the_process` holds this.
 
-    The thread runs in a copy of the caller's context. A new thread starts with an empty
-    one, and the engine reads the running node and its run from ContextVars, so without the
-    copy the answer could name the project but never the run.
-    `test_the_lookup_sees_the_callers_context` holds this.
+    The thread runs in a copy of the caller's context so the engine can tell which node and
+    run made the call. `test_the_lookup_sees_the_callers_context` holds this.
     """
 
     def _ask() -> None:
