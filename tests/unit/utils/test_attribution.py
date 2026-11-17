@@ -19,6 +19,7 @@ about what this code does with an answer.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import subprocess
 import sys
@@ -253,6 +254,39 @@ def test_the_request_is_dispatched_bare_and_silently(
 
     assert seen == [GetAttributionContextRequest()]
     assert seen[0].broadcast_result is False
+
+
+_RUNNING_NODE: contextvars.ContextVar[str | None] = contextvars.ContextVar("test_running_node", default=None)
+
+
+@_VARIANTS
+def test_the_lookup_sees_the_callers_context(variant: Callable[[], Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """The engine answers from the caller's ContextVars, so they have to reach it.
+
+    The engine finds the running node, and through it the run, in ContextVars set around the
+    node's `aprocess()`. The sync spelling asks from a thread of its own, and a new thread
+    starts with an empty context: without a copy, every answer it gets is about no node and no
+    run, and that spend drops out of the run's total. Nothing else here notices, because the
+    header still arrives, just with fewer tags in it.
+
+    A ContextVar of the test's own stands in for the engine's, so this holds for every one
+    the engine reads now or later, rather than for whichever is current.
+    """
+    seen_in_handler: list[str | None] = []
+
+    def _read_context(_request: Any) -> Any:
+        seen_in_handler.append(_RUNNING_NODE.get())
+        return _succeeding()
+
+    _answering(monkeypatch, _read_context)
+
+    token = _RUNNING_NODE.set("Agent_1")
+    try:
+        _ask(variant)
+    finally:
+        _RUNNING_NODE.reset(token)
+
+    assert seen_in_handler == ["Agent_1"]
 
 
 @pytest.mark.asyncio

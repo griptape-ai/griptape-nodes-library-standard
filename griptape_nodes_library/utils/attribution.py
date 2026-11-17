@@ -21,6 +21,7 @@ standard library.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import queue
 import threading
@@ -93,6 +94,11 @@ def _ask_on_a_daemon_thread(answers: queue.Queue[object]) -> None:
     A daemon thread rather than a pool, because the interpreter joins pool workers at exit:
     a wedged engine would turn a hung node into a hung quit.
     `test_a_wedged_engine_does_not_outlive_the_process` holds this.
+
+    The thread runs in a copy of the caller's context. A new thread starts with an empty
+    one, and the engine reads the running node and its run from ContextVars, so without the
+    copy the answer could name the project but never the run.
+    `test_the_lookup_sees_the_callers_context` holds this.
     """
 
     def _ask() -> None:
@@ -102,7 +108,8 @@ def _ask_on_a_daemon_thread(answers: queue.Queue[object]) -> None:
             # Handed back as the answer so the caller logs it with its cause.
             answers.put(error)
 
-    threading.Thread(target=_ask, name="griptape-attribution", daemon=True).start()
+    caller_context = contextvars.copy_context()
+    threading.Thread(target=caller_context.run, args=(_ask,), name="griptape-attribution", daemon=True).start()
 
 
 def _timed_out() -> dict[str, str]:
