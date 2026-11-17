@@ -641,6 +641,29 @@ async def test_non_public_reference_video_is_uploaded_for_a_public_url(upload_en
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "static_url",
+    [
+        "http://localhost:8124/workspace/static_files/local-clip.mp4?t=1730000000",
+        "http://192.168.1.20:8124/workspace/static_files/local-clip.mp4",
+    ],
+)
+async def test_static_server_reference_video_is_really_uploaded(upload_env, static_url: str) -> None:
+    # BytePlus cannot fetch the static server's address, so the URL must never reach the payload.
+    (upload_env.workspace / "static_files" / "local-clip.mp4").write_bytes(b"clip bytes")
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
+    node.set_parameter_value("prompt", "Match the motion in @Video 1")
+    _set_parameter_list_values(node, "reference_videos", [VideoUrlArtifact(static_url)])
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["video_url"] == {"url": upload_env.signed_url}
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/local-clip.mp4")
+
+
+@pytest.mark.asyncio
 async def test_build_payload_registers_private_asset_references(monkeypatch: pytest.MonkeyPatch) -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
     node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 import pytest
 from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
@@ -24,6 +25,7 @@ from griptape_nodes_library.assets import (
     ASSET_KIND_IMAGE,
     create_provider_asset_reference,
 )
+from griptape_nodes_library.media import public_urls
 from griptape_nodes_library.video.seedance_2_0_video_generation import (
     SEEDANCE_2_0_FAST_MODEL_ID,
     SEEDANCE_2_0_MINI_MODEL_ID,
@@ -292,6 +294,25 @@ async def test_build_payload_rewrites_mp3_audio_subtype_to_seedance_accepted(
 
 
 @pytest.mark.asyncio
+async def test_static_server_reference_audio_is_sent_inline(upload_env) -> None:
+    # BytePlus cannot fetch the static server's address, so the audio it serves is read and inlined.
+    static_url = "http://192.168.1.20:8124/workspace/static_files/music.mp3?t=1730000000"
+    (upload_env.workspace / "static_files" / "music.mp3").write_bytes(b"ID3fakeaudio")
+    node = Seedance20VideoGeneration(name="Seedance20")
+    node.set_parameter_value("model_id", "Seedance 2.0")
+    node.set_parameter_value("input_mode", "Multimodal References")
+    node.set_parameter_value("prompt", "Use the reference audio")
+    _set_parameter_list_values(node, "reference_audio", [AudioUrlArtifact(static_url)])
+
+    payload = await node._build_payload()
+    audio_entries = [item for item in payload["content"] if item["type"] == "audio_url"]
+
+    assert len(audio_entries) == 1
+    assert audio_entries[0]["audio_url"]["url"].startswith("data:audio/mp3;base64,")
+    assert "192.168.1.20" not in json.dumps(payload)
+
+
+@pytest.mark.asyncio
 async def test_build_payload_rejects_local_reference_video_path(tmp_path) -> None:
     node = Seedance20VideoGeneration(name="Seedance20")
     reference_video = tmp_path / "reference.mp4"
@@ -302,38 +323,67 @@ async def test_build_payload_rejects_local_reference_video_path(tmp_path) -> Non
     node.set_parameter_value("prompt", "Use the reference video motion")
     node.set_parameter_value("reference_video_1", {"type": "VideoUrlArtifact", "value": str(reference_video)})
 
-    with pytest.raises(
-        ValueError, match="reference_video_1 only supports public URLs, uploaded asset URLs, or asset:// IDs"
-    ):
+    with pytest.raises(ValueError, match="Could not prepare a public URL for reference_video_1"):
         await node._build_payload()
 
 
-@pytest.mark.asyncio
-async def test_build_payload_uses_public_artifact_url_parameter_for_reference_videos(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _multimodal_node_with_reference_video(value: object) -> Seedance20VideoGeneration:
     node = Seedance20VideoGeneration(name="Seedance20")
     node.set_parameter_value("model_id", "Seedance 2.0")
     node.set_parameter_value("input_mode", "Multimodal References")
     node.set_parameter_value("prompt", "Use the reference video motion")
-    node.set_parameter_value("reference_video_1", "workspace/reference.mp4")
+    node.set_parameter_value("reference_video_1", value)
+    return node
 
-    monkeypatch.setattr(
-        node._public_reference_video_parameter_1,
-        "get_public_url_for_parameter",
-        lambda: "https://public.example/reference.mp4",
-    )
+
+@pytest.mark.asyncio
+async def test_local_reference_video_is_uploaded_for_a_public_url(upload_env, tmp_path) -> None:
+    reference_video = tmp_path / "reference.mp4"
+    reference_video.write_bytes(b"video")
+    node = _multimodal_node_with_reference_video(VideoUrlArtifact(str(reference_video)))
 
     payload = await node._build_payload()
 
     assert payload["content"] == [
         {"type": "text", "text": "Use the reference video motion"},
-        {
-            "type": "video_url",
-            "video_url": {"url": "https://public.example/reference.mp4"},
-            "role": "reference_video",
-        },
+        {"type": "video_url", "video_url": {"url": upload_env.signed_url}, "role": "reference_video"},
     ]
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/reference.mp4")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "static_url",
+    [
+        "http://localhost:8124/workspace/static_files/reference.mp4?t=1730000000",
+        "http://192.168.1.20:8124/workspace/static_files/reference.mp4",
+        "http://my-container:8124/workspace/static_files/reference.mp4",
+    ],
+)
+async def test_static_server_reference_video_is_really_uploaded(upload_env, static_url: str) -> None:
+    # BytePlus cannot fetch the static server's address, so the reference video must be uploaded
+    # rather than sent as the URL. Asserted against the engine's real upload.
+    (upload_env.workspace / "static_files" / "reference.mp4").write_bytes(b"video")
+    node = _multimodal_node_with_reference_video(VideoUrlArtifact(static_url))
+
+    payload = await node._build_payload()
+    serialized = json.dumps(payload)
+
+    assert payload["content"][1]["video_url"] == {"url": upload_env.signed_url}
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith("/reference.mp4")
+    assert static_url not in serialized
+
+
+@pytest.mark.asyncio
+async def test_public_reference_video_url_passes_through_without_upload(upload_env) -> None:
+    node = _multimodal_node_with_reference_video(VideoUrlArtifact("http://insecure.example.com/reference.mp4"))
+
+    payload = await node._build_payload()
+
+    assert payload["content"][1]["video_url"] == {"url": "http://insecure.example.com/reference.mp4"}
+    assert upload_env.uploaded_keys == []
 
 
 # --- Reference images that name a file travel as URLs ---------------------------------------
@@ -408,24 +458,26 @@ async def test_static_server_reference_image_is_really_uploaded(upload_env, stat
 
 
 @pytest.mark.asyncio
-async def test_unresolvable_unreachable_url_degrades_to_base64(monkeypatch: pytest.MonkeyPatch, upload_env) -> None:
-    # An unreachable host that is *not* one of our static-server URLs cannot be resolved to a file,
-    # so there is nothing to upload. It must degrade to base64 -- what this path always did -- and
-    # must not pass through as a URL the provider cannot fetch.
+async def test_unreachable_non_static_url_is_downloaded_and_uploaded(
+    monkeypatch: pytest.MonkeyPatch, upload_env
+) -> None:
+    # An unreachable host that is *not* one of our static-server URLs has no local file to upload,
+    # and the engine would pass the URL through untouched. Its bytes are downloaded from here and
+    # uploaded, so the provider gets a URL it can fetch and never sees the internal host.
     unreachable_url = "http://192.168.1.20:9000/img/style.png"
     node = _multimodal_node_with_reference_images([ImageUrlArtifact(unreachable_url)])
 
-    async def fake_read(self: File, fallback_mime: str = "application/octet-stream") -> str:  # noqa: ARG001
+    async def fake_download(url: str, *, fallback_mime: str) -> str:  # noqa: ARG001
         return upload_env.inline_data_uri
 
-    monkeypatch.setattr(File, "aread_data_uri", fake_read)
+    monkeypatch.setattr(public_urls, "adownload_as_data_uri", fake_download)
 
     payload = await node._build_payload()
     serialized = json.dumps(payload)
 
-    assert payload["content"][1]["image_url"] == {"url": upload_env.inline_data_uri}
-    assert upload_env.uploaded_keys == []
-    assert unreachable_url not in serialized
+    assert payload["content"][1]["image_url"] == {"url": upload_env.signed_url}
+    assert len(upload_env.uploaded_keys) == 1
+    assert upload_env.uploaded_keys[0].endswith(".png")
     assert "192.168.1.20" not in serialized
 
 
@@ -526,14 +578,19 @@ async def test_private_asset_accepts_a_public_http_url(upload_env) -> None:
 
 
 @pytest.mark.asyncio
-async def test_private_asset_rejects_an_unreachable_host(upload_env) -> None:
+async def test_private_asset_rejects_an_unreachable_host(monkeypatch: pytest.MonkeyPatch, upload_env) -> None:
     # The provider cannot fetch a LAN address. Registering it anyway leaves the asset stuck and
-    # discloses an internal host, so this fails at our own gate with a message that says why.
+    # discloses an internal host, so when it cannot be read from here either, this fails instead.
     node = Seedance20VideoGeneration(name="Seedance20")
     node._pending_asset_uploads = []
     ref = create_provider_asset_reference(value="http://192.168.1.20:9000/face.png", asset_kind=ASSET_KIND_IMAGE)
 
-    with pytest.raises(RuntimeError, match="was not uploaded"):
+    async def raise_connect_error(url: str, *, fallback_mime: str) -> str:  # noqa: ARG001
+        raise httpx.ConnectError("host unreachable")
+
+    monkeypatch.setattr(public_urls, "adownload_as_data_uri", raise_connect_error)
+
+    with pytest.raises(httpx.ConnectError):
         await node._resolve_public_url_for_asset(ref, asset_kind=ASSET_KIND_IMAGE)
     assert upload_env.uploaded_keys == []
 

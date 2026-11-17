@@ -17,7 +17,7 @@ from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_
     PublicArtifactUrlParameter,
 )
 
-from griptape_nodes_library.video import seedance_common
+from griptape_nodes_library.media import public_urls
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -71,14 +71,14 @@ def upload_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> UploadEnv:
 
     # Resolution reads the workspace through a request, not GriptapeNodes.ConfigManager(), so the
     # fixture answers GetWorkspaceRequest directly and passes every other request through.
-    real_handle_request = seedance_common.GriptapeNodes.handle_request
+    real_handle_request = public_urls.GriptapeNodes.handle_request
 
     def fake_handle_request(request: Any) -> Any:
-        if isinstance(request, seedance_common.GetWorkspaceRequest):
-            return seedance_common.GetWorkspaceResultSuccess(workspace_path=str(tmp_path), result_details="stub")
+        if isinstance(request, public_urls.GetWorkspaceRequest):
+            return public_urls.GetWorkspaceResultSuccess(workspace_path=str(tmp_path), result_details="stub")
         return real_handle_request(request)
 
-    monkeypatch.setattr(seedance_common.GriptapeNodes, "handle_request", fake_handle_request)
+    monkeypatch.setattr(public_urls.GriptapeNodes, "handle_request", fake_handle_request)
 
     static_file = tmp_path / "static_files" / "style.png"
     static_file.parent.mkdir(parents=True, exist_ok=True)
