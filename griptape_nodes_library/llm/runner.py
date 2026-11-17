@@ -13,6 +13,8 @@ from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from pydantic_ai import Agent, CancellationToken, StructuredDict
 from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import (
@@ -131,6 +133,7 @@ async def run_agent_async(
     callbacks: RunCallbacks | None = None,
     usage_limits: UsageLimits | None = None,
 ) -> AgentRunResult[Any]:
+    """Run `agent` on the running loop, then close its model's SDK client. Build a new agent for each run."""
     callbacks = callbacks or RunCallbacks()
     result: AgentRunResult[Any] | None = None
     # Prune here, not with a history processor: pydantic-ai writes processed history back
@@ -163,10 +166,25 @@ async def run_agent_async(
     finally:
         if watcher is not None:
             watcher.cancel()
+        await _close_sdk_client(agent.model)
     if result is None:
         msg = "Agent run ended without a result."
         raise RuntimeError(msg)
     return result
+
+
+async def _close_sdk_client(model: Any) -> None:
+    """Close `model`'s OpenAI or Anthropic client on the loop its connections belong to.
+
+    Left open, the SDK closes it from `__del__` by scheduling `aclose()` on whatever loop is running when it's
+    collected. Each `run_agent` call has its own loop, so that is often a later run's loop, and the task fails
+    with "Event loop is closed".
+    """
+    while isinstance(model, WrapperModel):
+        model = model.wrapped
+    client = getattr(model, "client", None)
+    if isinstance(client, (AsyncOpenAI, AsyncAnthropic)):
+        await client.close()
 
 
 def _supports_streaming(model: Any) -> bool:
@@ -222,7 +240,9 @@ def run_agent(
     callbacks: RunCallbacks | None = None,
     usage_limits: UsageLimits | None = None,
 ) -> AgentRunResult[Any]:
-    """Run `agent` synchronously, streaming text and tool events to `callbacks`.
+    """Run `agent` synchronously, streaming text and tool events to `callbacks`, then close its model's SDK client.
+
+    Build a new agent for each run.
 
     Raises:
         AgentRunCancelledError: `callbacks.is_cancelled` returned True.

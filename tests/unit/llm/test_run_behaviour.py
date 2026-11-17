@@ -1,8 +1,10 @@
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx2
 import pytest
 from cohere import (
     AssistantMessageResponse,
@@ -15,6 +17,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, Text
 from pydantic_ai.models import Model
 from pydantic_ai.models.cohere import CohereModel
 from pydantic_ai.models.function import AgentInfo, DeltaToolCalls, FunctionModel
+from pydantic_ai.models.openai import OpenAIChatModel
 
 from griptape_nodes_library.llm import models
 from griptape_nodes_library.llm.agent_state import AgentState, messages_from_runs, runs_from_messages
@@ -201,3 +204,26 @@ def test_cancel_interrupts_a_model_call_with_no_events() -> None:
     with override_model(model), pytest.raises(AgentRunCancelledError):
         run_agent(build_agent(CLOUD), "x", callbacks=RunCallbacks(is_cancelled=lambda: time.monotonic() - start > 0.3))
     assert time.monotonic() - start < 5
+
+
+def test_run_closes_the_sdk_client_before_its_loop_closes() -> None:
+    chunk = {
+        "id": "c",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "m",
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
+    }
+    body = f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n"
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, text=body, headers={"Content-Type": "text/event-stream"})
+
+    config = ModelConfig(provider=ModelProvider.OPENAI_COMPATIBLE, model="m", base_url="http://model.test/v1")
+    agent = build_agent(config)
+    assert isinstance(agent.model, OpenAIChatModel)
+    client = agent.model.client
+    client._client = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+
+    assert run_agent(agent, "hello").output == "hi"
+    assert client.is_closed()
