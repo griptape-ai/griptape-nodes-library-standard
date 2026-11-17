@@ -19,6 +19,7 @@ KLING_4_MODELS = (KLING_4_0, KLING_4_0_FLASH)
 
 RESOLUTION_720P = "720p"
 RESOLUTION_1080P = "1080p"
+RESOLUTION_4K = "4k"
 ASPECT_RATIO_ADAPTIVE = "adaptive"
 GENERATED_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "21:9"]
 AUDIO_MODES = ["native", "original"]
@@ -53,7 +54,7 @@ class Kling4Capabilities:
 
 KLING_4_CAPABILITIES: dict[str, Kling4Capabilities] = {
     KLING_4_0: Kling4Capabilities(
-        resolutions=[RESOLUTION_720P, RESOLUTION_1080P],
+        resolutions=[RESOLUTION_720P, RESOLUTION_1080P, RESOLUTION_4K],
         default_resolution=RESOLUTION_1080P,
         max_duration=KLING_4_0_MAX_DURATION_SECONDS,
         supports_keyframes=True,

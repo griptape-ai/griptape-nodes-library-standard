@@ -334,7 +334,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 default_value=kling_4.RESOLUTION_1080P,
                 tooltip="Output resolution (Kling 4.0 models). Kling 4.0 Flash is 720p only.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P])},
+                traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P, kling_4.RESOLUTION_4K])},
                 ui_options={"hide": True},
             )
         self.add_node_element(gen_settings_group)
