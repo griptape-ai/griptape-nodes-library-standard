@@ -19,6 +19,7 @@ about what this code does with an answer.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import subprocess
 import sys
@@ -253,6 +254,32 @@ def test_the_request_is_dispatched_bare_and_silently(
 
     assert seen == [GetAttributionContextRequest()]
     assert seen[0].broadcast_result is False
+
+
+_RUNNING_NODE: contextvars.ContextVar[str | None] = contextvars.ContextVar("test_running_node", default=None)
+
+
+@_VARIANTS
+def test_the_lookup_sees_the_callers_context(variant: Callable[[], Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """The engine sees the caller's ContextVars, which is how it knows the node and run.
+
+    Uses a ContextVar of its own so it doesn't depend on which ones the engine reads.
+    """
+    seen_in_handler: list[str | None] = []
+
+    def _read_context(_request: Any) -> Any:
+        seen_in_handler.append(_RUNNING_NODE.get())
+        return _succeeding()
+
+    _answering(monkeypatch, _read_context)
+
+    token = _RUNNING_NODE.set("Agent_1")
+    try:
+        _ask(variant)
+    finally:
+        _RUNNING_NODE.reset(token)
+
+    assert seen_in_handler == ["Agent_1"]
 
 
 @pytest.mark.asyncio

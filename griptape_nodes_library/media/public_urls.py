@@ -4,12 +4,17 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from griptape.artifacts.error_artifact import ErrorArtifact
+from griptape.artifacts.url_artifact import UrlArtifact
+from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
+    PublicArtifactUrlParameter,
+)
+from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Iterable
 
-    from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
-        PublicArtifactUrlParameter,
-    )
+    from griptape_nodes.exe_types.node_types import BaseNode
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -53,3 +58,49 @@ async def gather_limited[T](coros: Iterable[Coroutine[Any, Any, T]], limit: int 
         for coro in pending:
             coro.close()
     return [task.result() for task in tasks]
+
+
+# TODO: remove PublicListItemUrl and public_list_item_helpers once PublicArtifactUrlParameter can wrap a
+# ParameterList, and use the engine helper for list inputs, as Kling Omni's additional_reference_videos does.
+# https://github.com/griptape-ai/griptape-nodes-engine/issues/6345
+class PublicListItemUrl(PublicArtifactUrlParameter):
+    """Public URL and cleanup for one value from a list input.
+
+    The engine helper reads a single parameter by name, so it can't see an item of a ParameterList.
+    This one is handed the item's value instead. The parameter it wraps is never added to the node.
+    """
+
+    def __init__(self, node: BaseNode, value: Any, *, name: str, disclaimer_message: str | None = None) -> None:
+        super().__init__(
+            node=node,
+            artifact_url_parameter=ParameterVideo(name=name),
+            disclaimer_message=disclaimer_message,
+        )
+        self._value = value
+
+    def _get_url_to_publish(self) -> str:
+        # Mirrors the engine helper, which clears the previous run's upload path first.
+        self.gtc_file_path = None
+        value = self._value
+        if isinstance(value, ErrorArtifact):
+            msg = (
+                f"Attempted to generate a public URL for an item of a list input on node '{self._node.name}'. "
+                f"Failed because the upstream value is an error: {value.value}"
+            )
+            raise RuntimeError(msg)  # noqa: TRY004 the upstream failure is a runtime error, not a type error.
+        if isinstance(value, UrlArtifact):
+            return value.value
+        if isinstance(value, dict):
+            url: Any = value.get("value")
+            return url
+        return value
+
+
+def public_list_item_helpers(
+    node: BaseNode, values: Iterable[Any], *, name: str, disclaimer_message: str | None = None
+) -> list[PublicListItemUrl]:
+    """One helper per list item, in order. `name` only labels errors."""
+    return [
+        PublicListItemUrl(node, value, name=f"{name}_{index}", disclaimer_message=disclaimer_message)
+        for index, value in enumerate(values, start=1)
+    ]
