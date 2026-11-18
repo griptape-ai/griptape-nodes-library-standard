@@ -10,6 +10,87 @@ the `library_version` in `griptape_nodes_library.json`.
 
 <!-- Entries go in changelog.d/, one file each. See changelog.d/README.md. -->
 
+## [0.91.1] - 2026-11-18
+
+### Added
+
+- `Add Overlay` has `choke` and `edge_softness` settings that trim a halo off a soft-edged overlay.
+  `choke` shrinks the overlay's alpha inward by that many pixels, which drops edge pixels still
+  carrying the footage's original background color. `edge_softness` blurs the choked edge so it does
+  not look hard. Both default to 0, which leaves the overlay unchanged.
+  [#985](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/985)
+- `Add Overlay` has an optional `matte_video` input. Its brightness (white is visible, black is
+  transparent) replaces the overlay's alpha, so an overlay can be paired with a separate mask video
+  or image. It also has an `alpha_convention` option, `straight` (default) or `premultiplied`, for
+  overlays whose own alpha is premultiplied, which removes the dark fringe on their soft edges.
+  [#985](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/985)
+- `Add Overlay` accepts a still image as the base `video` input, so a video overlay can be
+  composited onto a picture. The result takes the overlay video's length and frame rate. An image
+  overlay on a video base already worked and still runs for the length of the video. Connecting
+  two images is an error, because the result would have no length.
+  [#985](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/985)
+- `Directory Output Settings` configures the folder a node's **Directory** parameter writes
+  into, using situation templates and macro expansion — the folder counterpart to
+  `File Output Settings`.
+  [#945](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/945)
+- `Kling Omni Video Generation` takes middle frames on Kling 4.0: keyframes between the first and
+  end frame, in playback order, referenced in the prompt as `@middle_frame_1`, `@middle_frame_2`
+  and so on. They count toward Kling's 10-image limit.
+  [#993](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/993)
+- `Kling Omni Video Generation` takes up to 5 reference videos on Kling 4.0 and Kling 4.0 Flash.
+  `reference_video` stays as the first video, and the new `additional reference videos` list holds up
+  to 4 more. The extra videos are feature references, referenced in the prompt as `@video_2` to
+  `@video_5`.
+  [#993](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/993)
+- `Seedance 2.5 Video Generation` can render 4k video, in Normal mode and for a Final made from a
+  Draft. 4k jobs can queue for a while, and 4k output is 10-bit H.265/HEVC.
+  [#1001](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/1001)
+- `Seedance 2.5 Video Generation` can generate a 480p Draft and use its Draft Task ID to create a
+  1080p Final video. The two steps are billed separately, and Draft Task IDs expire after 14 days.
+  [#943](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/943)
+
+### Changed
+
+- **Breaking:** `Extract Frames` and `Extract PDF Images`'s **Directory** is now a folder name
+  placed by the project's `save_output_directory` situation, or an absolute path used as given.
+  Saved workflows using the old default are updated automatically; any other `{...}` template
+  value must be re-entered as a folder name. On `Extract Frames`, **Directory** now sits above
+  **Output Settings** instead of inside it.
+  [#945](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/945)
+- **Breaking:** `Extract Frames` and `Extract PDF Images` now fail when a `File Output Settings`
+  node is wired to **Directory** instead of a `Directory Output Settings` node, since it names a
+  file, not a folder. Disconnect it and use the gear button to connect a
+  `Directory Output Settings` node.
+  [#945](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/945)
+- `Add Overlay` `amount` now defaults to 1.0 instead of 0.5, so a new node shows the overlay at full
+  strength. A node that already has an `amount` value saved in a workflow keeps it.
+  [#985](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/985)
+- Image Details `image` can now also be used as an output, so the analyzed image can be wired on to
+  the next node directly.
+  [#990](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/990)
+- `Kling Omni Video Generation` shows `element_ids` and `voice_ids`, and the Advanced References
+  group that holds them, only when `API Key Provider` is set to Customer. Element and voice IDs belong
+  to the Kling account that created them, so they don't resolve on Griptape's key. An input that already
+  holds a value stays visible so it can be cleared.
+
+### Fixed
+
+- **Breaking:** `Add Overlay` blend modes other than `overlay` now respect the overlay's
+  transparency. Before, transparent pixels were blended as black, which produced dark fringes and
+  boxes around PNG and alpha-video overlays. A saved workflow that uses a transparent overlay with
+  one of those modes now renders the base video through the transparent areas. Overlays without
+  transparency look the same as before.
+  [#985](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/985)
+- A save node with `File Output Settings` connected writes into the folders its **filename** names.
+  `renders/bars.png` now saves under `renders/` (and the file type's folder, such as `images/`);
+  before, the run dropped both and saved straight into `outputs`.
+- `Kling Image to Video Generation` and `Kling Omni Video Generation` no longer drop Kling 4.0-only
+  inputs without saying so after switching back to an earlier model. Populated `middle_frames`,
+  `voice_ids` and an `audio` of `original` stay visible, and the run is blocked with a message
+  saying to clear them or select Kling 4.0.
+- `World Labs World Generation` accepts an image or video picked directly on its input. Before, the
+  run failed with "Failed to get media bytes" unless the media came from a node such as `Load Image`.
+
 ## [0.91.0] - 2026-11-11
 
 ### Added
@@ -148,7 +229,8 @@ the `library_version` in `griptape_nodes_library.json`.
   old look.
   [#888](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/888)
 
-[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.91.0...HEAD
+[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.91.1...HEAD
+[0.91.1]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.91.0...v0.91.1
 [0.91.0]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.3...v0.91.0
 [0.90.3]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.2...v0.90.3
 [0.90.2]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.1...v0.90.2
