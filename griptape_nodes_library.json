@@ -2614,6 +2614,9 @@
         "display_name": "Seedance Video Generation",
         "icon": "Sparkles",
         "group": "create",
+        "deprecation": {
+          "deprecation_message": "BytePlus no longer serves Seedance 1.0 Pro, 1.0 Pro Fast or 1.5 Pro through Griptape Cloud. Use Seedance 2.0 Video Generation or Seedance 2.5 Video Generation instead."
+        },
         "tags": [
           "video",
           "generation",
