@@ -127,7 +127,7 @@ python tests/integration/test_seedance_2_5_first_frame.py --storage-backend gtc
 - ✓ Text to Video task
 - ✓ First/Last Frame task, `ratio` locked to adaptive
 - ✓ `mov` output format (2.5 only)
-- ✓ 480p/720p/1080p resolution (no 4k)
+- ✓ 480p/720p/1080p/4k resolution
 - ✓ Duration 4-30 seconds
 - ✓ Smart duration (-1)
 - ✓ `omni_reference_task_type` declared for the three reference subtasks

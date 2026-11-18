@@ -227,7 +227,7 @@ def test_narrowed_choices_recover_after_a_save_reload_cycle() -> None:
 
 def test_resolution_dropdown_offers_every_supported_tier() -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
-    assert _option_choices(node, "resolution") == ["480p", "720p", "1080p"]
+    assert _option_choices(node, "resolution") == ["480p", "720p", "1080p", "4k"]
 
 
 @pytest.mark.parametrize("task", list(SeedanceTask))
@@ -430,14 +430,14 @@ def test_unknown_task_is_reported() -> None:
 # --- Validation: resolution ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("resolution", ["4k", "1080P", "720", "", None])
+@pytest.mark.parametrize("resolution", ["4K", "1080P", "720", "8k", "", None])
 def test_unsupported_resolution_arriving_over_a_connection_is_rejected(resolution: str | None) -> None:
     # The dropdown only offers supported tiers, but a connected value bypasses the dropdown.
     node = Seedance25VideoGeneration(name="Seedance25")
     params = node._get_parameters()
     params["resolution"] = resolution
 
-    with pytest.raises(ValueError, match="supports resolution 480p, 720p, 1080p"):
+    with pytest.raises(ValueError, match="supports resolution 480p, 720p, 1080p, 4k"):
         node._validate_parameters(params)
 
 
@@ -477,6 +477,15 @@ async def test_text_to_video_payload_carries_all_settings() -> None:
         "return_last_frame": True,
         "content": [{"type": "text", "text": "A fox runs through a forest"}],
     }
+
+
+@pytest.mark.asyncio
+async def test_4k_reaches_the_payload_verbatim() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("prompt", "A fox runs through a forest")
+    node.set_parameter_value("resolution", "4k")
+
+    assert (await node._build_payload())["resolution"] == "4k"
 
 
 @pytest.mark.asyncio
@@ -943,17 +952,19 @@ def test_mode_visibility_and_workflow_load(initial_setup: bool) -> None:
     for name in ("task", "prompt", "resolution", "ratio", "duration", "generate_audio", "reference_images"):
         assert _parameter_by_name(node, name).ui_options.get("hide") is True
     assert not _parameter_by_name(node, "draft_task_id").ui_options.get("hide", False)
-    for name in ("output_format", "watermark", "return_last_frame"):
+    for name in ("final_resolution", "output_format", "watermark", "return_last_frame"):
         assert not _parameter_by_name(node, name).ui_options.get("hide", False)
 
     node.set_parameter_value("mode", GenerationMode.DRAFT, initial_setup=initial_setup)
     assert _parameter_by_name(node, "draft_task_id").ui_options.get("hide") is True
+    assert _parameter_by_name(node, "final_resolution").ui_options.get("hide") is True
     assert _parameter_by_name(node, "resolution").ui_options.get("hide") is True
     assert not _parameter_by_name(node, "draft_task_id_output").ui_options.get("hide", False)
     assert not _parameter_by_name(node, "reference_images").ui_options.get("hide", False)
 
     node.set_parameter_value("mode", GenerationMode.NORMAL, initial_setup=initial_setup)
     assert not _parameter_by_name(node, "resolution").ui_options.get("hide", False)
+    assert _parameter_by_name(node, "final_resolution").ui_options.get("hide") is True
 
 
 @pytest.mark.asyncio
@@ -990,6 +1001,35 @@ async def test_final_payload_omits_all_inherited_inputs() -> None:
         "watermark": True,
         "return_last_frame": True,
     }
+
+
+def test_final_resolution_defaults_to_1080p_and_offers_4k() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    assert node.get_parameter_value("final_resolution") == "1080p"
+    assert _option_choices(node, "final_resolution") == ["1080p", "4k"]
+
+
+@pytest.mark.asyncio
+async def test_final_4k_payload_keeps_normal_resolution() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", "720p")
+    node.set_parameter_value("mode", GenerationMode.FINAL)
+    node.set_parameter_value("draft_task_id", "cgt-draft-123")
+    node.set_parameter_value("final_resolution", "4k")
+    assert (await node._build_payload())["resolution"] == "4k"
+    node.set_parameter_value("mode", GenerationMode.NORMAL)
+    node.set_parameter_value("prompt", "A fox")
+    assert (await node._build_payload())["resolution"] == "720p"
+
+
+@pytest.mark.parametrize("final_resolution", ["480p", "720p", "4K", "", None])
+def test_unsupported_final_resolution_over_a_connection_is_rejected(final_resolution: str | None) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("mode", GenerationMode.FINAL)
+    params = node._get_parameters()
+    params.update(draft_task_id="cgt-draft-123", final_resolution=final_resolution)
+    with pytest.raises(ValueError, match="Final supports resolution 1080p, 4k"):
+        node._validate_parameters(params)
 
 
 @pytest.mark.asyncio
