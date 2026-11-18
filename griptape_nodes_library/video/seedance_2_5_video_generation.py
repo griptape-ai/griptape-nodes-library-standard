@@ -52,10 +52,15 @@ MIN_DURATION = 4
 MAX_DURATION = 30
 SMART_DURATION = -1
 
-RESOLUTION_CHOICES = ["480p", "720p", "1080p"]
-# The provider accepts only 480p for a Draft and only 1080p (or 4K, not yet offered) for its Final.
+RESOLUTION_CHOICES = ["480p", "720p", "1080p", "4k"]
+# The provider accepts only 480p for a Draft and only 1080p or 4K for its Final.
 DRAFT_RESOLUTION = "480p"
-FINAL_RESOLUTION = "1080p"
+FINAL_RESOLUTION_CHOICES = ["1080p", "4k"]
+DEFAULT_FINAL_RESOLUTION = "1080p"
+HEVC_TOOLTIP_NOTE = (
+    "1080p and 4k output use 10-bit color depth and H.265/HEVC encoding, which some players cannot "
+    "open — try VLC or mpv if the video will not play."
+)
 OUTPUT_FORMAT_CHOICES = ["mp4", "mov"]
 DEFAULT_OUTPUT_FORMAT = "mp4"
 OUTPUT_FILENAME_BASE = "seedance_2_5_video"
@@ -244,7 +249,8 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         - task (str): One of the five Seedance 2.5 task types (default: Text to Video)
         - mode (str): Normal, Draft, or Final (default: Normal)
         - draft_task_id (str): Completed provider Draft task ID, required in Final mode
-        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p)
+        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p, 4k)
+        - final_resolution (str): Final mode output resolution (default: 1080p, options: 1080p, 4k)
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (4-30, or -1 to let the model choose)
         - generate_audio (bool): Generate audio with video (default: False)
@@ -282,7 +288,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 default_value=GenerationMode.NORMAL,
                 tooltip=(
                     "Normal generates a video in one step. Draft generates a 480p preview. "
-                    "Final generates a 1080p video from a completed Draft task ID using the same "
+                    "Final generates a 1080p or 4k video from a completed Draft task ID using the same "
                     "organisation and compatible credentials. Each step is billed separately; Draft IDs expire after 14 days."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
@@ -421,13 +427,21 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             ParameterString(
                 name="resolution",
                 default_value="720p",
-                tooltip=(
-                    "Output resolution: 480p, 720p, or 1080p. 1080p output uses 10-bit color depth and "
-                    "H.265/HEVC encoding, which some players cannot open — try VLC or mpv if the video "
-                    "will not play."
-                ),
+                tooltip=f"Output resolution: 480p, 720p, 1080p, or 4k. {HEVC_TOOLTIP_NOTE}",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=list(RESOLUTION_CHOICES))},
+            )
+
+            ParameterString(
+                name="final_resolution",
+                default_value=DEFAULT_FINAL_RESOLUTION,
+                tooltip=(
+                    "Resolution of the Final rendered from the Draft: 1080p or 4k. "
+                    f"4k jobs can queue for a while. {HEVC_TOOLTIP_NOTE}"
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"display_name": "final resolution"},
+                traits={Options(choices=list(FINAL_RESOLUTION_CHOICES))},
             )
 
             ParameterString(
@@ -611,10 +625,10 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         constraints = _get_task_constraints(task)
 
         if is_final:
-            self.show_parameter_by_name(["draft_task_id"])
+            self.show_parameter_by_name(["draft_task_id", "final_resolution"])
             self.hide_parameter_by_name(["task", "prompt", "ratio", "duration", "generate_audio"])
         else:
-            self.hide_parameter_by_name(["draft_task_id"])
+            self.hide_parameter_by_name(["draft_task_id", "final_resolution"])
             self.show_parameter_by_name(["task", "prompt", "ratio", "duration", "generate_audio"])
 
         if mode == GenerationMode.NORMAL:
@@ -707,6 +721,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             return {
                 "mode": mode,
                 "draft_task_id": self.get_parameter_value("draft_task_id"),
+                "final_resolution": self.get_parameter_value("final_resolution") or DEFAULT_FINAL_RESOLUTION,
                 "output_format": self.get_parameter_value("output_format") or DEFAULT_OUTPUT_FORMAT,
                 "watermark": self.get_parameter_value("watermark"),
                 "return_last_frame": self.get_parameter_value("return_last_frame"),
@@ -769,6 +784,11 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             draft_task_id = params.get("draft_task_id")
             if not isinstance(draft_task_id, str) or not draft_task_id.strip():
                 msg = "Final mode requires a completed provider Draft Task ID."
+                raise ValueError(msg)
+            final_resolution = params.get("final_resolution")
+            if final_resolution not in FINAL_RESOLUTION_CHOICES:
+                accepted = ", ".join(FINAL_RESOLUTION_CHOICES)
+                msg = f"A Seedance 2.5 Final supports resolution {accepted}, got {final_resolution!r}."
                 raise ValueError(msg)
             return
 
@@ -878,7 +898,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         """Raise if resolution is outside what the provider accepts.
 
         The dropdown is already restricted to the supported values, but the value can arrive over a
-        connection. Resolution is task-independent for Seedance 2.5 — every task supports all three.
+        connection. Resolution is task-independent for Seedance 2.5 — every task supports all four.
         """
         resolution = params.get("resolution")
         if resolution not in RESOLUTION_CHOICES:
@@ -973,7 +993,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         if params["mode"] == GenerationMode.FINAL:
             return {
                 "model": SEEDANCE_2_5_MODEL_ID,
-                "resolution": FINAL_RESOLUTION,
+                "resolution": params["final_resolution"],
                 "content": [{"type": "draft_task", "draft_task": {"id": params["draft_task_id"].strip()}}],
                 "output_format": params["output_format"],
                 "watermark": bool(params["watermark"]),
