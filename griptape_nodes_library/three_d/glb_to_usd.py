@@ -28,7 +28,8 @@ from griptape_nodes_library.three_d.three_d_artifact import ThreeDUrlArtifact
 
 logger = logging.getLogger("griptape_nodes")
 
-_DEFAULT_FILENAME = "converted_model.usdz"
+# usda by default: usdz packaging behaves oddly in Nuke, plain USD + texture folder loads cleanly.
+_DEFAULT_FILENAME = "converted_model.usda"
 
 
 class GlbToUsd(SuccessFailureNode):
@@ -51,7 +52,7 @@ class GlbToUsd(SuccessFailureNode):
         self.add_parameter(
             ParameterString(
                 name="output_format",
-                default_value=OutputFormat.USDZ.value,
+                default_value=OutputFormat.USDA.value,
                 tooltip=(
                     "usdz: one self-contained file with textures packed inside. "
                     "usdc / usda: binary / text USD with textures written to a folder beside it."
@@ -154,7 +155,7 @@ class GlbToUsd(SuccessFailureNode):
             )
 
         source_bytes = File(location).read_bytes()
-        output_format = OutputFormat(self.get_parameter_value("output_format") or OutputFormat.USDZ.value)
+        output_format = OutputFormat(self.get_parameter_value("output_format") or OutputFormat.USDA.value)
         material_mode = MaterialMode(self.get_parameter_value("material_mode") or MaterialMode.PREVIEW_SURFACE.value)
         filename = Path(self.get_parameter_value("output_file") or _DEFAULT_FILENAME).with_suffix(
             f".{output_format.value}"

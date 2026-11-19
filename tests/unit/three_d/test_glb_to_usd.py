@@ -66,7 +66,8 @@ class TestParameters:
             assert {m.name for m in param.allowed_modes} == {"INPUT", "PROPERTY"}
 
     def test_defaults(self, node: GlbToUsd) -> None:
-        assert node.get_parameter_value("output_format") == "usdz"
+        assert node.get_parameter_value("output_format") == "usda"
+        assert node.get_parameter_value("output_file") == "converted_model.usda"
         assert node.get_parameter_value("material_mode") == "UsdPreviewSurface"
 
     def test_control_outputs(self, node: GlbToUsd) -> None:
