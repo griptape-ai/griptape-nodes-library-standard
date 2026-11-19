@@ -18,6 +18,9 @@ from griptape_nodes_library.image.openai_image_generation import (
     GPT_IMAGE_1_MODEL_KEY,
     GPT_IMAGE_2_5_FLARE_MODEL_KEY,
     GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
+    GPT_IMAGE_2_6_FLARE_MODEL_KEY,
+    GPT_IMAGE_2_6_MODELS,
+    GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
     GPT_IMAGE_2_FAMILY,
     GPT_IMAGE_2_MODEL_KEY,
     OpenAiImageGeneration,
@@ -28,7 +31,14 @@ from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
 LIBRARY_NAME = "Griptape Nodes Library"
 
 # Models that share GPT Image 2's size, background and reference-image rules.
-GPT_IMAGE_2_FAMILY_MODELS = ["GPT Image 2", GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, GPT_IMAGE_2_5_FLARE_MODEL_KEY]
+GPT_IMAGE_2_FAMILY_MODELS = [
+    "GPT Image 2",
+    GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
+    GPT_IMAGE_2_5_FLARE_MODEL_KEY,
+    GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
+    GPT_IMAGE_2_6_FLARE_MODEL_KEY,
+]
+GPT_IMAGE_2_6_MODEL_KEYS = [GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, GPT_IMAGE_2_6_FLARE_MODEL_KEY]
 
 
 def _is_param_hidden(node: OpenAiImageGeneration, name: str) -> bool:
@@ -182,6 +192,8 @@ def test_family_background_options_are_not_shared_between_models() -> None:
         (GPT_IMAGE_2_MODEL_KEY, "GPT Image 2"),
         (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, "GPT Image 2.5 Sunburst"),
         (GPT_IMAGE_2_5_FLARE_MODEL_KEY, "GPT Image 2.5 Flare"),
+        (GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, "GPT Image 2.6 Sunburst"),
+        (GPT_IMAGE_2_6_FLARE_MODEL_KEY, "GPT Image 2.6 Flare"),
     ],
 )
 def test_custom_size_errors_name_the_selected_model(
@@ -246,6 +258,8 @@ def test_gpt_image_2_dropdown_surfaces_4k_presets(node: OpenAiImageGeneration) -
         ("GPT Image 2", OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
         (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
         (GPT_IMAGE_2_5_FLARE_MODEL_KEY, OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
+        (GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
+        (GPT_IMAGE_2_6_FLARE_MODEL_KEY, OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
     ],
 )
 def test_size_options_update_when_model_changes(
@@ -554,6 +568,8 @@ def _background_choices(node: OpenAiImageGeneration) -> list[str]:
         ("GPT Image 2", ["auto", "opaque"]),
         (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, ["auto", "opaque"]),
         (GPT_IMAGE_2_5_FLARE_MODEL_KEY, ["auto", "opaque"]),
+        (GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, ["auto", "opaque"]),
+        (GPT_IMAGE_2_6_FLARE_MODEL_KEY, ["auto", "opaque"]),
     ],
 )
 def test_background_options_update_when_model_changes(
@@ -595,6 +611,8 @@ def test_default_model_uses_catalog_key(node: OpenAiImageGeneration) -> None:
         (GPT_IMAGE_2_MODEL_KEY, "gpt-image-2"),
         (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, "gpt-image-2.5-sunburst"),
         (GPT_IMAGE_2_5_FLARE_MODEL_KEY, "gpt-image-2.5-flare"),
+        (GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, "gpt-image-2.6-sunburst"),
+        (GPT_IMAGE_2_6_FLARE_MODEL_KEY, "gpt-image-2.6-flare"),
     ],
 )
 def test_provider_model_id_resolves_from_catalog_key(
@@ -611,6 +629,8 @@ def test_provider_model_id_resolves_from_catalog_key(
     [
         (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, "gpt-image-2.5-sunburst"),
         (GPT_IMAGE_2_5_FLARE_MODEL_KEY, "gpt-image-2.5-flare"),
+        (GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, "gpt-image-2.6-sunburst"),
+        (GPT_IMAGE_2_6_FLARE_MODEL_KEY, "gpt-image-2.6-flare"),
     ],
 )
 async def test_build_payload_sends_gpt_image_2_5_model_id(
@@ -628,7 +648,15 @@ async def test_build_payload_sends_gpt_image_2_5_model_id(
     assert payload["size"] == "2048x1152"
 
 
-@pytest.mark.parametrize("model_name", [GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, GPT_IMAGE_2_5_FLARE_MODEL_KEY])
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
+        GPT_IMAGE_2_5_FLARE_MODEL_KEY,
+        GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
+        GPT_IMAGE_2_6_FLARE_MODEL_KEY,
+    ],
+)
 def test_switching_from_gpt_image_2_preserves_custom_size_inputs(node: OpenAiImageGeneration, model_name: str) -> None:
     node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
     node.set_parameter_value("size", "custom")
@@ -776,3 +804,339 @@ def test_custom_size_badge_contains_constraint_rules(node: OpenAiImageGeneration
     assert badge.variant == "help"
     assert "Multiples of" in badge.message
     assert "Aspect ratio" in badge.message
+
+
+def _output_format_choices(node: OpenAiImageGeneration) -> list[str]:
+    output_format_param = node.get_parameter_by_name("output_format")
+    assert output_format_param is not None
+    options_traits = output_format_param.find_elements_by_type(Options)
+    assert options_traits, "output_format parameter is missing an Options trait"
+    return list(options_traits[0].choices)
+
+
+def test_gpt_image_2_6_models_are_the_2_6_pair() -> None:
+    assert set(GPT_IMAGE_2_6_MODEL_KEYS) == GPT_IMAGE_2_6_MODELS
+    assert GPT_IMAGE_2_6_MODELS <= GPT_IMAGE_2_FAMILY
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected_choices"),
+    [
+        (GPT_IMAGE_2_MODEL_KEY, ["png", "jpeg", "webp"]),
+        (GPT_IMAGE_2_5_FLARE_MODEL_KEY, ["png", "jpeg", "webp"]),
+        (GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, ["png", "jpeg", "webp", "gif"]),
+        (GPT_IMAGE_2_6_FLARE_MODEL_KEY, ["png", "jpeg", "webp", "gif"]),
+    ],
+)
+def test_output_format_options_update_when_model_changes(
+    node: OpenAiImageGeneration, model_name: str, expected_choices: list[str]
+) -> None:
+    node.set_parameter_value("model", model_name)
+
+    assert _output_format_choices(node) == expected_choices
+
+
+def test_default_model_does_not_offer_gif(node: OpenAiImageGeneration) -> None:
+    assert "gif" not in _output_format_choices(node)
+
+
+def test_frame_count_is_hidden_until_gif_is_selected_on_a_gif_model(node: OpenAiImageGeneration) -> None:
+    assert _is_param_hidden(node, "frame_count")
+    assert _is_param_hidden(node, "frame_duration_ms")
+
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    assert _is_param_hidden(node, "frame_count")
+    assert _is_param_hidden(node, "frame_duration_ms")
+
+    node.set_parameter_value("output_format", "gif")
+    assert not _is_param_hidden(node, "frame_count")
+    assert not _is_param_hidden(node, "frame_duration_ms")
+
+    node.set_parameter_value("output_format", "png")
+    assert _is_param_hidden(node, "frame_count")
+    assert _is_param_hidden(node, "frame_duration_ms")
+
+
+@pytest.mark.parametrize("model_name", GPT_IMAGE_2_6_MODEL_KEYS)
+def test_switching_off_a_gif_model_resets_gif_output_and_hides_frame_count(
+    node: OpenAiImageGeneration, model_name: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("output_format", "gif")
+
+    node.set_parameter_value("model", GPT_IMAGE_2_5_FLARE_MODEL_KEY)
+
+    assert node.get_parameter_value("output_format") == "png"
+    assert _is_param_hidden(node, "frame_count")
+    assert "gif" not in _output_format_choices(node)
+
+
+def test_switching_between_gif_models_keeps_gif_selected(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_SUNBURST_MODEL_KEY)
+    node.set_parameter_value("output_format", "gif")
+
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+
+    assert node.get_parameter_value("output_format") == "gif"
+    assert not _is_param_hidden(node, "frame_count")
+
+
+def test_selecting_gif_names_the_output_file_with_a_gif_extension(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+
+    node.set_parameter_value("output_format", "gif")
+
+    assert node.get_parameter_value("output_file") == "openai_image.gif"
+
+
+def test_initial_setup_restores_gif_selection_and_frame_count_visibility(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, initial_setup=True)
+    node.set_parameter_value("output_format", "gif", initial_setup=True)
+
+    assert node.get_parameter_value("output_format") == "gif"
+    assert not _is_param_hidden(node, "frame_count")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", GPT_IMAGE_2_6_MODEL_KEYS)
+async def test_build_payload_sends_gif_output_with_frame_count(node: OpenAiImageGeneration, model_name: str) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+    node.set_parameter_value("frame_count", 4)
+
+    payload = await node._build_payload()
+
+    assert payload["output_format"] == "gif"
+    assert payload["frame_count"] == 4
+    assert "output_compression" not in payload
+
+
+@pytest.mark.asyncio
+async def test_build_payload_defaults_gif_frame_count_to_nine(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+
+    payload = await node._build_payload()
+
+    assert payload["frame_count"] == OpenAiImageGeneration.DEFAULT_GIF_FRAMES == 9
+
+
+@pytest.mark.asyncio
+async def test_build_payload_omits_frame_count_for_still_formats(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("frame_count", 4)
+
+    payload = await node._build_payload()
+
+    assert payload["output_format"] == "png"
+    assert "frame_count" not in payload
+
+
+def test_validate_accepts_gif_on_a_gif_model(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+
+    assert node.validate_before_node_run() is None
+
+
+def test_validate_rejects_gif_on_a_model_that_does_not_render_it(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("prompt", "A paper boat")
+    # Bypass the dropdown, which does not offer gif here, as a saved or connected value could.
+    node.parameter_values["output_format"] = "gif"
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any("GIF output is only available on the GPT Image 2.6 models" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.parametrize("frame_count", [0, 1, 17, 100])
+def test_validate_rejects_out_of_range_frame_count(node: OpenAiImageGeneration, frame_count: int) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+    node.parameter_values["frame_count"] = frame_count
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any("'frame_count' must be between 2 and 16" in str(exception) for exception in exceptions)
+
+
+def test_validate_ignores_frame_count_for_still_formats(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.parameter_values["frame_count"] = 100
+
+    assert node.validate_before_node_run() is None
+
+
+def _complexity_choices(node: OpenAiImageGeneration) -> list[str]:
+    complexity_param = node.get_parameter_by_name("complexity")
+    assert complexity_param is not None
+    options_traits = complexity_param.find_elements_by_type(Options)
+    assert options_traits, "complexity parameter is missing an Options trait"
+    return list(options_traits[0].choices)
+
+
+def test_complexity_choices_and_default(node: OpenAiImageGeneration) -> None:
+    assert _complexity_choices(node) == ["low", "medium", "high"]
+    assert node.get_parameter_value("complexity") == "high"
+
+
+def test_complexity_is_hidden_until_a_gpt_image_2_6_model_is_selected(node: OpenAiImageGeneration) -> None:
+    assert _is_param_hidden(node, "complexity")
+
+    node.set_parameter_value("model", GPT_IMAGE_2_6_SUNBURST_MODEL_KEY)
+    assert not _is_param_hidden(node, "complexity")
+
+    node.set_parameter_value("model", GPT_IMAGE_2_5_FLARE_MODEL_KEY)
+    assert _is_param_hidden(node, "complexity")
+
+
+def test_initial_setup_restores_complexity_visibility(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY, initial_setup=True)
+
+    assert not _is_param_hidden(node, "complexity")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", GPT_IMAGE_2_6_MODEL_KEYS)
+@pytest.mark.parametrize("complexity", ["low", "medium", "high"])
+async def test_build_payload_sends_complexity_on_gpt_image_2_6(
+    node: OpenAiImageGeneration, model_name: str, complexity: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("complexity", complexity)
+
+    payload = await node._build_payload()
+
+    assert payload["complexity"] == complexity
+
+
+@pytest.mark.asyncio
+async def test_build_payload_sends_high_complexity_by_default_on_gpt_image_2_6(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+
+    payload = await node._build_payload()
+
+    assert payload["complexity"] == "high"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", ["GPT Image 1", GPT_IMAGE_2_MODEL_KEY, GPT_IMAGE_2_5_FLARE_MODEL_KEY])
+async def test_build_payload_omits_complexity_on_other_models(node: OpenAiImageGeneration, model_name: str) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("complexity", "low")
+
+    payload = await node._build_payload()
+
+    assert "complexity" not in payload
+
+
+@pytest.mark.asyncio
+async def test_build_payload_sends_gif_frame_duration(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_SUNBURST_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+    node.set_parameter_value("frame_duration_ms", 120)
+
+    payload = await node._build_payload()
+
+    assert payload["frame_duration_ms"] == 120
+
+
+@pytest.mark.asyncio
+async def test_build_payload_defaults_gif_frame_duration_to_200ms(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+
+    payload = await node._build_payload()
+
+    assert payload["frame_duration_ms"] == OpenAiImageGeneration.DEFAULT_GIF_FRAME_DURATION_MS == 200
+
+
+@pytest.mark.asyncio
+async def test_build_payload_omits_gif_settings_for_still_formats(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("frame_duration_ms", 120)
+
+    payload = await node._build_payload()
+
+    assert "frame_duration_ms" not in payload
+    assert "frame_count" not in payload
+
+
+@pytest.mark.parametrize("frame_duration_ms", [0, 19, 2001, 10_000])
+def test_validate_rejects_out_of_range_frame_duration(node: OpenAiImageGeneration, frame_duration_ms: int) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+    node.parameter_values["frame_duration_ms"] = frame_duration_ms
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any("'frame_duration_ms' must be between 20 and 2000" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.parametrize("frame_duration_ms", [20, 200, 2000])
+def test_validate_accepts_frame_duration_bounds(node: OpenAiImageGeneration, frame_duration_ms: int) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+    node.set_parameter_value("frame_duration_ms", frame_duration_ms)
+
+    assert node.validate_before_node_run() is None
+
+
+@pytest.mark.parametrize("model_name", GPT_IMAGE_2_6_MODEL_KEYS)
+@pytest.mark.parametrize("size", ["768x768", "512x512", "256x256", "1024x512"])
+def test_validate_accepts_gif_frame_sizes_below_the_still_image_pixel_minimum(
+    node: OpenAiImageGeneration, model_name: str, size: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+    node.set_parameter_value("size", "custom")
+    width, height = (int(part) for part in size.split("x"))
+    node.set_parameter_value("custom_width", width)
+    node.set_parameter_value("custom_height", height)
+
+    assert node.validate_before_node_run() is None
+
+
+def test_validate_still_enforces_the_pixel_minimum_for_non_gif_output(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("size", "custom")
+    node.set_parameter_value("custom_width", 768)
+    node.set_parameter_value("custom_height", 768)
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any("total pixels must be between" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.parametrize("size", ["770x768", "100x768", "768", "abc", "0x768"])
+def test_validate_rejects_invalid_gif_frame_sizes(node: OpenAiImageGeneration, size: str) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+    node.set_parameter_value("prompt", "A paper boat")
+    node.set_parameter_value("output_format", "gif")
+    # Bypass the dropdown and the snapping of the custom dimensions, as a connected value could.
+    node.parameter_values["size"] = size
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any("GIF frame" in str(exception) for exception in exceptions)
