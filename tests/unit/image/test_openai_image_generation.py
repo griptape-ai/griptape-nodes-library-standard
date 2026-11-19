@@ -1140,3 +1140,24 @@ def test_validate_rejects_invalid_gif_frame_sizes(node: OpenAiImageGeneration, s
 
     assert exceptions is not None
     assert any("GIF frame" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.parametrize("name", ["custom_width", "custom_height"])
+def test_custom_dimension_tooltips_limit_aspect_ratio_and_pixel_rules_to_still_images(
+    node: OpenAiImageGeneration, name: str
+) -> None:
+    parameter = node.get_parameter_by_name(name)
+    assert parameter is not None
+    assert "Still images: aspect ratio" in parameter.tooltip
+    assert "Still images: total pixels" in parameter.tooltip
+    assert "GIF frames aren't held to the aspect-ratio and pixel limits" in parameter.tooltip
+
+
+def test_custom_size_badge_says_aspect_ratio_and_pixel_rules_skip_gif_frames(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("size", "custom")
+    size_param = node.get_parameter_by_name("size")
+    assert size_param is not None
+    badge = size_param.get_badge()
+    assert badge is not None
+    assert "(still images)" in badge.message
+    assert "They don't apply to GIF frames." in badge.message

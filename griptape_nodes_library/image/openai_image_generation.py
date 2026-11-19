@@ -188,9 +188,10 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             f"Custom {{dimension}} in pixels. Constraints:\n"
             f"- Snapped automatically to the nearest multiple of {self.GPT_IMAGE_2_EDGE_MULTIPLE}px on entry\n"
             f"- Between {self.GPT_IMAGE_2_EDGE_MULTIPLE} and {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px\n"
-            f"- Aspect ratio of width:height (or height:width) must be {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1 or smaller (validated at run time)\n"
-            f"- Total pixels (width × height) must be between "
-            f"{self.GPT_IMAGE_2_MIN_PIXELS:,} and {self.GPT_IMAGE_2_MAX_PIXELS:,} (validated at run time)"
+            f"- Still images: aspect ratio of width:height (or height:width) must be {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1 or smaller (validated at run time)\n"
+            f"- Still images: total pixels (width × height) must be between "
+            f"{self.GPT_IMAGE_2_MIN_PIXELS:,} and {self.GPT_IMAGE_2_MAX_PIXELS:,} (validated at run time)\n"
+            f"- GIF frames aren't held to the aspect-ratio and pixel limits"
         )
         self.add_parameter(
             ParameterInt(
@@ -502,9 +503,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                     message=(
                         f"- Multiples of `{self.GPT_IMAGE_2_EDGE_MULTIPLE}px`\n"
                         f"- Max edge length: `{self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px`\n"
-                        f"- Aspect ratio ≤ `{self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1`\n"
-                        f"- Total pixels: `{self.GPT_IMAGE_2_MIN_PIXELS:,}` – `{self.GPT_IMAGE_2_MAX_PIXELS:,}`\n\n"
-                        "*Aspect-ratio and pixel rules are validated at run time.*"
+                        f"- Aspect ratio ≤ `{self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1` (still images)\n"
+                        f"- Total pixels: `{self.GPT_IMAGE_2_MIN_PIXELS:,}` – `{self.GPT_IMAGE_2_MAX_PIXELS:,}` (still images)\n\n"
+                        "*Aspect-ratio and pixel rules are validated at run time. They don't apply to GIF frames.*"
                     ),
                 )
             else:
