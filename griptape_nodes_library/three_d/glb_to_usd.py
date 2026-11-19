@@ -40,7 +40,10 @@ class GlbToUsd(SuccessFailureNode):
         self.add_parameter(
             Parameter3D(
                 name="model",
-                tooltip="The GLB or glTF model to convert (e.g. the output of a Tripo node).",
+                tooltip=(
+                    "The model to convert (e.g. the output of a Tripo node). Must be self-contained: "
+                    "a .glb, or a .gltf with its buffers and images embedded."
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 display_name="GLB / glTF",
             )
@@ -134,7 +137,7 @@ class GlbToUsd(SuccessFailureNode):
             return
         try:
             artifact, details = self._convert()
-        except (GltfConversionError, FileLoadError, FileWriteError, ValueError) as e:
+        except (GltfConversionError, FileLoadError, FileWriteError, ValueError, OSError) as e:
             self._set_status_results(was_successful=False, result_details=str(e))
             self._handle_failure_exception(e)
             return
@@ -188,7 +191,12 @@ class GlbToUsd(SuccessFailureNode):
         if result.texture_paths:
             target_dir = Path(saved.resolve()).parent / texture_dir
             for texture in result.texture_paths:
-                File(str(target_dir / texture.name)).write_bytes(texture.read_bytes())
+                # The converter names each texture by its sniffed format, so extension coercion has
+                # nothing to fix; disabled so a mismatch fails loudly instead of being renamed away
+                # from the path the USD references.
+                File(str(target_dir / texture.name)).write_bytes(
+                    texture.read_bytes(), coerce_extension_to_match_bytes=False
+                )
         return saved
 
     def _input_location(self) -> str | None:

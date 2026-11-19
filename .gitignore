@@ -227,3 +227,4 @@ GriptapeNodes/
 outputs/
 .griptape-nodes-metadata/
 
+.DS_Store

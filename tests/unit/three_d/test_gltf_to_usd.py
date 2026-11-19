@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import zipfile
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pygltflib
 import pytest
 from PIL import Image
 from pxr import Gf, Usd, UsdGeom, UsdShade
@@ -18,7 +20,14 @@ from griptape_nodes_library.three_d._gltf_to_usd import (
     convert_gltf_to_usd,
 )
 
-from ._glb_builder import CHILD_SCALE, PARENT_TRANSLATION, QUAD_POSITIONS, QUAD_UVS, GlbSpec
+from ._glb_builder import (
+    CHILD_SCALE,
+    PARENT_TRANSLATION,
+    QUAD_POSITIONS,
+    QUAD_UVS,
+    GlbSpec,
+    build_embedded_gltf,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -260,3 +269,110 @@ class TestErrorsAndWarnings:
     def test_unsupported_features_are_reported(self, make_glb, tmp_path: Path) -> None:
         result, _ = _convert(make_glb, tmp_path, spec=GlbSpec(with_camera=True))
         assert "Cameras were ignored." in result.warnings
+
+
+def _jpeg() -> bytes:
+    out = io.BytesIO()
+    Image.new("RGB", (2, 2), (10, 20, 30)).save(out, format="JPEG")
+    return out.getvalue()
+
+
+class TestSelfContainedOnly:
+    """External URIs are rejected rather than resolved (review: path traversal / arbitrary reads)."""
+
+    @pytest.mark.parametrize("uri", ["/etc/passwd", "../../secret.png", "my%20texture.png", "file:///etc/hosts"])
+    def test_external_image_uri_rejected(self, make_glb, tmp_path: Path, uri: str) -> None:
+        glb = make_glb(spec=GlbSpec(base_image_uri=uri))
+        with pytest.raises(GltfConversionError, match="Only self-contained models are supported"):
+            convert_gltf_to_usd(glb, tmp_path / "out" / "model.usdz")
+        assert not (tmp_path / "out" / "model.usdz").exists()
+
+    def test_external_buffer_uri_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / "model.bin").write_bytes(b"\0" * 64)
+        gltf = build_embedded_gltf(tmp_path / "model.gltf", buffer_uri="model.bin")
+        with pytest.raises(GltfConversionError, match="external buffer"):
+            convert_gltf_to_usd(gltf, tmp_path / "out" / "model.usda")
+
+    def test_embedded_gltf_converts(self, tmp_path: Path) -> None:
+        gltf = build_embedded_gltf(tmp_path / "model.gltf")
+        result = convert_gltf_to_usd(gltf, tmp_path / "out" / "model.usda")
+        assert (result.mesh_count, result.triangle_count) == (1, 2)
+        assert len(result.texture_paths) == 4
+
+    def test_data_uri_image_converts(self, make_glb, tmp_path: Path) -> None:
+        uri = "data:image/jpeg;base64," + base64.b64encode(_jpeg()).decode()
+        result, _ = _convert(make_glb, tmp_path, spec=GlbSpec(base_image_uri=uri))
+        assert any(p.suffix == ".jpg" for p in result.texture_paths)
+
+
+class TestImageFormatSniffing:
+    """Texture extension comes from the bytes, not mimeType (review: mislabelled files get renamed)."""
+
+    @pytest.mark.parametrize("mime", [None, "image/png"])
+    def test_jpeg_named_by_its_bytes(self, make_glb, tmp_path: Path, mime: str | None) -> None:
+        spec = GlbSpec(alpha_mode="BLEND", base_image=_jpeg(), base_image_mime=mime)
+        result, stage = _convert(make_glb, tmp_path, "usdc", spec=spec)
+        base = next(p for p in result.texture_paths if p.name.startswith("base_"))
+        assert base.suffix == ".jpg"
+        assert Image.open(base).format == "JPEG"
+        file_input = UsdShade.Shader(_material(stage).GetPrim().GetChild("BaseColorTex")).GetInput("file")
+        assert file_input.Get().path.endswith(base.name)
+        assert file_input.Get().resolvedPath
+
+    def test_unreadable_image_dropped_with_warning(self, make_glb, tmp_path: Path) -> None:
+        spec = GlbSpec(base_image=b"not an image at all", base_image_mime=None)
+        result, stage = _convert(make_glb, tmp_path, spec=spec)
+        assert "Textures in an unrecognised image format were dropped." in result.warnings
+        assert not any(p.name.startswith("base_") for p in result.texture_paths)
+        surface = UsdShade.Shader(_material(stage).GetPrim().GetChild("PreviewSurface"))
+        assert surface.GetInput("diffuseColor").Get() == Gf.Vec3f(1.0, 1.0, 1.0)  # factor fallback
+
+    def test_ktx2_dropped_with_warning(self, make_glb, tmp_path: Path) -> None:
+        spec = GlbSpec(base_image=b"\xabKTX 20\xbb\r\n\x1a\n" + b"\0" * 32, base_image_mime="image/ktx2")
+        result, _ = _convert(make_glb, tmp_path, spec=spec)
+        assert "KTX2 textures can't be read by USD and were dropped." in result.warnings
+
+
+class TestUnlit:
+    def test_unlit_is_reported(self, make_glb, tmp_path: Path) -> None:
+        result, stage = _convert(make_glb, tmp_path, spec=GlbSpec(material_extensions={"KHR_materials_unlit": {}}))
+        assert any("KHR_materials_unlit isn't supported" in w for w in result.warnings)
+        assert not any(w.startswith("Material extensions not converted") for w in result.warnings)
+        surface = UsdShade.Shader(_material(stage).GetPrim().GetChild("PreviewSurface"))
+        assert _source_of(surface.GetInput("roughness")) == ("MetalRoughTex", "g")  # converted as lit PBR
+
+
+class TestMalformedInput:
+    """Parse/decode failures surface as GltfConversionError so the node can route to Failed."""
+
+    # 8/12 bytes: struct.error in the GLB header; 30: bad JSON chunk; -10: short binary chunk.
+    @pytest.mark.parametrize("keep", [8, 12, 30, -10])
+    def test_truncated_glb(self, make_glb, tmp_path: Path, keep: int) -> None:
+        glb = make_glb()
+        truncated = tmp_path / "truncated.glb"
+        truncated.write_bytes(glb.read_bytes()[:keep])
+        with pytest.raises(GltfConversionError, match=r"truncated"):
+            convert_gltf_to_usd(truncated, tmp_path / "out.usdz")
+
+    def _patched_gltf(self, make_glb, tmp_path: Path, patch) -> Path:
+        gltf = pygltflib.GLTF2().load(str(make_glb()))
+        assert gltf is not None
+        patch(gltf)
+        out = tmp_path / "patched.glb"
+        gltf.save_binary(str(out))
+        return out
+
+    def test_out_of_range_node_index(self, make_glb, tmp_path: Path) -> None:
+        glb = self._patched_gltf(make_glb, tmp_path, lambda g: setattr(g.scenes[0], "nodes", [42]))
+        with pytest.raises(GltfConversionError, match="IndexError"):
+            convert_gltf_to_usd(glb, tmp_path / "out.usda")
+
+    def test_unknown_component_type(self, make_glb, tmp_path: Path) -> None:
+        glb = self._patched_gltf(make_glb, tmp_path, lambda g: setattr(g.accessors[0], "componentType", 9999))
+        with pytest.raises(GltfConversionError, match="KeyError"):
+            convert_gltf_to_usd(glb, tmp_path / "out.usda")
+
+    def test_bad_base64_data_uri(self, make_glb, tmp_path: Path) -> None:
+        glb = make_glb(spec=GlbSpec(base_image_uri="data:image/png;base64,@@not-base64@@"))
+        with pytest.raises(GltfConversionError):
+            convert_gltf_to_usd(glb, tmp_path / "out.usda")

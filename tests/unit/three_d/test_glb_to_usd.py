@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from griptape_nodes.files.file import File
+from PIL import Image
 from pxr import Usd
 
 from griptape_nodes_library.three_d import glb_to_usd as glb_to_usd_module
@@ -156,6 +158,55 @@ class TestFailures:
         node.process()
         assert "broken_model" in node.get_parameter_value("result_details")
         assert node.get_next_control_output() is node.failure_output
+
+
+class TestReviewFixes:
+    def test_truncated_glb_routes_to_failed(
+        self, node: GlbToUsd, make_glb: Callable[..., Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(node, "_has_outgoing_connections", lambda parameter: parameter is node.failure_output)
+        truncated = tmp_path / "truncated.glb"
+        truncated.write_bytes(make_glb().read_bytes()[:12])  # struct.error inside pygltflib
+        _set(node, truncated)
+        node.process()  # must not raise
+        assert node.get_parameter_value("was_successful") is False
+        assert node.get_next_control_output() is node.failure_output
+
+    def test_external_uri_routes_to_failed(
+        self, node: GlbToUsd, make_glb: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(node, "_has_outgoing_connections", lambda parameter: parameter is node.failure_output)
+        _set(node, make_glb(spec=GlbSpec(base_image_uri="/etc/passwd")))
+        node.process()
+        assert "Only self-contained models are supported" in node.get_parameter_value("result_details")
+        assert node.get_next_control_output() is node.failure_output
+
+    def test_textures_written_without_extension_coercion(
+        self, node: GlbToUsd, make_glb: Callable[..., Path], saved_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[dict[str, object]] = []
+        original = File.write_bytes
+
+        def _spy(self: File, content: bytes, **kwargs: object) -> object:
+            calls.append(kwargs)
+            return original(self, content, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(File, "write_bytes", _spy)
+        jpeg = io.BytesIO()
+        Image.new("RGB", (2, 2), (10, 20, 30)).save(jpeg, format="JPEG")
+        spec = GlbSpec(alpha_mode="BLEND", base_image=jpeg.getvalue(), base_image_mime=None)
+        _set(node, make_glb(spec=spec), output_format="usdc", output_file="model.usdc")
+        node.process()
+
+        assert node.get_parameter_value("was_successful") is True
+        assert calls
+        assert all(c.get("coerce_extension_to_match_bytes") is False for c in calls)
+        stage = Usd.Stage.Open(str(saved_dir / "model.usdc"))
+        assets = [
+            a.Get() for p in stage.Traverse() for a in p.GetAttributes() if str(a.GetTypeName()) == "asset" and a.Get()
+        ]
+        assert any(a.path.endswith(".jpg") for a in assets)
+        assert all(a.resolvedPath for a in assets)
 
 
 def test_library_entry_is_beta() -> None:

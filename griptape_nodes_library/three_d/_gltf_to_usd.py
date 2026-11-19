@@ -9,16 +9,20 @@ Scope (prototype):
   * Static triangle geometry, node hierarchy and transforms, normals, UV sets, vertex colour.
   * glTF metallic-roughness PBR: base colour (+alpha), metallic/roughness, normal,
     occlusion (UsdPreviewSurface only), emissive (+KHR_materials_emissive_strength), ior.
-  * Embedded PNG/JPEG textures; WebP is re-encoded to PNG if Pillow is available.
+  * Self-contained input only: a .glb, or a .gltf whose buffers and images are data: URIs.
+    External file URIs are rejected rather than resolved, so a crafted file can't read
+    arbitrary paths into the output.
+  * Image format is sniffed from the bytes (the declared mimeType may be missing or wrong).
+    PNG/JPEG are kept; any other format Pillow can read is re-encoded to PNG.
   * Not converted (reported as warnings): skinning, animation, morph targets, cameras,
-    lights, KHR_texture_transform, Draco/meshopt compression, KTX2 textures.
+    lights, KHR_texture_transform, KHR_materials_unlit, Draco/meshopt compression, KTX2.
 """
 
 from __future__ import annotations
 
 import base64
 import io
-import re
+import struct
 import tempfile
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
@@ -27,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import pygltflib
 from PIL import Image as PILImage
+from PIL import UnidentifiedImageError
 from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils, Vt
 
 
@@ -85,7 +90,21 @@ _UNSUPPORTED_REQUIRED_EXTENSIONS = {
     "KHR_texture_basisu": "KTX2/Basis textures",
 }
 
-_MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/ktx2": "ktx2"}
+_KTX2_MAGIC = b"\xabKTX 20\xbb\r\n\x1a\n"
+_KEPT_IMAGE_FORMATS = {"PNG": "png", "JPEG": "jpg"}  # Pillow format -> file extension USD reads as-is
+
+# Failures that malformed or truncated input can raise while parsing or decoding. Converted to
+# GltfConversionError so callers (the node's Failed path) get one exception type.
+_MALFORMED_INPUT_ERRORS = (
+    struct.error,
+    IndexError,
+    KeyError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    OSError,
+    Tf.ErrorException,
+)
 
 
 # --- Public API -------------------------------------------------------------------------------
@@ -104,13 +123,28 @@ def convert_gltf_to_usd(
     relatively. For .usdz they are packaged inside the archive.
     """
     output_format = OutputFormat(output_path.suffix.lower().lstrip("."))
+    try:
+        return _convert(input_path, output_path, output_format, material_mode, texture_dir_name)
+    except GltfConversionError:
+        raise
+    except _MALFORMED_INPUT_ERRORS as e:
+        msg = f"Attempted to convert {input_path.name} to USD. Failed with {type(e).__name__}: {e}"
+        raise GltfConversionError(msg) from e
+
+
+def _convert(
+    input_path: Path,
+    output_path: Path,
+    output_format: OutputFormat,
+    material_mode: MaterialMode,
+    texture_dir_name: str | None,
+) -> ConversionResult:
     gltf = _load_gltf(input_path)
-    source_dir = input_path.parent  # for external .gltf buffers/images
 
     if output_format is OutputFormat.USDZ:
         with tempfile.TemporaryDirectory(prefix="gltf2usd_") as tmp:
             staging_layer = Path(tmp) / f"{output_path.stem}.usdc"
-            result = _ConversionJob(gltf, source_dir, staging_layer, material_mode, "textures").run()
+            result = _ConversionJob(gltf, staging_layer, material_mode, "textures").run()
             output_path.parent.mkdir(parents=True, exist_ok=True)
             if not UsdUtils.CreateNewUsdzPackage(Sdf.AssetPath(str(staging_layer)), str(output_path)):
                 raise GltfConversionError(f"Attempted to package {output_path.name}. USD failed to create the usdz.")
@@ -119,7 +153,7 @@ def convert_gltf_to_usd(
             return result
 
     tex_dir = texture_dir_name or f"{output_path.stem}_textures"
-    return _ConversionJob(gltf, source_dir, output_path, material_mode, tex_dir).run()
+    return _ConversionJob(gltf, output_path, material_mode, tex_dir).run()
 
 
 # --- Loading ----------------------------------------------------------------------------------
@@ -130,7 +164,7 @@ def _load_gltf(input_path: Path) -> pygltflib.GLTF2:
         raise GltfConversionError(f"Attempted to read {input_path}. The file does not exist.")
     try:
         gltf = pygltflib.GLTF2().load(str(input_path))
-    except (ValueError, KeyError, OSError) as e:
+    except _MALFORMED_INPUT_ERRORS as e:
         raise GltfConversionError(f"Attempted to read {input_path.name}. It is not a valid glTF/GLB file ({e}).") from e
     if gltf is None:
         raise GltfConversionError(f"Attempted to read {input_path.name}. It is not a valid glTF/GLB file.")
@@ -151,11 +185,8 @@ def _load_gltf(input_path: Path) -> pygltflib.GLTF2:
 
 
 class _ConversionJob:
-    def __init__(
-        self, gltf: pygltflib.GLTF2, source_dir: Path, layer_path: Path, material_mode: MaterialMode, tex_dir: str
-    ) -> None:
+    def __init__(self, gltf: pygltflib.GLTF2, layer_path: Path, material_mode: MaterialMode, tex_dir: str) -> None:
         self.gltf = gltf
-        self.source_dir = source_dir
         self.layer_path = layer_path
         self.material_mode = material_mode
         self.tex_dir_name = tex_dir
@@ -360,11 +391,18 @@ class _ConversionJob:
         if uri is None:
             data = self.gltf.binary_blob()
         elif uri.startswith("data:"):
-            data = base64.b64decode(uri.split(",", 1)[1])
+            data = _decode_data_uri(uri)
         else:
-            data = (self.source_dir / uri).read_bytes()
+            raise _external_resource_error("buffer", uri)
         if data is None:
             raise GltfConversionError("Attempted to read mesh data. The GLB has no binary chunk.")
+        declared = self.gltf.buffers[buffer_index].byteLength or 0
+        if len(data) < declared:
+            msg = (
+                f"Attempted to read buffer {buffer_index}. It holds {len(data)} bytes but declares {declared};"
+                " the file looks truncated."
+            )
+            raise GltfConversionError(msg)
         self._buffers[buffer_index] = data
         return data
 
@@ -389,13 +427,21 @@ class _ConversionJob:
             return self._image_files[key]
 
         image = self.gltf.images[source]
-        data, mime = self._image_bytes(image)
-        ext = _MIME_EXTENSIONS.get(mime or "", "png")
-        if ext == "ktx2":
+        data = self._image_bytes(image)
+        # Trust the bytes, not mimeType: it may be missing or wrong, and a mislabelled file gets
+        # renamed on save (extension coercion), leaving the USD pointing at a path that isn't there.
+        if data.startswith(_KTX2_MAGIC):
             self._warn("KTX2 textures can't be read by USD and were dropped.")
             self._image_files[key] = None
             return None
-        if ext == "webp":
+        try:
+            pil_format = PILImage.open(io.BytesIO(data)).format
+        except (UnidentifiedImageError, OSError):
+            self._warn("Textures in an unrecognised image format were dropped.")
+            self._image_files[key] = None
+            return None
+        ext = _KEPT_IMAGE_FORMATS.get(pil_format or "")
+        if ext is None:  # WebP and anything else Pillow reads: re-encode to PNG
             out = io.BytesIO()
             PILImage.open(io.BytesIO(data)).save(out, format="PNG")
             data, ext = out.getvalue(), "png"
@@ -408,11 +454,8 @@ class _ConversionJob:
                 pil.convert("RGB").save(out, format="PNG")
                 data, suffix = out.getvalue(), "_rgb"
 
-        if image.name or (image.uri and not image.uri.startswith("data:")):
-            stem = Tf.MakeValidIdentifier(Path(image.name or image.uri).stem)
-            filename = f"{stem}_{source}{suffix}.{ext}"
-        else:
-            filename = f"texture_{source}{suffix}.{ext}"
+        stem = Tf.MakeValidIdentifier(Path(image.name).stem) if image.name else ""
+        filename = f"{stem or 'texture'}_{source}{suffix}.{ext}"
         self.tex_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.tex_dir / filename
         out_path.write_bytes(data)
@@ -421,22 +464,16 @@ class _ConversionJob:
         self._image_files[key] = rel
         return rel
 
-    def _image_bytes(self, image: pygltflib.Image) -> tuple[bytes, str | None]:
+    def _image_bytes(self, image: pygltflib.Image) -> bytes:
         if image.bufferView is not None:
             view = self.gltf.bufferViews[image.bufferView]
             buf = self._buffer_bytes(view.buffer)
             start = view.byteOffset or 0
-            return buf[start : start + view.byteLength], image.mimeType
+            return buf[start : start + view.byteLength]
         uri = image.uri or ""
         if uri.startswith("data:"):
-            header, payload = uri.split(",", 1)
-            match = re.match(r"data:([^;]+)", header)
-            return base64.b64decode(payload), match.group(1) if match else None
-        path = self.source_dir / uri
-        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(
-            path.suffix.lower()
-        )
-        return path.read_bytes(), mime
+            return _decode_data_uri(uri)
+        raise _external_resource_error("image", uri)
 
     def _texture_ref(self, info: _TextureInfo | None, *, drop_alpha: bool = False) -> _TexRef | None:
         if info is None or info.index is None:
@@ -479,6 +516,11 @@ class _ConversionJob:
         pbr = gm.pbrMetallicRoughness or pygltflib.PbrMetallicRoughness()
         exts = gm.extensions or {}
         emissive_strength = float(exts.get("KHR_materials_emissive_strength", {}).get("emissiveStrength", 1.0))
+        if "KHR_materials_unlit" in exts:
+            self._warn(
+                "KHR_materials_unlit isn't supported; unlit materials were converted as lit PBR"
+                " using their glTF fallback factors."
+            )
         unsupported = sorted(
             set(exts) - {"KHR_materials_emissive_strength", "KHR_materials_ior", "KHR_materials_unlit"}
         )
@@ -813,6 +855,22 @@ class _MaterialXBuilder:
 
 
 # --- Helpers -----------------------------------------------------------------------------------
+
+
+def _decode_data_uri(uri: str) -> bytes:
+    header, sep, payload = uri.partition(",")
+    if not sep or ";base64" not in header:
+        msg = "Attempted to decode a data: URI. Only base64 data: URIs are supported."
+        raise GltfConversionError(msg)
+    return base64.b64decode(payload, validate=True)
+
+
+def _external_resource_error(kind: str, uri: str) -> GltfConversionError:
+    shown = uri if len(uri) <= 80 else f"{uri[:77]}..."
+    return GltfConversionError(
+        f"Attempted to read an external {kind} ('{shown}'). Only self-contained models are supported:"
+        " use a .glb, or a .gltf with its buffers and images embedded as data: URIs."
+    )
 
 
 def _vec4(values: list[float] | None, default: tuple[float, float, float, float]) -> tuple[float, float, float, float]:

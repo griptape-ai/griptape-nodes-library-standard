@@ -32,6 +32,11 @@ class GlbSpec:
     indices: np.ndarray = field(default_factory=lambda: QUAD_INDICES)
     extensions_required: list[str] = field(default_factory=list)
     with_camera: bool = False
+    # Base-colour image overrides, for format-sniffing and external-URI tests.
+    base_image: bytes | None = None  # replaces the generated base-colour image bytes
+    base_image_mime: str | None = "auto"  # "auto": derive from image_format; None: omit mimeType
+    base_image_uri: str | None = None  # use this uri instead of a bufferView
+    material_extensions: dict[str, Any] | None = None
 
 
 def _png(color: tuple[int, ...], image_format: str = "PNG") -> bytes:
@@ -90,8 +95,19 @@ def build_glb(path: Path, spec: GlbSpec | None = None) -> Path:
             ("normal", (128, 128, 255)),
             ("emissive", (255, 255, 255)),
         ):
-            view = blob.add(_png(color, spec.image_format))
-            images.append(pygltflib.Image(name=name, bufferView=view, mimeType=mime))
+            if name == "base" and spec.base_image_uri is not None:
+                images.append(pygltflib.Image(name=name, uri=spec.base_image_uri))
+            else:
+                data = (
+                    spec.base_image
+                    if name == "base" and spec.base_image is not None
+                    else _png(color, spec.image_format)
+                )
+                image_mime = spec.base_image_mime if name == "base" and spec.base_image_mime != "auto" else mime
+                image = pygltflib.Image(name=name, bufferView=blob.add(data))
+                if image_mime is not None:  # None: leave mimeType out entirely
+                    image.mimeType = image_mime
+                images.append(image)
             textures.append(pygltflib.Texture(source=len(images) - 1))
         pbr.baseColorTexture = pygltflib.TextureInfo(index=0)
         pbr.metallicRoughnessTexture = pygltflib.TextureInfo(index=1)
@@ -99,6 +115,8 @@ def build_glb(path: Path, spec: GlbSpec | None = None) -> Path:
         material.emissiveTexture = pygltflib.TextureInfo(index=3)
         material.emissiveFactor = [1.0, 0.5, 0.25]
     material.pbrMetallicRoughness = pbr
+    if spec.material_extensions:
+        material.extensions = spec.material_extensions
 
     primitive = pygltflib.Primitive(
         attributes=pygltflib.Attributes(POSITION=pos, NORMAL=nrm, TEXCOORD_0=uv),
@@ -134,4 +152,16 @@ def build_glb(path: Path, spec: GlbSpec | None = None) -> Path:
     )
     gltf.set_binary_blob(bytes(blob.blob))
     gltf.save_binary(str(path))
+    return path
+
+
+def build_embedded_gltf(path: Path, spec: GlbSpec | None = None, *, buffer_uri: str | None = None) -> Path:
+    """Write the same model as a JSON .gltf with its buffer as a data: URI (or `buffer_uri`)."""
+    glb = build_glb(path.with_suffix(".glb"), spec)
+    gltf = pygltflib.GLTF2().load(str(glb))
+    assert gltf is not None
+    gltf.convert_buffers(pygltflib.BufferFormat.DATAURI)
+    if buffer_uri is not None:
+        gltf.buffers[0].uri = buffer_uri
+    gltf.save_json(str(path))
     return path
