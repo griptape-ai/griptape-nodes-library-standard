@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from griptape.artifacts import ImageUrlArtifact
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 
 from griptape_nodes_library.splat.world_labs_world_generation import WorldLabsWorldGeneration
 
@@ -81,25 +82,6 @@ async def test_plain_string_input_routes_through_file(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("artifact_type", ["ImageUrlArtifact", "VideoUrlArtifact"])
-async def test_serialized_artifact_dict_routes_through_file(
-    node: WorldLabsWorldGeneration, captured_paths: list[str], artifact_type: str
-) -> None:
-    result = await node._get_media_bytes({"type": artifact_type, "value": "{inputs}/upload.jpg"})
-
-    assert result == CANNED_BYTES
-    assert captured_paths == ["{inputs}/upload.jpg"]
-
-
-@pytest.mark.asyncio
-async def test_serialized_artifact_dict_without_value_returns_none(
-    node: WorldLabsWorldGeneration, captured_paths: list[str]
-) -> None:
-    assert await node._get_media_bytes({"type": "ImageUrlArtifact"}) is None
-    assert captured_paths == []
-
-
-@pytest.mark.asyncio
 async def test_raw_bytes_artifact_uses_to_bytes_directly(
     node: WorldLabsWorldGeneration, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -165,3 +147,38 @@ async def test_parse_result_lets_exceptions_reach_the_base_handler(
     monkeypatch.setattr(node, "_handle_success", boom, raising=False)
     with pytest.raises(KeyError, match="unexpected result shape"):
         await node._parse_result({}, "gen-1")
+
+
+def _editor_dict(artifact_type: str, value: str) -> dict:
+    """The shape the editor's file picker sets on a media parameter."""
+    return {"type": artifact_type, "value": value, "width": 512, "height": 256, "name": "upload.jpg", "meta": {}}
+
+
+def test_image_set_inline_is_stored_as_an_artifact() -> None:
+    node = WorldLabsWorldGeneration(name="world")
+
+    node.set_parameter_value("image", _editor_dict("ImageUrlArtifact", "https://example.com/upload.jpg"))
+
+    image = node.get_parameter_value("image")
+    assert isinstance(image, ImageUrlArtifact)
+    assert image.value == "https://example.com/upload.jpg"
+
+
+def test_video_set_inline_is_stored_as_an_artifact() -> None:
+    node = WorldLabsWorldGeneration(name="world")
+
+    node.set_parameter_value("video", _editor_dict("VideoUrlArtifact", "https://example.com/upload.mp4"))
+
+    video = node.get_parameter_value("video")
+    assert isinstance(video, VideoUrlArtifact)
+    assert video.value == "https://example.com/upload.mp4"
+
+
+def test_images_set_inline_are_stored_as_artifacts() -> None:
+    node = WorldLabsWorldGeneration(name="world")
+
+    node.set_parameter_value("images", [_editor_dict("ImageUrlArtifact", "https://example.com/upload.jpg")])
+
+    images = node.get_parameter_value("images")
+    assert [type(image) for image in images] == [ImageUrlArtifact]
+    assert images[0].value == "https://example.com/upload.jpg"
