@@ -314,7 +314,7 @@ Choose an appropriate [Lucide icon](https://lucide.dev/icons/) name. Common choi
 
 ## 7. Declare the Model in the Catalog
 
-**Don't skip this.** A node that calls a model has to say which model it calls, or the model never gets checked against the user's license. There are two parts, both in `griptape_nodes_library.json`.
+**Don't skip this.** A node that calls a model has to say which model it calls, or the license check can't resolve what it's gating. There are two parts, both in `griptape_nodes_library.json`.
 
 First, the library's model catalog. Find the `model_catalog` block in the top-level `"metadata": {"declarations": [...]}` and add your model under its provider (add the provider if it's new):
 
@@ -325,7 +325,7 @@ First, the library's model catalog. Find the `model_catalog` block in the top-le
         "<provider_key>": {
             "display_name": "<Provider Display Name>",
             "models": {
-                "gtc_<provider>_<model>": {
+                "gtc_<model_slug>": {
                     "display_name": "<Model Display Name>",
                     "family": "<Family>",
                     "provider_model_id": "<the provider's own model id>",
@@ -337,7 +337,7 @@ First, the library's model catalog. Find the `model_catalog` block in the top-le
 }
 ```
 
-The `gtc_...` key is the catalog id. It's ours, it's stable, and it's what the permission check uses. The `provider_model_id` is the provider's name for the same model — the string `_get_api_model_id()` returns. Keep those two straight: `provider_model_id` doesn't have to be unique (a BYOK entry and a hosted-key entry can share one), so the catalog id is the thing that identifies a model.
+The `gtc_...` key is the catalog id. It's ours, it's stable, and it's what the permission check gates on. Name it after the model, matching the style of the neighboring entries (`gtc_claude_opus_4_7`, `gtc_gpt_5`). The `provider_model_id` is the provider's name for the same model — the string `_get_api_model_id()` returns. The node never returns the catalog id itself: at run time the declaration layer resolves the selected `provider_model_id` back to the catalog id (`resolve_catalog_model_id` in `utils/model_invocation.py`), scoped to the models the node declares. `provider_model_id` doesn't have to be unique across the catalog (a BYOK entry and a hosted-key entry can share one), but within one node's declared models it must resolve to exactly one catalog id, or the resolver fails closed.
 
 Second, the node's own entry from step 6 gets a `declarations` list naming the catalog ids it can invoke:
 
@@ -348,22 +348,22 @@ Second, the node's own entry from step 6 gets a `declarations` list naming the c
     "metadata": {
         "category": "<category>",
         "declarations": [
-            {"type": "model_usage", "model_ids": ["gtc_<provider>_<model>"]}
+            {"type": "model_usage", "model_ids": ["gtc_<model_slug>"]}
         ]
     }
 }
 ```
 
-One entry per model the node can reach. If the node has a model dropdown, list all of them.
+One entry per model the node can reach. If the node has a model dropdown, list all of them — the dropdown is wired through `ModelAccessComponent` over the model parameter (see the base class's `_model_access` comment), and these declarations are what it license-filters by.
 
 Only nodes that actually invoke a model need this — a utility node that just reshapes data doesn't.
 
 ### What goes wrong if you get it wrong
 
 - **A `model_usage` id that isn't in the catalog** — the library fails validation and won't load at all. Annoying, but you'll know immediately.
-- **No declaration at all** — the library loads, the node runs, and the model is never checked against the license. You get one warning line in the log and nothing else. This is the one to watch for, because nothing tells you it happened.
+- **No declaration at all** — the library loads and the node runs, but the invocation is declared with the raw provider model id instead of a catalog id: provider- and family-scoped license rules won't match it, the dropdown isn't license-filtered, and all you get is one warning line in the log. This is the one to watch for.
 
-CI won't save you here. The catalog consistency test checks a hardcoded list of node classes, so a new node isn't covered until someone adds it.
+The first case is caught automatically (`test_full_manifest_validates_against_engine_schema` validates the whole manifest through the engine's own load path). The second is only covered by the per-node tests in `test_model_catalog_consistency.py`, which enumerate node classes explicitly — add yours to the parametrized list.
 
 Verify with:
 
@@ -463,7 +463,8 @@ Re-read the spec file and use `/agent-browser` to open the API documentation pag
 **Model declarations:**
 - [ ] Every model the node can invoke has an entry in the library's `model_catalog` block
 - [ ] The node's manifest entry has a `model_usage` declaration listing those catalog ids
-- [ ] `_get_catalog_model_id()` returns a `gtc_...` id that exists in the catalog, not the provider's model id
+- [ ] No two of the node's declared catalog ids share a `provider_model_id`, so every selectable model resolves to exactly one catalog id (`test_declared_models_resolve_uniquely_per_node` guards this)
+- [ ] The node's class is in the parametrized list in `test_model_catalog_consistency.py`
 
 Fix any discrepancies before proceeding.
 
