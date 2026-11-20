@@ -1,25 +1,19 @@
 from enum import StrEnum
 from io import BytesIO
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, NodeDependencies, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_directory_parameter import ProjectDirectoryParameter
-from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
-from griptape_nodes.traits.widget import Widget
 from PIL import Image
 from pypdf import PdfReader
 
+from griptape_nodes_library.files.pdf_viewer import PdfViewerMixin
 from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 
 DEFAULT_DIRECTORY_NAME = "extracted"
@@ -80,7 +74,7 @@ def _migrate_old_default_directory(value: Any) -> Any:
     return DEFAULT_DIRECTORY_NAME if value == OLD_DEFAULT_DIRECTORY else value
 
 
-class ExtractPdfImages(SuccessFailureNode):
+class ExtractPdfImages(PdfViewerMixin, SuccessFailureNode):
     """Extract the images embedded in a PDF, such as the pages of a scanned document.
 
     Images come out at the resolution they are stored at in the PDF. Nothing is resampled.
@@ -88,7 +82,8 @@ class ExtractPdfImages(SuccessFailureNode):
     """
 
     # Named for the preview it replaced, so workflows saved with that parameter still load.
-    PREVIEW_PARAMETER_NAME = "rotation_preview"
+    PDF_VIEWER_PARAMETER_NAME = "rotation_preview"
+    PDF_VIEWER_SYNCED: ClassVar[list[str]] = ["rotation", "password"]
 
     def __init__(
         self,
@@ -125,21 +120,9 @@ class ExtractPdfImages(SuccessFailureNode):
             )
         )
 
-        self.add_parameter(
-            ParameterDict(
-                name=self.PREVIEW_PARAMETER_NAME,
-                default_value={"url": ""},
-                tooltip="The PDF's pages, turned by 'rotation' as they will be extracted. "
-                "Step through them to look at the document before extracting.",
-                allowed_modes={ParameterMode.PROPERTY},
-                traits={
-                    Widget(
-                        name="PdfPageViewer",
-                        library="Griptape Nodes Library",
-                        synced_parameters=["rotation", "password"],
-                    )
-                },
-            )
+        self._add_pdf_viewer_parameter(
+            "The PDF's pages, turned by 'rotation' as they will be extracted. "
+            "Step through them to look at the document before extracting."
         )
 
         rotation = ParameterString(
@@ -239,56 +222,6 @@ class ExtractPdfImages(SuccessFailureNode):
         if not self.get_parameter_value("path"):
             return [ValueError("Set 'path' to the PDF file to extract images from.")]
         return None
-
-    # ── Preview ─────────────────────────────────────────────────────────────────
-
-    def set_parameter_value(
-        self,
-        param_name: str,
-        value: Any,
-        *,
-        initial_setup: bool = False,
-        emit_change: bool = True,
-        skip_before_value_set: bool = False,
-    ) -> None:
-        """Point the viewer at the PDF when a workflow loads, since a saved URL may be out of date."""
-        super().set_parameter_value(
-            param_name,
-            value,
-            initial_setup=initial_setup,
-            emit_change=emit_change,
-            skip_before_value_set=skip_before_value_set,
-        )
-        if initial_setup and param_name == "path":
-            self._update_preview()
-
-    def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        if parameter.name == "path":
-            self._update_preview()
-        return super().after_value_set(parameter, value)
-
-    def _update_preview(self) -> None:
-        """Give the viewer widget the PDF's URL. It draws the pages itself, so only the URL crosses over."""
-        path = self.get_parameter_value("path") or ""
-        preview = {"url": self._static_url(path) if path else ""}
-        if preview == self.get_parameter_value(self.PREVIEW_PARAMETER_NAME):
-            return
-        self.set_parameter_value(self.PREVIEW_PARAMETER_NAME, preview)
-        self.publish_update_to_parameter(self.PREVIEW_PARAMETER_NAME, preview)
-
-    def _static_url(self, path: str) -> str:
-        """Return the static server's URL for a file, or an empty string when there is none."""
-        try:
-            result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=File(path).resolve())
-            )
-        except Exception as e:
-            logger.warning(f"{self.name}: could not build a preview URL for {path!r}: {e}")
-            return ""
-        if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-            return result.url
-        logger.warning(f"{self.name}: the engine would not serve {path!r} to the viewer: {result.result_details}")
-        return ""
 
     # ── Process ─────────────────────────────────────────────────────────────────
 

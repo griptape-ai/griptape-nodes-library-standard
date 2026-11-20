@@ -4,7 +4,6 @@ import re
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
@@ -217,47 +216,6 @@ def test_encrypted_pdf_needs_the_password(node: ExtractPdfImages) -> None:
     assert len(node._extract_images(buffer.getvalue(), "secret", Rotation.NONE)) == 1
 
 
-def test_setting_path_gives_the_viewer_the_pdfs_url(
-    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    pdf_path = tmp_path / "scan.pdf"
-    pdf_path.write_bytes(_pdf([_scan((120, 160))]))
-    monkeypatch.setattr(node, "_static_url", lambda path: f"http://static/{Path(path).name}")
-
-    node.set_parameter_value("path", str(pdf_path))
-    node.after_value_set(node.path, str(pdf_path))
-
-    assert node.get_parameter_value("rotation_preview") == {"url": "http://static/scan.pdf"}
-
-
-def test_clearing_the_path_clears_the_viewer(node: ExtractPdfImages, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(node, "_static_url", lambda _path: "http://static/scan.pdf")
-    node.set_parameter_value("path", "/some/scan.pdf")
-    node.after_value_set(node.path, "/some/scan.pdf")
-
-    node.set_parameter_value("path", "")
-    node.after_value_set(node.path, "")
-
-    assert node.get_parameter_value("rotation_preview") == {"url": ""}
-
-
-def test_changing_rotation_or_password_leaves_the_viewer_alone(
-    node: ExtractPdfImages, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(node, "_static_url", lambda _path: "http://static/scan.pdf")
-    node.set_parameter_value("path", "/some/scan.pdf")
-    node.after_value_set(node.path, "/some/scan.pdf")
-    before = node.get_parameter_value("rotation_preview")
-    monkeypatch.setattr(node, "_static_url", lambda _path: pytest.fail("looked the PDF up again"))
-
-    node.set_parameter_value("rotation", Rotation.CLOCKWISE_90)
-    node.after_value_set(node.get_parameter_by_name("rotation"), Rotation.CLOCKWISE_90)  # type: ignore[arg-type]
-    node.set_parameter_value("password", "secret")
-    node.after_value_set(node.get_parameter_by_name("password"), "secret")  # type: ignore[arg-type]
-
-    assert node.get_parameter_value("rotation_preview") == before
-
-
 def test_viewer_takes_its_rotation_and_password_from_the_node(node: ExtractPdfImages) -> None:
     preview = node.get_parameter_by_name("rotation_preview")
     assert preview is not None
@@ -267,49 +225,12 @@ def test_viewer_takes_its_rotation_and_password_from_the_node(node: ExtractPdfIm
     assert not node.path.hide_property
 
 
-def test_loading_a_saved_path_points_the_viewer_at_it(
-    node: ExtractPdfImages, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    pdf_path = tmp_path / "scan.pdf"
-    pdf_path.write_bytes(_pdf([_scan((120, 160))]))
-    monkeypatch.setattr(node, "_static_url", lambda path: f"http://static/{Path(path).name}")
-
-    node.set_parameter_value("path", str(pdf_path), initial_setup=True)
-
-    assert node.get_parameter_value("rotation_preview") == {"url": "http://static/scan.pdf"}
-
-
 def test_the_viewer_turns_pages_by_the_same_amount_as_extraction() -> None:
     widget = (Path(__file__).parents[3] / "widgets" / "PdfPageViewer" / "PdfPageViewer.js").read_text()
     table = re.search(r"const ROTATION_DEGREES = \{(.*?)\};", widget, re.DOTALL)
     assert table is not None
     turns = {label: int(degrees) for label, degrees in re.findall(r'"([^"]+)":\s*(\d+)', table.group(1))}
     assert turns == {rotation.value: degrees for rotation, degrees in extract_pdf_images.CLOCKWISE_DEGREES.items()}
-
-
-def test_static_url_is_the_engines_url_for_the_file(node: ExtractPdfImages, monkeypatch: pytest.MonkeyPatch) -> None:
-    class FakeStaticUrl:
-        url = "http://static/scan.pdf"
-
-    # Serving the file is the engine's job. Stub it so this test does not start static file machinery.
-    monkeypatch.setattr(extract_pdf_images, "CreateStaticFileDownloadUrlFromPathResultSuccess", FakeStaticUrl)
-    monkeypatch.setattr(
-        extract_pdf_images, "GriptapeNodes", SimpleNamespace(handle_request=lambda _request: FakeStaticUrl())
-    )
-
-    assert node._static_url("/some/scan.pdf") == "http://static/scan.pdf"
-
-
-def test_static_url_is_empty_when_the_engine_cannot_serve_the_file(
-    node: ExtractPdfImages, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def refuse(_request: Any) -> None:
-        msg = "no static server"
-        raise RuntimeError(msg)
-
-    monkeypatch.setattr(extract_pdf_images, "GriptapeNodes", SimpleNamespace(handle_request=refuse))
-
-    assert node._static_url("/some/scan.pdf") == ""
 
 
 @pytest.mark.parametrize("output_format", [OutputFormat.ORIGINAL, OutputFormat.PNG])
