@@ -245,7 +245,7 @@ class TestDescribeImage:
 
 
 class TestRowOutputs:
-    @pytest.mark.parametrize("node_type", ["JevPickOne", "JevRate"])
+    @pytest.mark.parametrize("node_type", ["JevPickOne", "JevRate", "Switch"])
     def test_loading_keeps_row_outputs_without_graph_requests(
         self, node_type: str, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:

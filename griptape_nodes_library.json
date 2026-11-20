@@ -6757,6 +6757,23 @@
       }
     },
     {
+      "class_name": "Switch",
+      "file_path": "griptape_nodes_library/execution/switch.py",
+      "metadata": {
+        "category": "execution_flow",
+        "description": "Send the flow down the exit whose case matches a value, with wildcard matching and a path into structured data",
+        "display_name": "Switch",
+        "group": "comparison",
+        "tags": [
+          "workflow",
+          "execution",
+          "condition",
+          "branch",
+          "route"
+        ]
+      }
+    },
+    {
       "class_name": "CompareNumbers",
       "file_path": "griptape_nodes_library/execution/compare_numbers.py",
       "metadata": {

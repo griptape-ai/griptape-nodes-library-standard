@@ -30,6 +30,8 @@ class RowOutputsMixin(BaseNode):
 
     ROWS_PARAM: ClassVar[str]
     OUTPUT_PREFIX: ClassVar[str]
+    # Outputs kept below the row outputs, in order.
+    TRAILING_OUTPUTS: ClassVar[tuple[str, ...]] = ("failure",)
     # Guards against re-entering the row sync from its own edits; nothing that runs the node reads it.
     attributes_outside_parameters = frozenset({"_syncing"})
     _syncing = False
@@ -68,11 +70,13 @@ class RowOutputsMixin(BaseNode):
             self._keep_failure_last()
 
     def _keep_failure_last(self) -> None:
-        # Row outputs are appended, including when a saved workflow loads, so move Failed back below them.
-        failure = self.get_parameter_by_name("failure")
-        if failure is not None and self.root_ui_element.children[-1] is not failure:
-            self.root_ui_element.remove_child(failure)
-            self.root_ui_element.add_child(failure)
+        # Row outputs are appended, including when a saved workflow loads, so move the trailing
+        # outputs (Failed, or Default) back below them.
+        for name in self.TRAILING_OUTPUTS:
+            trailing = self.get_parameter_by_name(name)
+            if trailing is not None and self.root_ui_element.children[-1] is not trailing:
+                self.root_ui_element.remove_child(trailing)
+                self.root_ui_element.add_child(trailing)
 
     def _row_output_params(self) -> list[Parameter]:
         return [p for p in self.parameters if p.name.startswith(self.OUTPUT_PREFIX)]
