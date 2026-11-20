@@ -6,13 +6,12 @@ from enum import StrEnum
 from typing import Any
 
 import httpx
-import trafilatura
-from ddgs import DDGS
-from exa_py import Exa
-from trafilatura.settings import use_config
 
 from griptape_nodes_library.utils.node_error_utils import missing_secret_error
 from griptape_nodes_library.utils.secret_utils import get_secret
+
+# The search and scraping SDKs are imported where they are used. Importing trafilatura at the top
+# costs seconds on a cold start the first time an Agent or any tool node is created.
 
 DEFAULT_RESULTS_COUNT = 5
 GOOGLE_API_KEY_SECRET = "GOOGLE_API_KEY"
@@ -39,6 +38,8 @@ def search_web(
     """Return `[{"title", "url", "description"}]` results for `query`."""
     match engine:
         case SearchEngine.DUCKDUCKGO:
+            from ddgs import DDGS
+
             results = DDGS().text(query, region="en-us", max_results=results_count)
             return [{"title": r["title"], "url": r["href"], "description": r["body"]} for r in results]
         case SearchEngine.GOOGLE:
@@ -65,6 +66,8 @@ def search_web(
                 for r in response.json().get("items", [])
             ]
         case SearchEngine.EXA:
+            from exa_py import Exa
+
             response = Exa(api_key=_secret(EXA_API_KEY_SECRET)).search_and_contents(
                 query, num_results=results_count, text=True, highlights=True
             )
@@ -91,6 +94,9 @@ def format_search_results(results: list[dict[str, Any]]) -> str:
 
 def scrape_url(url: str) -> str:
     """Fetch `url` and return its main text content."""
+    import trafilatura
+    from trafilatura.settings import use_config
+
     # Thread-safe extraction: trafilatura's signal-based timeout only works on the main thread.
     config = use_config()
     config.set("DEFAULT", "EXTRACTION_TIMEOUT", "0")

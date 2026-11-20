@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import dateparser
-from asteval import Interpreter
 from griptape_nodes.agents.pydantic_ai.mcp_servers import mcp_server_from_config
 from griptape_nodes.retained_mode.events.config_events import GetWorkspaceRequest, GetWorkspaceResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -95,6 +94,9 @@ def _calculator() -> FunctionToolset:
         Args:
             expression: Arithmetic expression parsable in pure Python. Single line only.
         """
+        # asteval imports numpy, so load it when the calculator first runs, not with every tool node.
+        from asteval import Interpreter
+
         interpreter = Interpreter(minimal=True)
         result = interpreter(expression)
         if interpreter.error:
