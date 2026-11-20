@@ -29,6 +29,10 @@ TRIM_PARAMETERS = ["start_time", "end_time"]
 
 DEFAULT_OUTPUT_EXTENSION = ".wav"
 
+# Clips longer than this get a flat waveform: drawing one means decoding the whole clip in the browser.
+# The widget applies the same limit when it cannot be told, such as for a remote clip.
+MAX_WAVEFORM_SECONDS = 30 * 60
+
 
 def build_audio_trim_cmd(
     ffmpeg_path: str, input_path: str, start_sec: float, end_sec: float, output_path: str
@@ -113,20 +117,59 @@ class TrimAudio(SuccessFailureNode):
 
     def _push_audio_to_widget(self, audio: Any) -> None:
         """Give the widget a URL to play. The trim points reach it from their own parameters."""
-        widget_value = {"audio_url": self._resolve_audio_url(audio)}
+        raw = self._audio_location(audio)
+        long_clip = self._is_long_local_clip(raw)
+        widget_value = {"audio_url": self._resolve_audio_url(raw), "long_clip": long_clip}
+        self._update_long_clip_badge(long_clip=long_clip)
         self.set_parameter_value("trim_editor", widget_value)
         self.publish_update_to_parameter("trim_editor", widget_value)
 
-    def _resolve_audio_url(self, audio: Any) -> str:
-        """Return a URL the browser can play, or "" when there is no playable audio."""
+    def _update_long_clip_badge(self, *, long_clip: bool) -> None:
+        editor = self.get_parameter_by_name("trim_editor")
+        if editor is None:
+            return
+        if long_clip:
+            editor.set_badge(
+                variant="warning",
+                title="Long clip",
+                message=(
+                    f"This clip is over {MAX_WAVEFORM_SECONDS // 60} minutes, so the waveform is not drawn. "
+                    "Playing, marking, and trimming still work."
+                ),
+            )
+        else:
+            editor.clear_badge()
+
+    def _audio_location(self, audio: Any) -> str:
+        """Return the audio's file path or URL, or "" when it has none."""
         if not audio:
             return ""
         try:
             raw = getattr(to_audio_artifact(audio), "value", None)
-            if not isinstance(raw, str) or not raw:
-                return ""
-            if raw.startswith(("http://", "https://", "data:")):
-                return raw
+        except Exception as e:
+            logger.warning("%s: could not read the audio: %s", self.name, e)
+            return ""
+        return raw if isinstance(raw, str) else ""
+
+    def _is_long_local_clip(self, raw: str) -> bool:
+        """Whether a local clip is past MAX_WAVEFORM_SECONDS. Remote clips are not probed, so they are never long here."""
+        if not raw or raw.startswith(("http://", "https://", "data:")):
+            return False
+        try:
+            location = resolve_media_location(raw)
+        except Exception as e:
+            logger.warning("%s: could not resolve the audio to check its length: %s", self.name, e)
+            return False
+        if not Path(location).is_absolute():
+            return False
+        duration = probe_audio_duration(get_ffprobe_path(), location)
+        return duration is not None and duration > MAX_WAVEFORM_SECONDS
+
+    def _resolve_audio_url(self, raw: str) -> str:
+        """Return a URL the browser can play, or "" when there is no playable audio."""
+        if not raw or raw.startswith(("http://", "https://", "data:")):
+            return raw
+        try:
             result = GriptapeNodes.handle_request(
                 CreateStaticFileDownloadUrlFromPathRequest(file_path=File(raw).resolve())
             )

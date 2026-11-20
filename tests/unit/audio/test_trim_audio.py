@@ -58,21 +58,21 @@ def test_validate_accepts_zero_end() -> None:
 
 
 def test_widget_url_is_empty_without_audio() -> None:
-    assert _node()._resolve_audio_url(None) == ""
+    assert _node()._resolve_audio_url("") == ""
 
 
 def test_widget_url_passes_http_through() -> None:
-    assert _node()._resolve_audio_url(AudioUrlArtifact("https://x/a.wav")) == "https://x/a.wav"
+    assert _node()._resolve_audio_url("https://x/a.wav") == "https://x/a.wav"
 
 
 def test_widget_url_is_empty_when_static_url_lookup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(trim_audio.GriptapeNodes, "handle_request", lambda *_: SimpleNamespace())
     monkeypatch.setattr(trim_audio.File, "resolve", lambda self: "/abs/a.wav")
-    assert _node()._resolve_audio_url(AudioUrlArtifact("{outputs}/a.wav")) == ""
+    assert _node()._resolve_audio_url("{outputs}/a.wav") == ""
 
 
 def test_widget_url_is_empty_for_bytes_audio() -> None:
-    assert _node()._resolve_audio_url(AudioArtifact(value=b"RIFF", format="wav")) == ""
+    assert _node()._audio_location(AudioArtifact(value=b"RIFF", format="wav")) == ""
 
 
 def test_start_past_end_of_clip_fails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,3 +105,35 @@ async def test_unopenable_audio_raises_when_failed_is_unwired(monkeypatch: pytes
 async def test_unopenable_audio_follows_failed_when_wired(monkeypatch: pytest.MonkeyPatch) -> None:
     node = _failing_node(monkeypatch, failed_is_wired=True)
     await node.aprocess()
+
+
+def test_long_local_clip_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(trim_audio, "resolve_media_location", lambda raw: raw)
+    monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_: trim_audio.MAX_WAVEFORM_SECONDS + 1)
+    assert _node()._is_long_local_clip("/abs/long.wav") is True
+
+
+def test_short_and_remote_clips_are_not_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(trim_audio, "resolve_media_location", lambda raw: raw)
+    monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_: 10.0)
+    node = _node()
+    assert node._is_long_local_clip("/abs/short.wav") is False
+    assert node._is_long_local_clip("https://x/long.wav") is False
+    assert node._is_long_local_clip("") is False
+
+
+def test_long_clip_sets_a_badge_and_a_short_one_clears_it() -> None:
+    node = _node()
+    badges: list[Any] = []
+    editor = SimpleNamespace(
+        set_badge=lambda **kwargs: badges.append(kwargs),
+        clear_badge=lambda: badges.append(None),
+    )
+    node.get_parameter_by_name = lambda _name: editor  # type: ignore[method-assign]
+    node._update_long_clip_badge(long_clip=True)
+    node._update_long_clip_badge(long_clip=False)
+    assert badges[0]["variant"] == "warning"
+    assert "waveform is not drawn" in badges[0]["message"]
+    assert badges[1] is None

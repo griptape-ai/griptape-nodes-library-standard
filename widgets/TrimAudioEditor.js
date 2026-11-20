@@ -13,8 +13,9 @@ const FLAG_H = 7;
 const MOVE_H = 10; // height of the strip along the bottom of the selection that drags it as a whole
 const IDLE_COLOR = "#aaa";
 const ACTIVE_COLOR = "#d4a030";
-// Decoding holds the whole clip in memory (about 10 MB per channel per minute at 44.1 kHz), so clips longer
-// than this skip it and draw a flat waveform. A clip whose length is unknown falls back to a size limit.
+// Decoding holds the whole clip in memory (about 10 MB per channel per minute at 44.1 kHz), so long clips draw a
+// flat waveform. The node flags them with `long_clip` and shows a badge. This limit, the same as the node's,
+// covers a clip the node could not measure. A clip whose length is unknown falls back to a size limit.
 const MAX_DECODE_SECONDS = 30 * 60;
 const MAX_DECODE_BYTES = 150 * 1024 * 1024;
 const METADATA_TIMEOUT_MS = 10000;
@@ -384,13 +385,13 @@ export default function TrimAudioEditor(container, props) {
       audio.src = objectUrl;
       const length = await metadataDuration();
       if (id !== loadId) return;
-      const tooLong = length > MAX_DECODE_SECONDS || (length === 0 && bytes.byteLength > MAX_DECODE_BYTES);
+      const tooLong = value.long_clip || length > MAX_DECODE_SECONDS || (length === 0 && bytes.byteLength > MAX_DECODE_BYTES);
       if (tooLong && length === 0) {
         throw new Error("Could not read the length of this clip");
       } else if (tooLong) {
         duration = length;
         peaks = new Float32Array(SAMPLES).fill(0.15);
-        status.textContent = "Clip too long to draw a waveform";
+        status.textContent = "";
       } else {
         const buf = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(bytes);
         peaks = computePeaks(buf);
