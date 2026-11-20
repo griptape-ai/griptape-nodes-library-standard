@@ -282,6 +282,17 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
 
         self.add_node_element(logs_group)
 
+    def _update_divisible_visibility(self, resize_mode: str, preserve_aspect_ratio: bool) -> None:
+        if resize_mode != self.RESIZE_MODE_DIVISIBLE:
+            self.hide_parameter_by_name(self.DIVISIBLE_PARAMETERS)
+            return
+        self.show_parameter_by_name(["divisor", "rounding", "preserve_aspect_ratio"])
+        # The anchor only matters when the other dimension is scaled from it
+        if preserve_aspect_ratio:
+            self.show_parameter_by_name("anchor_dimension")
+        else:
+            self.hide_parameter_by_name("anchor_dimension")
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "resize_mode":
             if value == self.RESIZE_MODE_PERCENTAGE:
@@ -312,10 +323,9 @@ class ResizeVideo(ImagePreviewMixin, ControlNode):
                 self.hide_parameter_by_name("target_height")
                 self.hide_parameter_by_name("fit_mode")
                 self.hide_parameter_by_name("background_color")
-            if value == self.RESIZE_MODE_DIVISIBLE:
-                self.show_parameter_by_name(self.DIVISIBLE_PARAMETERS)
-            else:
-                self.hide_parameter_by_name(self.DIVISIBLE_PARAMETERS)
+            self._update_divisible_visibility(value, self.get_parameter_value("preserve_aspect_ratio"))
+        elif parameter.name == "preserve_aspect_ratio":
+            self._update_divisible_visibility(self.get_parameter_value("resize_mode"), value)
         elif parameter.name == "fit_mode":
             if value == self.FIT_MODE_FIT:
                 self.show_parameter_by_name("background_color")

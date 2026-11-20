@@ -50,3 +50,20 @@ def test_divisor_is_clamped_to_its_range() -> None:
     assert node.get_parameter_value("divisor") == RescaleImage.MIN_DIVISOR
     node.set_parameter_value("divisor", 4096)
     assert node.get_parameter_value("divisor") == RescaleImage.MAX_DIVISOR
+
+
+def test_anchor_dimension_shown_only_when_preserving_aspect_ratio() -> None:
+    node = RescaleImage(name="test_rescale_image")
+    node.set_parameter_value("resize_mode", RescaleImage.RESIZE_MODE_DIVISIBLE)
+
+    node.set_parameter_value("preserve_aspect_ratio", False)
+    assert _hidden(node, "anchor_dimension")
+    assert not _hidden(node, "preserve_aspect_ratio")
+
+    node.set_parameter_value("preserve_aspect_ratio", True)
+    assert not _hidden(node, "anchor_dimension")
+
+    node.set_parameter_value("preserve_aspect_ratio", False)
+    node.set_parameter_value("resize_mode", RescaleImage.RESIZE_MODE_PERCENTAGE)
+    node.set_parameter_value("resize_mode", RescaleImage.RESIZE_MODE_DIVISIBLE)
+    assert _hidden(node, "anchor_dimension")

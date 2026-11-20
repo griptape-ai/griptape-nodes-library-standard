@@ -96,3 +96,26 @@ def test_divisor_is_clamped_to_its_range() -> None:
     assert node.get_parameter_value("divisor") == ResizeVideo.MIN_DIVISOR
     node.set_parameter_value("divisor", 4096)
     assert node.get_parameter_value("divisor") == ResizeVideo.MAX_DIVISOR
+
+
+def _hidden(node: ResizeVideo, name: str) -> bool:
+    parameter = node.get_parameter_by_name(name)
+    assert parameter is not None, name
+    return parameter.ui_options.get("hide") is True
+
+
+def test_anchor_dimension_shown_only_when_preserving_aspect_ratio() -> None:
+    node = ResizeVideo(name="test_resize_video")
+    node.set_parameter_value("resize_mode", ResizeVideo.RESIZE_MODE_DIVISIBLE)
+
+    node.set_parameter_value("preserve_aspect_ratio", False)
+    assert _hidden(node, "anchor_dimension")
+    assert not _hidden(node, "preserve_aspect_ratio")
+
+    node.set_parameter_value("preserve_aspect_ratio", True)
+    assert not _hidden(node, "anchor_dimension")
+
+    node.set_parameter_value("preserve_aspect_ratio", False)
+    node.set_parameter_value("resize_mode", ResizeVideo.RESIZE_MODE_PERCENTAGE)
+    node.set_parameter_value("resize_mode", ResizeVideo.RESIZE_MODE_DIVISIBLE)
+    assert _hidden(node, "anchor_dimension")
