@@ -87,7 +87,7 @@ def test_start_past_end_of_clip_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     node = _node()
     node._output_file = SimpleNamespace(build_file=lambda: SimpleNamespace(location="{outputs}/trimmed.wav"))  # type: ignore[assignment]
     monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
-    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_: 5.0)
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_, **__: 5.0)
     with pytest.raises(NodeError, match="only 5.000s long"):
         node._process("in.wav", 6.0, 0.0)
 
@@ -118,14 +118,14 @@ async def test_unopenable_audio_follows_failed_when_wired(monkeypatch: pytest.Mo
 def test_long_local_clip_is_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(trim_audio, "resolve_media_location", lambda raw: raw)
     monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
-    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_: trim_audio.MAX_WAVEFORM_SECONDS + 1)
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_, **__: trim_audio.MAX_WAVEFORM_SECONDS + 1)
     assert _node()._is_long_local_clip("/abs/long.wav") is True
 
 
 def test_short_and_remote_clips_are_not_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(trim_audio, "resolve_media_location", lambda raw: raw)
     monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
-    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_: 10.0)
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_, **__: 10.0)
     node = _node()
     assert node._is_long_local_clip("/abs/short.wav") is False
     assert node._is_long_local_clip("https://x/long.wav") is False
@@ -145,3 +145,48 @@ def test_long_clip_sets_a_badge_and_a_short_one_clears_it() -> None:
     assert badges[0]["variant"] == "warning"
     assert "waveform is not drawn" in badges[0]["message"]
     assert badges[1] is None
+
+
+def test_static_server_url_for_a_local_file_is_probed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(trim_audio, "resolve_media_location", lambda _: "/abs/long.wav")
+    monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_, **__: trim_audio.MAX_WAVEFORM_SECONDS + 1)
+    assert _node()._is_long_local_clip("http://localhost:8124/static/long.wav") is True
+
+
+def test_remote_url_is_not_probed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(trim_audio, "resolve_media_location", lambda raw: raw)
+
+    def fail(*_: Any, **__: Any) -> float:
+        msg = "a remote clip must not be probed"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", fail)
+    assert _node()._is_long_local_clip("https://example.com/long.wav") is False
+
+
+def test_push_sends_a_new_revision_each_time_and_the_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    pushed: list[dict[str, Any]] = []
+    node.set_parameter_value = lambda _name, value: pushed.append(value)  # type: ignore[method-assign]
+    node.publish_update_to_parameter = lambda *_: None  # type: ignore[method-assign]
+    node.get_parameter_by_name = lambda _name: SimpleNamespace(set_badge=lambda **_: None, clear_badge=lambda: None)  # type: ignore[method-assign]
+    monkeypatch.setattr(trim_audio, "resolve_media_location", lambda raw: raw)
+    audio = AudioUrlArtifact("https://x/a.wav")
+    node._push_audio_to_widget(audio)
+    node._push_audio_to_widget(audio)
+    assert pushed[0]["audio_url"] == pushed[1]["audio_url"] == "https://x/a.wav"
+    assert pushed[0]["revision"] != pushed[1]["revision"]
+    assert pushed[0]["max_waveform_seconds"] == trim_audio.MAX_WAVEFORM_SECONDS
+    assert pushed[0]["long_clip"] is False
+
+
+def test_failed_start_check_does_not_build_the_output_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _node()
+    built: list[bool] = []
+    node._output_file = SimpleNamespace(build_file=lambda: built.append(True))  # type: ignore[assignment]
+    monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
+    monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_, **__: 5.0)
+    with pytest.raises(NodeError):
+        node._process("in.wav", 6.0, 0.0)
+    assert built == []

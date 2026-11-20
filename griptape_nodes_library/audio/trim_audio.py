@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -29,8 +30,12 @@ TRIM_PARAMETERS = ["start_time", "end_time"]
 DEFAULT_OUTPUT_EXTENSION = ".wav"
 
 # Clips longer than this get a flat waveform: drawing one means decoding the whole clip in the browser.
-# The widget applies the same limit when it cannot be told, such as for a remote clip.
+# The widget receives the limit in its value, so the two sides cannot drift.
 MAX_WAVEFORM_SECONDS = 30 * 60
+
+# Connecting audio probes its length so the widget can be told about a long clip. The probe runs inside the
+# connection hooks, so a slow volume must not hold the engine for long.
+PUSH_PROBE_TIMEOUT_SECONDS = 5
 
 
 def build_audio_trim_cmd(
@@ -44,11 +49,11 @@ def build_audio_trim_cmd(
     return [*cmd, "-vn", output_path]
 
 
-def probe_audio_duration(ffprobe_path: str, input_path: str) -> float | None:
-    """Return the clip length in seconds, or None when ffprobe cannot tell."""
+def probe_audio_duration(ffprobe_path: str, input_path: str, *, timeout: float = 60) -> float | None:
+    """Return the clip length in seconds, or None when ffprobe cannot tell or takes longer than timeout."""
     cmd = [ffprobe_path, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", input_path]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)  # noqa: S603
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)  # noqa: S603
         return float(result.stdout.strip())
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
@@ -72,7 +77,7 @@ class TrimAudio(SuccessFailureNode):
         self.add_parameter(
             ParameterDict(
                 name="trim_editor",
-                default_value={"audio_url": ""},
+                default_value={"audio_url": "", "long_clip": False, "max_waveform_seconds": MAX_WAVEFORM_SECONDS},
                 tooltip="Drag the in and out handles on the waveform to choose what to keep",
                 allowed_modes={ParameterMode.PROPERTY},
                 traits={
@@ -118,7 +123,13 @@ class TrimAudio(SuccessFailureNode):
         """Give the widget a URL to play. The trim points reach it from their own parameters."""
         raw = self._audio_location(audio)
         long_clip = self._is_long_local_clip(raw)
-        widget_value = {"audio_url": self._resolve_audio_url(raw), "long_clip": long_clip}
+        widget_value = {
+            "audio_url": self._resolve_audio_url(raw),
+            "long_clip": long_clip,
+            "max_waveform_seconds": MAX_WAVEFORM_SECONDS,
+            # A new revision makes the widget reload even when an upstream node overwrote the file at the same URL.
+            "revision": uuid.uuid4().hex,
+        }
         self._update_long_clip_badge(long_clip=long_clip)
         self.set_parameter_value("trim_editor", widget_value)
         self.publish_update_to_parameter("trim_editor", widget_value)
@@ -145,16 +156,17 @@ class TrimAudio(SuccessFailureNode):
 
     def _is_long_local_clip(self, raw: str) -> bool:
         """Whether a local clip is past MAX_WAVEFORM_SECONDS. Remote clips are not probed, so they are never long here."""
-        if not raw or raw.startswith(("http://", "https://", "data:")):
+        if not raw or raw.startswith("data:"):
             return False
         try:
             location = resolve_media_location(raw)
         except Exception as e:
             logger.warning("%s: could not resolve the audio to check its length: %s", self.name, e)
             return False
+        # A static-server URL for a file on this machine resolves to its local path. Anything else is remote.
         if not Path(location).is_absolute():
             return False
-        duration = probe_audio_duration(get_ffprobe_path(), location)
+        duration = probe_audio_duration(get_ffprobe_path(), location, timeout=PUSH_PROBE_TIMEOUT_SECONDS)
         return duration is not None and duration > MAX_WAVEFORM_SECONDS
 
     def _resolve_audio_url(self, raw: str) -> str:
@@ -214,9 +226,6 @@ class TrimAudio(SuccessFailureNode):
         return exceptions or None
 
     def _process(self, input_path: str, start_sec: float, end_sec: float) -> None:
-        dest = self._output_file.build_file()
-        extension = Path(dest.location).suffix or DEFAULT_OUTPUT_EXTENSION
-
         duration = probe_audio_duration(get_ffprobe_path(), input_path)
         if duration is not None and start_sec >= duration:
             msg = (
@@ -225,6 +234,8 @@ class TrimAudio(SuccessFailureNode):
             )
             raise NodeError(msg)
 
+        dest = self._output_file.build_file()
+        extension = Path(dest.location).suffix or DEFAULT_OUTPUT_EXTENSION
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / f"trimmed{extension}"
             run_ffmpeg_cmd(build_audio_trim_cmd(get_ffmpeg_path(), input_path, start_sec, end_sec, str(out_path)))

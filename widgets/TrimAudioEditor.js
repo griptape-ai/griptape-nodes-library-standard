@@ -14,9 +14,9 @@ const MOVE_H = 10; // height of the strip along the bottom of the selection that
 const IDLE_COLOR = "#aaa";
 const ACTIVE_COLOR = "#d4a030";
 // Decoding holds the whole clip in memory (about 10 MB per channel per minute at 44.1 kHz), so long clips draw a
-// flat waveform. The node flags them with `long_clip` and shows a badge. This limit, the same as the node's,
-// covers a clip the node could not measure. A clip whose length is unknown falls back to a size limit.
-const MAX_DECODE_SECONDS = 30 * 60;
+// flat waveform. The node flags the ones it can measure with `long_clip` and shows a badge, and sends its
+// limit as `max_waveform_seconds` for a clip it could not measure, such as a remote one. A clip whose length
+// is unknown to both falls back to a size limit.
 const MAX_DECODE_BYTES = 150 * 1024 * 1024;
 const METADATA_TIMEOUT_MS = 10000;
 const END_EPSILON = 0.001;
@@ -60,6 +60,7 @@ export default function TrimAudioEditor(container, props) {
   let locked = props.locked || [];
   let disabled = !!props.disabled;
   let url = "";
+  let revision = "";
   let objectUrl = "";
   let peaks = null;
   let duration = 0;
@@ -369,6 +370,7 @@ export default function TrimAudioEditor(container, props) {
   // One download feeds both the waveform and the player.
   async function load(newUrl) {
     url = newUrl;
+    revision = value.revision || "";
     const id = ++loadId;
     audio.pause();
     releaseObjectUrl();
@@ -385,7 +387,8 @@ export default function TrimAudioEditor(container, props) {
       audio.src = objectUrl;
       const length = await metadataDuration();
       if (id !== loadId) return;
-      const tooLong = value.long_clip || length > MAX_DECODE_SECONDS || (length === 0 && bytes.byteLength > MAX_DECODE_BYTES);
+      const maxSeconds = value.max_waveform_seconds ?? Infinity;
+      const tooLong = value.long_clip || length > maxSeconds || (length === 0 && bytes.byteLength > MAX_DECODE_BYTES);
       if (tooLong && length === 0) {
         throw new Error("Could not read the length of this clip");
       } else if (tooLong) {
@@ -416,7 +419,8 @@ export default function TrimAudioEditor(container, props) {
     onLiveChange = newProps.onLiveChange;
     locked = newProps.locked || [];
     disabled = !!newProps.disabled;
-    if ((value.audio_url || "") !== url) load(value.audio_url || "");
+    // The node changes `revision` when the audio is set again, so a file overwritten at the same URL reloads.
+    if ((value.audio_url || "") !== url || (value.revision || "") !== revision) load(value.audio_url || "");
     else if (!drag) { readParams(); draw(); }
   }
 
