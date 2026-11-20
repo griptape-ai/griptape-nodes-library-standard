@@ -98,7 +98,7 @@ def make_spec(kind: QuestionKind, key: str, question: dict[str, Any], **extra: A
 def read_answer(spec: dict[str, Any], answer_data: dict[str, Any]) -> tuple[Any, dict[str, Any]] | None:
     """Read JEV's answer to one question as (simple value, details), or None if JEV left it out.
 
-    The simple value is a bool for yes/no, the label for pick one and the level number for rating.
+    The simple value is a bool for yes/no and the label for pick one and rating.
     """
     confidence = float(answer_data.get("confidence", 0.0))
     probabilities = dict(answer_data.get("probabilities") or {})
@@ -129,7 +129,7 @@ def read_answer(spec: dict[str, Any], answer_data: dict[str, Any]) -> tuple[Any,
                 "confidence": confidence,
                 "probabilities": {str(int(k) + 1): v for k, v in probabilities.items()},
             }
-            return index + 1, details
+            return labels[index], details
         case _:
             msg = f"Unknown question kind: {spec['kind']!r}"
             raise ValueError(msg)

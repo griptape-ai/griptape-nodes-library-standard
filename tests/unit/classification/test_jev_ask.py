@@ -105,8 +105,8 @@ async def test_ask_reads_each_answer() -> None:
 
     await node._parse_result(response, "gen-1")
 
-    assert node.parameter_output_values["answers"] == {"truck": True, "pick": "Cartoon", "sharp": 1}
-    assert node.parameter_output_values["details"]["sharp"]["label"] == "Soft"
+    assert node.parameter_output_values["answers"] == {"truck": True, "pick": "Cartoon", "sharp": "Soft"}
+    assert node.parameter_output_values["details"]["sharp"]["level"] == 1
 
 
 @pytest.mark.asyncio

@@ -58,8 +58,9 @@ class JevAsk(GriptapeProxyNode):
 
     Outputs:
         - answers (json): Each question's answer under its name: a bool for yes/no, the label for
-          pick one and the level number for rating.
-        - details (json): Each question's full result, with probabilities and confidence.
+          pick one and rating.
+        - details (json): Each question's full result, with probabilities and confidence. Ratings
+          also give the level number and score.
     """
 
     def __init__(self, **kwargs: Any) -> None:
