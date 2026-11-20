@@ -63,8 +63,7 @@
         "color-matcher",
         "zstandard>=0.22.0",
         "tokenizers>=0.22.0,<0.23",
-        "lxml>=5.0.0",
-        "pypdfium2>=4.30.0"
+        "lxml>=5.0.0"
       ]
     },
     "declarations": [
@@ -1361,6 +1360,11 @@
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."
+    },
+    {
+      "name": "PdfPageViewer",
+      "path": "widgets/PdfPageViewer/PdfPageViewer.js",
+      "description": "Steps through the pages of a PDF in the browser."
     },
     {
       "name": "MaskAdjustmentPreview",

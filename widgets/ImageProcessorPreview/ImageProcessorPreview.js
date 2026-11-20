@@ -6,7 +6,7 @@
 import { OPERATIONS } from "./_operations.js";
 import { PREVIEW_FONT } from "./_text.js";
 
-const WIDGET_VERSION = "1.3.0";
+const WIDGET_VERSION = "1.2.0";
 const CHECKER = 10;
 const SCRUB_STEPS = 1000;
 
@@ -55,52 +55,6 @@ export default function ImageProcessorPreview(container, props) {
   scrubRow.appendChild(scrub);
   scrubRow.appendChild(scrubTime);
 
-  // Arrows for a node with several pages (Extract PDF Images). A step asks the node for the page by
-  // changing the preview's `page`, and the node sends back that page's render.
-  const pageRow = document.createElement("div");
-  pageRow.style.cssText = "display:none;align-items:center;justify-content:center;gap:8px;padding:0 2px;";
-  const pageLabel = document.createElement("span");
-  pageLabel.style.cssText = "font-size:11px;color:var(--muted-foreground);white-space:nowrap;";
-  const prevButton = pageButton("‹", "Previous page", -1);
-  const nextButton = pageButton("›", "Next page", 1);
-  pageRow.appendChild(prevButton);
-  pageRow.appendChild(pageLabel);
-  pageRow.appendChild(nextButton);
-  let onChange = props.onChange;
-
-  function pageButton(text, title, delta) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = text;
-    button.title = title;
-    button.style.cssText = [
-      "width:24px", "height:20px", "padding:0", "border:none", "border-radius:4px", "cursor:pointer",
-      "background:var(--muted)", "color:var(--foreground)", "font-size:14px", "line-height:20px",
-    ].join(";");
-    for (const type of ["pointerdown", "mousedown"]) button.addEventListener(type, (e) => e.stopPropagation());
-    button.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const total = Number(value.page_count) || 0;
-      const page = Number(value.page) || 1;
-      const next = Math.max(1, Math.min(total, page + delta));
-      if (next === page || !onChange) return;
-      onChange({ ...value, page: next });
-    });
-    return button;
-  }
-
-  function updatePages() {
-    const total = Number(value.page_count) || 0;
-    pageRow.style.display = total > 1 ? "flex" : "none";
-    if (total <= 1) return;
-    const page = Number(value.page) || 1;
-    pageLabel.textContent = `Page ${page} of ${total}`;
-    prevButton.disabled = page <= 1;
-    nextButton.disabled = page >= total;
-    prevButton.style.opacity = prevButton.disabled ? "0.4" : "1";
-    nextButton.style.opacity = nextButton.disabled ? "0.4" : "1";
-  }
-
   const statusBar = document.createElement("div");
   statusBar.style.cssText = [
     "font-size:11px", "color:var(--muted-foreground)", "padding:4px 8px",
@@ -116,7 +70,6 @@ export default function ImageProcessorPreview(container, props) {
 
   wrapper.appendChild(canvasWrap);
   wrapper.appendChild(scrubRow);
-  wrapper.appendChild(pageRow);
   wrapper.appendChild(statusBar);
   container.appendChild(wrapper);
 
@@ -371,8 +324,6 @@ export default function ImageProcessorPreview(container, props) {
 
   function handleUpdate(newProps) {
     value = newProps.value || {};
-    if (newProps.onChange) onChange = newProps.onChange;
-    updatePages();
     loadFont(value.font_url);
     if (Array.isArray(value.images)) {
       // Each entry pairs an image with its mode; keep them together so a mode never lands on the wrong image.

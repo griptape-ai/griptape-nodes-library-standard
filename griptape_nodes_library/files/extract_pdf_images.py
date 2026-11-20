@@ -1,17 +1,14 @@
-import hashlib
 from enum import StrEnum
 from io import BytesIO
-from typing import Any, ClassVar
+from typing import Any
 
-import pypdfium2 as pdfium
-import pypdfium2.raw as pdfium_c
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, NodeDependencies, SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_directory_parameter import ProjectDirectoryParameter
+from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.retained_mode.events.static_file_events import (
     CreateStaticFileDownloadUrlFromPathRequest,
     CreateStaticFileDownloadUrlFromPathResultSuccess,
@@ -19,10 +16,10 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
+from griptape_nodes.traits.widget import Widget
 from PIL import Image
 from pypdf import PdfReader
 
-from griptape_nodes_library.image.image_preview import ImagePreviewMixin
 from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 
 DEFAULT_DIRECTORY_NAME = "extracted"
@@ -35,8 +32,6 @@ PADDING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8"]
 JPEG_QUALITY = 95
 WEBP_QUALITY = 95
 FULL_TURN = 360
-PREVIEW_MAX_SIZE = 800
-PREVIEW_QUALITY = 80
 
 
 class Rotation(StrEnum):
@@ -85,17 +80,14 @@ def _migrate_old_default_directory(value: Any) -> Any:
     return DEFAULT_DIRECTORY_NAME if value == OLD_DEFAULT_DIRECTORY else value
 
 
-class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
+class ExtractPdfImages(SuccessFailureNode):
     """Extract the images embedded in a PDF, such as the pages of a scanned document.
 
     Images come out at the resolution they are stored at in the PDF. Nothing is resampled.
     With the 'original' format and no rotation, JPEG images are written byte-for-byte.
     """
 
-    PREVIEW_OPERATION = "rotate"
-    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["rotation"]
-    # The preview shows the PDF's pages, which are not a parameter, so _preview_extras supplies them.
-    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {}
+    # Named for the preview it replaced, so workflows saved with that parameter still load.
     PREVIEW_PARAMETER_NAME = "rotation_preview"
 
     def __init__(
@@ -133,9 +125,22 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
             )
         )
 
-        # The PDF and password the preview was built for, its page count, and the URLs of the pages rendered so far.
-        self._preview_cache: tuple[tuple[str, str], int, dict[int, str]] | None = None
-        self._add_preview_parameter()
+        self.add_parameter(
+            ParameterDict(
+                name=self.PREVIEW_PARAMETER_NAME,
+                default_value={"url": ""},
+                tooltip="The PDF's pages, turned by 'rotation' as they will be extracted. "
+                "Step through them to look at the document before extracting.",
+                allowed_modes={ParameterMode.PROPERTY},
+                traits={
+                    Widget(
+                        name="PdfPageViewer",
+                        library="Griptape Nodes Library",
+                        synced_parameters=["rotation", "password"],
+                    )
+                },
+            )
+        )
 
         rotation = ParameterString(
             name="rotation",
@@ -237,118 +242,53 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
 
     # ── Preview ─────────────────────────────────────────────────────────────────
 
-    def _is_preview_source(self, parameter_name: str) -> bool:
-        # A protected PDF has no preview until the password is right, so the password counts too.
-        return parameter_name in {"path", "password"}
+    def set_parameter_value(
+        self,
+        param_name: str,
+        value: Any,
+        *,
+        initial_setup: bool = False,
+        emit_change: bool = True,
+        skip_before_value_set: bool = False,
+    ) -> None:
+        """Point the viewer at the PDF when a workflow loads, since a saved URL may be out of date."""
+        super().set_parameter_value(
+            param_name,
+            value,
+            initial_setup=initial_setup,
+            emit_change=emit_change,
+            skip_before_value_set=skip_before_value_set,
+        )
+        if initial_setup and param_name == "path":
+            self._update_preview()
 
-    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
-        """Show the page the preview widget asks for, leaving the node resolved.
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "path":
+            self._update_preview()
+        return super().after_value_set(parameter, value)
 
-        The widget asks by changing the preview's page. The preview is brought up to date here, with that
-        page rendered, so the set that follows changes nothing and the node stays resolved. A request built
-        from a value the node has since replaced differs in the page's URL and count too, so only the keys
-        the node fills in are ignored.
-        """
-        if parameter.name == self.PREVIEW_PARAMETER_NAME and isinstance(value, dict):
-            current = self.get_parameter_value(self.PREVIEW_PARAMETER_NAME)
-            if isinstance(current, dict) and _without_page(value) == _without_page(current):
-                self.set_parameter_value(
-                    self.PREVIEW_PARAMETER_NAME, {**current, "page": value.get("page")}, skip_before_value_set=True
-                )
-                preview = {**current, **self._preview_extras()}
-                self.set_parameter_value(self.PREVIEW_PARAMETER_NAME, preview, skip_before_value_set=True)
-                self.publish_update_to_parameter(self.PREVIEW_PARAMETER_NAME, preview)
-                return preview
-        return super().before_value_set(parameter, value)
-
-    def _preview_extras(self) -> dict[str, Any]:
-        """The PDF's page count and a small render of the page the preview widget shows.
-
-        Each page is rendered the first time the widget asks for it, and kept while the PDF stays the same.
-        The rotation reaches the preview from its own parameter.
-        """
+    def _update_preview(self) -> None:
+        """Give the viewer widget the PDF's URL. It draws the pages itself, so only the URL crosses over."""
         path = self.get_parameter_value("path") or ""
-        password = self.get_parameter_value("password") or ""
+        preview = {"url": self._static_url(path) if path else ""}
+        if preview == self.get_parameter_value(self.PREVIEW_PARAMETER_NAME):
+            return
+        self.set_parameter_value(self.PREVIEW_PARAMETER_NAME, preview)
+        self.publish_update_to_parameter(self.PREVIEW_PARAMETER_NAME, preview)
+
+    def _static_url(self, path: str) -> str:
+        """Return the static server's URL for a file, or an empty string when there is none."""
         try:
-            pdf_bytes = File(path).read_bytes() if path else b""
+            result = GriptapeNodes.handle_request(
+                CreateStaticFileDownloadUrlFromPathRequest(file_path=File(path).resolve())
+            )
         except Exception as e:
-            logger.warning(f"{self.name}: could not read {path!r} for a rotation preview: {e}")
-            pdf_bytes = b""
-        # Keyed on the contents, so a PDF saved again under the same path shows its new pages.
-        pdf_key = hashlib.sha256(pdf_bytes).hexdigest()[:12]
-        page = self._previewed_page()
-        # With no PDF to show, the page is kept for one that loads after it.
-        no_preview = {"image_url": "", "page": page, "page_count": 0}
-        try:
-            if self._preview_cache is None or self._preview_cache[0] != (pdf_key, password):
-                page_count = self._preview_page_count(pdf_bytes) if pdf_bytes else 0
-                if not page_count:
-                    return no_preview
-                # A different PDF starts on its first page. One loading with its workflow keeps the saved page.
-                if self._preview_cache is not None:
-                    page = 1
-                self._preview_cache = ((pdf_key, password), page_count, {})
-            _, page_count, page_urls = self._preview_cache
-            page = min(page, page_count)
-            if page not in page_urls:
-                page_urls[page] = self._render_preview_page(pdf_bytes, pdf_key, page)
-        except Exception as e:
-            logger.warning(f"{self.name}: could not build a rotation preview for {path!r}: {e}")
-            return no_preview
-        return {"image_url": page_urls[page], "page": page, "page_count": page_count}
-
-    def _previewed_page(self) -> int:
-        """The page the preview widget shows, counting from 1."""
-        if self.get_parameter_by_name(self.PREVIEW_PARAMETER_NAME) is None:
-            return 1
-        preview = self.get_parameter_value(self.PREVIEW_PARAMETER_NAME)
-        page = preview.get("page") if isinstance(preview, dict) else None
-        return page if isinstance(page, int) and page >= 1 else 1
-
-    def _open_preview_document(self, pdf_bytes: bytes) -> pdfium.PdfDocument | None:
-        """Open the PDF for the preview, or None while it is protected and the password isn't right."""
-        password = self.get_parameter_value("password") or ""
-        try:
-            return pdfium.PdfDocument(pdf_bytes, password=password or None)
-        except pdfium.PdfiumError as e:
-            if e.err_code == pdfium_c.FPDF_ERR_PASSWORD:
-                return None
-            raise
-
-    def _preview_page_count(self, pdf_bytes: bytes) -> int:
-        """How many pages the PDF has, or 0 while it can't be opened for the preview."""
-        document = self._open_preview_document(pdf_bytes)
-        if document is None:
-            return 0
-        try:
-            return len(document)
-        finally:
-            document.close()
-
-    def _render_preview_page(self, pdf_bytes: bytes, pdf_key: str, page_number: int) -> str:
-        """Render one page of the PDF small, save it to temp storage, and return its URL."""
-        document = self._open_preview_document(pdf_bytes)
-        if document is None:
+            logger.warning(f"{self.name}: could not build a preview URL for {path!r}: {e}")
             return ""
-        try:
-            page = document[page_number - 1]
-            # The page's size and render both include any rotation the PDF applies to it.
-            width, height = page.get_size()
-            render = page.render(scale=PREVIEW_MAX_SIZE / max(width, height)).to_pil()
-            buffer = BytesIO()
-            _flatten_to_rgb(render).save(buffer, format="JPEG", quality=PREVIEW_QUALITY)
-            page.close()
-        finally:
-            document.close()
-        # One file per PDF and page: the widget only reloads when a URL's path differs.
-        destination = ProjectFileDestination.from_situation(
-            f"pdf_preview_{pdf_key}_{page_number}.jpg", "save_temp_file", node_name=self.name
-        )
-        saved = destination.write_bytes(buffer.getvalue())
-        result = GriptapeNodes.handle_request(
-            CreateStaticFileDownloadUrlFromPathRequest(file_path=File(saved.location).resolve())
-        )
-        return result.url if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess) else ""
+        if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
+            return result.url
+        logger.warning(f"{self.name}: the engine would not serve {path!r} to the viewer: {result.result_details}")
+        return ""
 
     # ── Process ─────────────────────────────────────────────────────────────────
 
@@ -437,11 +377,6 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
             if clockwise_degrees:
                 image = image.transpose(TRANSPOSE_FOR_CLOCKWISE_DEGREES[clockwise_degrees])  # noqa: PLW2901
             return ExtractedImage(_save_as(image, target), extension)
-
-
-def _without_page(preview: dict[str, Any]) -> dict[str, Any]:
-    """A preview value without the keys that describe its page, which the node fills in."""
-    return {key: entry for key, entry in preview.items() if key not in {"page", "page_count", "image_url"}}
 
 
 def _flatten_to_rgb(image: Image.Image) -> Image.Image:
