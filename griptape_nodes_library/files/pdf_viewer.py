@@ -53,7 +53,11 @@ class PdfViewerMixin(BaseNode):
         emit_change: bool = True,
         skip_before_value_set: bool = False,
     ) -> None:
-        """Point the viewer at the PDF when a workflow loads, since a saved URL may be out of date."""
+        """Point the viewer at the PDF when a workflow loads, since a saved URL may be out of date.
+
+        Loading replays the saved values in parameter order, so the viewer's own saved value can arrive after
+        the path's and replace the fresh URL. It refreshes the viewer too.
+        """
         super().set_parameter_value(
             param_name,
             value,
@@ -61,7 +65,7 @@ class PdfViewerMixin(BaseNode):
             emit_change=emit_change,
             skip_before_value_set=skip_before_value_set,
         )
-        if initial_setup and param_name == "path":
+        if initial_setup and param_name in {"path", self.PDF_VIEWER_PARAMETER_NAME}:
             self._update_pdf_viewer()
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:

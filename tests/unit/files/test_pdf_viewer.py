@@ -77,6 +77,29 @@ def test_loading_a_saved_path_points_the_viewer_at_it(node: ViewerNode, monkeypa
     assert node.get_parameter_value("pdf_viewer") == {"url": "http://static/scan.pdf"}
 
 
+@pytest.mark.parametrize("saved", [{"url": "http://static/old.pdf"}, {"operation": "rotate", "image_url": "x.jpg"}])
+def test_a_saved_viewer_value_loading_after_the_path_does_not_replace_the_fresh_url(
+    node: ViewerNode, monkeypatch: pytest.MonkeyPatch, saved: dict[str, Any]
+) -> None:
+    monkeypatch.setattr(node, "_static_url", lambda path: f"http://static/{Path(path).name}")
+
+    node.set_parameter_value("path", "/some/scan.pdf", initial_setup=True)
+    node.set_parameter_value("pdf_viewer", saved, initial_setup=True)
+
+    assert node.get_parameter_value("pdf_viewer") == {"url": "http://static/scan.pdf"}
+
+
+def test_a_saved_viewer_value_loading_before_the_path_still_ends_on_the_fresh_url(
+    node: ViewerNode, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(node, "_static_url", lambda path: f"http://static/{Path(path).name}")
+
+    node.set_parameter_value("pdf_viewer", {"url": "http://static/old.pdf"}, initial_setup=True)
+    node.set_parameter_value("path", "/some/scan.pdf", initial_setup=True)
+
+    assert node.get_parameter_value("pdf_viewer") == {"url": "http://static/scan.pdf"}
+
+
 def test_static_url_is_the_engines_url_for_the_file(node: ViewerNode, monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeStaticUrl:
         url = "http://static/scan.pdf"
