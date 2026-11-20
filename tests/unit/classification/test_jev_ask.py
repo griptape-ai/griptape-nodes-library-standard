@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.exe_types.node_types import DataNode
 
 from griptape_nodes_library.classification.jev_ask import JevAsk
 from griptape_nodes_library.classification.jev_pick_one_question import JevPickOneQuestion
@@ -11,7 +12,7 @@ from griptape_nodes_library.classification.jev_rate_question import JevRateQuest
 from griptape_nodes_library.classification.jev_yes_no_question import JevYesNoQuestion
 
 
-def _spec(node: object) -> dict:
+def _spec(node: DataNode) -> dict:
     node.process()
     return node.parameter_output_values["question"]
 

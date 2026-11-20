@@ -107,13 +107,17 @@ def test_read_choice_returns_the_label() -> None:
 
 def test_read_score_rounds_half_up_and_numbers_levels_from_one() -> None:
     spec = make_spec(QuestionKind.SCORE, "sharp", {}, labels=["Soft", "OK", "Sharp"])
-    value, details = read_answer(spec, {"score": 1.5, "probabilities": {"0": 0.1, "1": 0.4, "2": 0.5}})
+    answer = read_answer(spec, {"score": 1.5, "probabilities": {"0": 0.1, "1": 0.4, "2": 0.5}})
+    assert answer is not None
+    value, details = answer
     assert value == "Sharp"
     assert details["level"] == 3
     assert details["label"] == "Sharp"
     assert details["score"] == 2.5
     assert details["probabilities"] == {"1": 0.1, "2": 0.4, "3": 0.5}
-    assert read_answer(spec, {"score": 9})[0] == "Sharp"
+    clamped = read_answer(spec, {"score": 9})
+    assert clamped is not None
+    assert clamped[0] == "Sharp"
 
 
 @pytest.mark.parametrize("kind", list(QuestionKind))
