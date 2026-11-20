@@ -2,30 +2,31 @@
 // handles. The trim points are the synced parameters `start_time` and `end_time`. An end time of 0 means the
 // end of the clip.
 
-const WIDGET_VERSION = "0.1.0";
+const WIDGET_VERSION = "0.2.0";
 const WAVEFORM_HEIGHT = 64;
 const SAMPLES = 256;
 const MIN_REGION = 0.1;
 const HIT_TOLERANCE = 8; // px either side of a marker line, as in the Extract Frames timeline
+const SCRUB_START_PX = 3; // a press that moves less than this is a click-to-seek, which stays silent
 const FLAG_W = 4;
 const FLAG_H = 7;
 const MOVE_H = 10; // height of the strip along the bottom of the selection that drags it as a whole
 const IDLE_COLOR = "#aaa";
 const ACTIVE_COLOR = "#d4a030";
+const MAX_DECODE_BYTES = 150 * 1024 * 1024; // decoding holds the whole clip in memory, so very long clips skip it
+const END_EPSILON = 0.001;
 
 const round3 = (t) => Math.round(t * 1000) / 1000;
 
 function fmt(t) {
   if (!isFinite(t) || t < 0) t = 0;
-  const m = Math.floor(t / 60);
-  return `${m}:${(t - m * 60).toFixed(2).padStart(5, "0")}`;
+  const cs = Math.round(t * 100);
+  const m = Math.floor(cs / 6000);
+  return `${m}:${((cs - m * 6000) / 100).toFixed(2).padStart(5, "0")}`;
 }
 
-// Decode the clip and reduce it to SAMPLES peaks, 0..1.
-async function loadPeaks(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Could not load audio (${res.status})`);
-  const buf = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(await res.arrayBuffer());
+// Reduce decoded audio to SAMPLES peaks, 0..1.
+function computePeaks(buf) {
   const peaks = new Float32Array(SAMPLES);
   const bucket = Math.max(1, Math.floor(buf.length / SAMPLES));
   let loudest = 0;
@@ -39,7 +40,7 @@ async function loadPeaks(url) {
     }
   }
   if (loudest > 0) for (let i = 0; i < SAMPLES; i++) peaks[i] /= loudest;
-  return { peaks, duration: buf.duration };
+  return peaks;
 }
 
 export default function TrimAudioEditor(container, props) {
@@ -54,12 +55,20 @@ export default function TrimAudioEditor(container, props) {
   let locked = props.locked || [];
   let disabled = !!props.disabled;
   let url = "";
+  let objectUrl = "";
   let peaks = null;
   let duration = 0;
   let start = 0;
   let end = 0;
-  let drag = null; // "start" | "end" | "seek"
+  let drag = null; // "start" | "end" | "move" | "seek"
   let loadId = 0;
+  let hovered = null;
+  let raf = 0;
+  let stopAtEnd = false; // playback pauses at the out point when it started before it
+  let scrubWasPlaying = false;
+  let scrubStarted = false;
+  let downX = 0;
+  let moveFrom = null;
 
   const audio = new Audio();
   audio.preload = "auto";
@@ -96,7 +105,7 @@ export default function TrimAudioEditor(container, props) {
   playhead.style.cssText = "position:absolute;top:0;bottom:0;width:2px;background:var(--foreground);pointer-events:none;";
   const band = document.createElement("div");
   band.style.cssText = "position:absolute;top:0;bottom:0;pointer-events:none;background:rgba(170,170,170,0.2);";
-const moveStrip = document.createElement("div");
+  const moveStrip = document.createElement("div");
   moveStrip.style.cssText = `position:absolute;bottom:0;height:${MOVE_H}px;pointer-events:none;`;
   wave.append(band, moveStrip, startHandle, endHandle, playhead);
 
@@ -134,6 +143,18 @@ const moveStrip = document.createElement("div");
     return Math.min(duration, Math.max(0, ((clientX - r.left) / r.width) * duration));
   };
 
+  // An out point at the end of the clip is sent as 0, so a clip swapped in later is not cut at this one's length.
+  const trimValues = () => ({ start_time: start, end_time: end >= duration - END_EPSILON ? 0 : end });
+  const commit = () => onChange({ ...value, ...trimValues() });
+
+  function setStart(t) {
+    start = round3(Math.max(0, Math.min(t, end - MIN_REGION)));
+  }
+
+  function setEnd(t) {
+    end = round3(Math.min(duration, Math.max(t, start + MIN_REGION)));
+  }
+
   function readParams() {
     start = Math.max(0, Number(value.start_time) || 0);
     const e = Number(value.end_time) || 0;
@@ -146,29 +167,31 @@ const moveStrip = document.createElement("div");
 
   function draw() {
     const w = wave.clientWidth, h = WAVEFORM_HEIGHT;
-    const ratio = window.devicePixelRatio || 1;
+    // The editor zooms nodes with a CSS transform; match the bitmap to the zoomed pixel density to stay sharp.
+    const zoom = w > 0 ? wave.getBoundingClientRect().width / w : 1;
+    const ratio = (window.devicePixelRatio || 1) * zoom;
     if (canvas.width !== Math.round(w * ratio)) canvas.width = Math.round(w * ratio);
     if (canvas.height !== Math.round(h * ratio)) canvas.height = Math.round(h * ratio);
     const ctx = canvas.getContext("2d");
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    const sx = t2x(start), ex = t2x(end);
     if (peaks && w > 0) {
       const cs = getComputedStyle(wrapper);
       const outside = cs.getPropertyValue("--muted-foreground").trim() || "#888";
       const inside = cs.getPropertyValue("--foreground").trim() || "#fff";
       const barW = 2, gap = 1, count = Math.max(1, Math.floor((w + gap) / (barW + gap)));
-      const sx = t2x(start), ex = t2x(end);
       for (let i = 0; i < count; i++) {
         const x = i * (barW + gap);
         const level = peaks[Math.min(SAMPLES - 1, Math.floor((i / count) * SAMPLES))];
         const bh = Math.max(2, level * h);
-        ctx.fillStyle = x + barW > sx && x < ex ? inside : outside;
-        ctx.globalAlpha = x + barW > sx && x < ex ? 1 : 0.4;
+        const selected = x + barW > sx && x < ex;
+        ctx.fillStyle = selected ? inside : outside;
+        ctx.globalAlpha = selected ? 1 : 0.4;
         ctx.fillRect(x, (h - bh) / 2, barW, bh);
       }
       ctx.globalAlpha = 1;
     }
-    const sx = t2x(start), ex = t2x(end);
     startHandle.style.left = `${sx}px`;
     endHandle.style.left = `${ex}px`;
     band.style.left = `${sx}px`;
@@ -181,7 +204,6 @@ const moveStrip = document.createElement("div");
   }
 
   // The grabbed or hovered marker turns amber.
-  let hovered = null;
   function paintHandles() {
     const on = (name) => drag === name || (!drag && hovered === name);
     startHandle._paint(on("start") ? ACTIVE_COLOR : IDLE_COLOR);
@@ -192,7 +214,7 @@ const moveStrip = document.createElement("div");
 
   // The marker line within HIT_TOLERANCE of the pointer, nearest first, or the move strip: null | "start" | "end" | "move".
   function hitMarker(clientX, clientY) {
-    // The editor zooms nodes with a CSS transform: pointer positions are screen px, t2x is layout px.
+    // Pointer positions are screen px and t2x is layout px, so scale for the editor's zoom.
     const r = wave.getBoundingClientRect();
     const px = (clientX - r.left) * (wave.clientWidth / r.width);
     const ds = Math.abs(px - t2x(start)), de = Math.abs(px - t2x(end));
@@ -210,25 +232,26 @@ const moveStrip = document.createElement("div");
     playBtn.textContent = audio.paused ? "▶" : "❚❚";
   }
 
-  // Play the selection: stop at the out point, and start from the in point when outside the selection.
+  // Playback that starts before the out point stops there and returns to the in point. Playback that starts
+  // after it runs to the end of the clip, so a point past the selection can be heard and marked.
   function tick() {
-    if (!audio.paused && drag !== "seek" && audio.currentTime >= end) {
+    if (!audio.paused && stopAtEnd && drag !== "seek" && audio.currentTime >= end) {
       audio.pause();
       audio.currentTime = start;
     }
     updatePlayhead();
     if (!audio.paused) raf = requestAnimationFrame(tick);
   }
-  let raf = 0;
 
   function startPlayback() {
+    stopAtEnd = audio.currentTime < end;
     audio.play().then(() => { cancelAnimationFrame(raf); tick(); }).catch(() => {});
   }
 
   playBtn.addEventListener("click", () => {
     if (!peaks) return;
     if (audio.paused) {
-      if (audio.currentTime < start || audio.currentTime >= end) audio.currentTime = start;
+      if (audio.currentTime >= end) audio.currentTime = start;
       startPlayback();
     } else {
       audio.pause();
@@ -240,13 +263,10 @@ const moveStrip = document.createElement("div");
   // ── Mark in/out at the current time ────────────────────────────────────────
   function markPoint(which) {
     if (!peaks || disabled || isLocked(which === "in" ? "start_time" : "end_time")) return;
-    const t = audio.currentTime;
-    if (which === "in") start = Math.min(t, end - MIN_REGION);
-    else end = Math.max(t, start + MIN_REGION);
-    start = round3(start);
-    end = round3(end);
+    if (which === "in") setStart(audio.currentTime);
+    else setEnd(audio.currentTime);
     draw();
-    onChange({ ...value, start_time: start, end_time: end });
+    commit();
   }
   inBtn.addEventListener("click", () => markPoint("in"));
   outBtn.addEventListener("click", () => markPoint("out"));
@@ -264,34 +284,38 @@ const moveStrip = document.createElement("div");
   // ── Dragging ───────────────────────────────────────────────────────────────
   function applyDrag(clientX) {
     const t = x2t(clientX);
-    if (drag === "start") start = Math.min(t, end - MIN_REGION);
-    else if (drag === "end") end = Math.max(t, start + MIN_REGION);
+    if (drag === "start") setStart(t);
+    else if (drag === "end") setEnd(t);
     else if (drag === "move") {
       const len = moveFrom.end - moveFrom.start;
-      start = Math.min(duration - len, Math.max(0, moveFrom.start + t - moveFrom.t));
-      end = start + len;
+      start = round3(Math.min(duration - len, Math.max(0, moveFrom.start + t - moveFrom.t)));
+      end = round3(start + len);
+    } else {
+      audio.currentTime = t;
+      stopAtEnd = t < end;
+      // Playing while scrubbing starts once the pointer has moved, so a plain click seeks without a blip.
+      if (!scrubStarted && Math.abs(clientX - downX) >= SCRUB_START_PX) {
+        scrubStarted = true;
+        if (!scrubWasPlaying) startPlayback();
+      }
     }
-    else audio.currentTime = Math.min(end, Math.max(start, t));
-    start = round3(start);
-    end = round3(end);
-    if (drag !== "seek") onLiveChange?.({ start_time: start, end_time: end });
+    if (drag !== "seek") onLiveChange?.(trimValues());
     draw();
   }
 
   wave.addEventListener("pointerdown", (e) => {
     e.stopPropagation();
     if (!peaks) return;
-    const hit = hitMarker(e.clientX, e.clientY);
-    if (hit) drag = hit;
-    else drag = "seek";
+    drag = hitMarker(e.clientX, e.clientY) || "seek";
     wave.setPointerCapture(e.pointerId);
     wrapper.focus({ preventScroll: true });
-    // Dragging the waveform plays from the dragged position, as in the vsl-gui player. Letting go stops it
-    // unless it was already playing.
+    downX = e.clientX;
     if (drag === "move") moveFrom = { start, end, t: x2t(e.clientX) };
     if (drag === "seek") {
+      // Dragging the waveform plays from the dragged position, as in the vsl-gui player. Letting go stops it
+      // unless it was already playing.
       scrubWasPlaying = !audio.paused;
-      if (!scrubWasPlaying) startPlayback();
+      scrubStarted = false;
     }
     applyDrag(e.clientX);
   });
@@ -301,35 +325,59 @@ const moveStrip = document.createElement("div");
     if (hit !== hovered) { hovered = hit; wave.style.cursor = hit === "move" ? "grab" : hit ? "ew-resize" : "pointer"; paintHandles(); }
   });
   wave.addEventListener("pointerleave", () => { if (hovered) { hovered = null; paintHandles(); } });
-  let scrubWasPlaying = false;
-  let moveFrom = null;
   const endDrag = () => {
     if (!drag) return;
     const wasTrim = drag !== "seek";
     if (!wasTrim && !scrubWasPlaying) audio.pause();
     drag = null;
     paintHandles();
-    if (wasTrim) onChange({ ...value, start_time: start, end_time: end });
+    if (wasTrim) commit();
   };
   wave.addEventListener("pointerup", endDrag);
   wave.addEventListener("pointercancel", endDrag);
 
   // ── Loading ────────────────────────────────────────────────────────────────
+  function releaseObjectUrl() {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = "";
+  }
+
+  function metadataDuration() {
+    return new Promise((resolve) => {
+      if (isFinite(audio.duration) && audio.duration > 0) return resolve(audio.duration);
+      audio.addEventListener("loadedmetadata", () => resolve(audio.duration), { once: true });
+      audio.addEventListener("error", () => resolve(0), { once: true });
+    });
+  }
+
+  // One download feeds both the waveform and the player.
   async function load(newUrl) {
     url = newUrl;
     const id = ++loadId;
     audio.pause();
+    releaseObjectUrl();
     peaks = null;
     duration = 0;
     status.textContent = url ? "Loading…" : "Connect audio to trim";
-    if (!url) { audio.removeAttribute("src"); audio.load(); draw(); return; }
-    audio.src = url;
+    if (!url) { audio.removeAttribute("src"); audio.load(); readParams(); draw(); return; }
     try {
-      const result = await loadPeaks(url);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Could not load audio (${res.status})`);
+      const bytes = await res.arrayBuffer();
       if (id !== loadId) return;
-      peaks = result.peaks;
-      duration = result.duration;
-      status.textContent = "";
+      objectUrl = URL.createObjectURL(new Blob([bytes], { type: res.headers.get("content-type") || "audio/mpeg" }));
+      audio.src = objectUrl;
+      if (bytes.byteLength > MAX_DECODE_BYTES) {
+        duration = await metadataDuration();
+        peaks = new Float32Array(SAMPLES).fill(0.15);
+        status.textContent = "Clip too long to draw a waveform";
+      } else {
+        const buf = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(bytes);
+        peaks = computePeaks(buf);
+        duration = buf.duration;
+        status.textContent = "";
+      }
+      if (id !== loadId) return;
     } catch (err) {
       if (id !== loadId) return;
       status.textContent = String(err.message || err);
@@ -338,7 +386,7 @@ const moveStrip = document.createElement("div");
     draw();
   }
 
-  const ro = new ResizeObserver(draw);
+  const ro = new ResizeObserver(() => draw());
   ro.observe(wave);
 
   function handleUpdate(newProps) {
@@ -358,6 +406,7 @@ const moveStrip = document.createElement("div");
     audio.pause();
     audio.removeAttribute("src");
     audio.load();
+    releaseObjectUrl();
     wrapper.remove();
     delete container._instance;
   }
