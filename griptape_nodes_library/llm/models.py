@@ -4,23 +4,13 @@ import contextlib
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, cast
 
-import boto3
-from anthropic import AsyncAnthropic
-from botocore.config import Config as BotocoreConfig
-from cohere import AsyncClientV2
 from griptape_nodes.drivers.cloud_models import model_settings_for
 from griptape_nodes.retained_mode.events.agent_events import ListAgentProvidersRequest, ListAgentProvidersResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from openai import AsyncOpenAI
-from pydantic_ai.models.anthropic import AnthropicModel
-from pydantic_ai.models.bedrock import BedrockConverseModel
-from pydantic_ai.models.cohere import CohereModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.profiles import merge_profile
 from pydantic_ai.profiles.openai import OpenAIModelProfile
-from pydantic_ai.providers.anthropic import AnthropicProvider
-from pydantic_ai.providers.bedrock import BedrockProvider
-from pydantic_ai.providers.cohere import CohereProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -38,10 +28,15 @@ from griptape_nodes_library.utils.node_error_utils import missing_secret_error
 from griptape_nodes_library.utils.secret_utils import get_secret
 
 if TYPE_CHECKING:
+    from cohere import AsyncClientV2
     from pydantic_ai.models import Model
     from pydantic_ai.profiles import ModelProfile
     from pydantic_ai.settings import ModelSettings
 
+
+# The Anthropic, Cohere, and Bedrock SDKs are imported where their models are built. Importing
+# them at the top costs about a second, and far more on a cold start, the first time an Agent
+# node is created, though a workflow usually uses one provider.
 
 AWS_ACCESS_KEY_ID_SECRET = "AWS_ACCESS_KEY_ID"
 AWS_SECRET_ACCESS_KEY_SECRET = "AWS_SECRET_ACCESS_KEY"  # noqa: S105
@@ -166,23 +161,47 @@ def build_model(config: ModelConfig) -> Model:
             base_url = config.base_url or DEFAULT_BASE_URLS[config.provider]
             return _openai_compatible(config, base_url=base_url, api_key=resolve_api_key(config) or "not-needed")
         case ModelProvider.ANTHROPIC:
-            client_kwargs: dict[str, Any] = {"api_key": _require_key(config), "base_url": config.base_url}
-            if config.max_retries is not None:
-                client_kwargs["max_retries"] = config.max_retries
-            provider = AnthropicProvider(anthropic_client=AsyncAnthropic(**client_kwargs))
-            return AnthropicModel(config.model, provider=provider, settings=_anthropic_settings(config))
+            return _anthropic_model(config)
         case ModelProvider.COHERE:
-            provider = CohereProvider(cohere_client=_cohere_client(config))
-            return CohereModel(config.model, provider=provider, settings=_settings(config))
+            return _cohere_model(config)
         case ModelProvider.BEDROCK:
-            provider = BedrockProvider(bedrock_client=_bedrock_client(config))
-            return BedrockConverseModel(config.model, provider=provider, settings=_settings(config))
+            return _bedrock_model(config)
         case _:
             msg = f"Unknown model provider: {config.provider!r}"
             raise ValueError(msg)
 
 
+def _anthropic_model(config: ModelConfig) -> Model:
+    from anthropic import AsyncAnthropic
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.providers.anthropic import AnthropicProvider
+
+    client_kwargs: dict[str, Any] = {"api_key": _require_key(config), "base_url": config.base_url}
+    if config.max_retries is not None:
+        client_kwargs["max_retries"] = config.max_retries
+    provider = AnthropicProvider(anthropic_client=AsyncAnthropic(**client_kwargs))
+    return AnthropicModel(config.model, provider=provider, settings=_anthropic_settings(config))
+
+
+def _cohere_model(config: ModelConfig) -> Model:
+    from pydantic_ai.models.cohere import CohereModel
+    from pydantic_ai.providers.cohere import CohereProvider
+
+    provider = CohereProvider(cohere_client=_cohere_client(config))
+    return CohereModel(config.model, provider=provider, settings=_settings(config))
+
+
+def _bedrock_model(config: ModelConfig) -> Model:
+    from pydantic_ai.models.bedrock import BedrockConverseModel
+    from pydantic_ai.providers.bedrock import BedrockProvider
+
+    provider = BedrockProvider(bedrock_client=_bedrock_client(config))
+    return BedrockConverseModel(config.model, provider=provider, settings=_settings(config))
+
+
 def _cohere_client(config: ModelConfig) -> AsyncClientV2:
+    from cohere import AsyncClientV2
+
     client = AsyncClientV2(api_key=_require_key(config))
     if config.max_retries is not None:
         # The Cohere SDK takes retries per request, not per client.
@@ -198,6 +217,9 @@ def _cohere_client(config: ModelConfig) -> AsyncClientV2:
 
 
 def _bedrock_client(config: ModelConfig) -> Any:
+    import boto3
+    from botocore.config import Config as BotocoreConfig
+
     options = config.options
     session = boto3.Session(
         aws_access_key_id=_secret(options.get("access_key_id_secret", AWS_ACCESS_KEY_ID_SECRET)),
