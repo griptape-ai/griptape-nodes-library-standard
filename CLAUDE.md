@@ -2,9 +2,15 @@
 
 ## Python conventions
 
-### Hoist imports to the top level unless they cause circular imports
+### Hoist imports to the top level unless they cause circular imports or load a heavy optional SDK
 
-Keep all imports at the top of the file. Only use lazy (function-level) imports when necessary to break a circular dependency — in that case add a `# avoid circular import` comment so the reason is clear.
+Keep all imports at the top of the file. Use lazy (function-level) imports only for two reasons:
+
+- To break a circular dependency. Add a `# avoid circular import` comment so the reason is clear.
+- To defer a heavy third-party package that only one branch needs, such as one provider's SDK
+  (`anthropic`, `cohere`, `boto3`) or a scraping or math package (`trafilatura`, `asteval`). The
+  engine imports a node's module the first time that node is created, so a heavy top-level import
+  stalls the editor on that first drop. Note why at the module top or at the import.
 
 ```python
 # BAD — lazy import with no circular-import justification

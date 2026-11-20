@@ -35,16 +35,32 @@ GPT_IMAGE_1_5_MODEL_KEY = "gpt-image-1.5"
 GPT_IMAGE_2_MODEL_KEY = "gpt-image-2"
 GPT_IMAGE_2_5_SUNBURST_MODEL_KEY = "gpt-image-2.5-sunburst"
 GPT_IMAGE_2_5_FLARE_MODEL_KEY = "gpt-image-2.5-flare"
+GPT_IMAGE_2_6_SUNBURST_MODEL_KEY = "gpt-image-2.6-sunburst"
+GPT_IMAGE_2_6_FLARE_MODEL_KEY = "gpt-image-2.6-flare"
 MODEL_CHOICES = [
     GPT_IMAGE_1_MODEL_KEY,
     GPT_IMAGE_1_5_MODEL_KEY,
     GPT_IMAGE_2_MODEL_KEY,
     GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
     GPT_IMAGE_2_5_FLARE_MODEL_KEY,
+    GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
+    GPT_IMAGE_2_6_FLARE_MODEL_KEY,
 ]
 # Models sharing GPT Image 2's parameters: flexible sizes (presets or custom WIDTHxHEIGHT)
 # and the same background and reference-image limits.
-GPT_IMAGE_2_FAMILY = frozenset({GPT_IMAGE_2_MODEL_KEY, GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, GPT_IMAGE_2_5_FLARE_MODEL_KEY})
+GPT_IMAGE_2_FAMILY = frozenset(
+    {
+        GPT_IMAGE_2_MODEL_KEY,
+        GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
+        GPT_IMAGE_2_5_FLARE_MODEL_KEY,
+        GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
+        GPT_IMAGE_2_6_FLARE_MODEL_KEY,
+    }
+)
+# GPT Image 2.6 adds a `complexity` setting and animated GIF output (`gif` as an output format,
+# with `frame_count` and `frame_duration_ms`). No other model offers either.
+GPT_IMAGE_2_6_MODELS = frozenset({GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, GPT_IMAGE_2_6_FLARE_MODEL_KEY})
+GIF_OUTPUT_FORMAT = "gif"
 # The family in dropdown order, for building per-model tables deterministically.
 _GPT_IMAGE_2_FAMILY_ORDERED = [model_key for model_key in MODEL_CHOICES if model_key in GPT_IMAGE_2_FAMILY]
 
@@ -89,6 +105,15 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     }
     MODERATION_OPTIONS: ClassVar[list[str]] = ["auto", "low"]
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
+    GIF_OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = [*OUTPUT_FORMAT_OPTIONS, GIF_OUTPUT_FORMAT]
+    MIN_GIF_FRAMES: ClassVar[int] = 2
+    MAX_GIF_FRAMES: ClassVar[int] = 16
+    DEFAULT_GIF_FRAMES: ClassVar[int] = 9
+    MIN_GIF_FRAME_DURATION_MS: ClassVar[int] = 20
+    MAX_GIF_FRAME_DURATION_MS: ClassVar[int] = 2000
+    DEFAULT_GIF_FRAME_DURATION_MS: ClassVar[int] = 200
+    COMPLEXITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
+    DEFAULT_COMPLEXITY: ClassVar[str] = "high"
     MAX_REFERENCE_IMAGES: ClassVar[int] = 16
     MAX_REFERENCE_IMAGES_BY_MODEL: ClassVar[dict[str, int]] = {
         GPT_IMAGE_1_MODEL_KEY: MAX_REFERENCE_IMAGES,
@@ -163,9 +188,10 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             f"Custom {{dimension}} in pixels. Constraints:\n"
             f"- Snapped automatically to the nearest multiple of {self.GPT_IMAGE_2_EDGE_MULTIPLE}px on entry\n"
             f"- Between {self.GPT_IMAGE_2_EDGE_MULTIPLE} and {self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px\n"
-            f"- Aspect ratio of width:height (or height:width) must be {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1 or smaller (validated at run time)\n"
-            f"- Total pixels (width × height) must be between "
-            f"{self.GPT_IMAGE_2_MIN_PIXELS:,} and {self.GPT_IMAGE_2_MAX_PIXELS:,} (validated at run time)"
+            f"- Still images: aspect ratio of width:height (or height:width) must be {self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1 or smaller (validated at run time)\n"
+            f"- Still images: total pixels (width × height) must be between "
+            f"{self.GPT_IMAGE_2_MIN_PIXELS:,} and {self.GPT_IMAGE_2_MAX_PIXELS:,} (validated at run time)\n"
+            f"- GIF frames aren't held to the aspect-ratio and pixel limits"
         )
         self.add_parameter(
             ParameterInt(
@@ -224,6 +250,19 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 traits={Options(choices=self.QUALITY_OPTIONS)},
             )
 
+            ParameterString(
+                name="complexity",
+                default_value=self.DEFAULT_COMPLEXITY,
+                tooltip=(
+                    "How much the model plans before it renders. Lower suits focused edits; higher helps with dense "
+                    "text, complex layouts and the relationships between objects, and can add latency. "
+                    "Only available on the GPT Image 2.6 models."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=self.COMPLEXITY_OPTIONS)},
+                ui_options={"hide": self.DEFAULT_MODEL not in GPT_IMAGE_2_6_MODELS},
+            )
+
             initial_background_choices = self._background_choices_for_model(self.DEFAULT_MODEL)
             ParameterString(
                 name="background",
@@ -247,9 +286,41 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="output_format",
                 default_value=self.DEFAULT_OUTPUT_FORMAT,
-                tooltip="Output image format",
+                tooltip="Output image format. GIF (animated) is only available on the GPT Image 2.6 models.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.OUTPUT_FORMAT_OPTIONS), FileFormat(kind=FileFormatKind.IMAGE)},
+                traits={
+                    Options(choices=self._output_format_choices_for_model(self.DEFAULT_MODEL)),
+                    FileFormat(kind=FileFormatKind.IMAGE),
+                },
+            )
+
+            ParameterInt(
+                name="frame_count",
+                default_value=self.DEFAULT_GIF_FRAMES,
+                tooltip=(
+                    f"Frames in each animated GIF ({self.MIN_GIF_FRAMES}-{self.MAX_GIF_FRAMES}). "
+                    "'size' is the size of one frame, and only has to be a multiple of 16px. The frames, their "
+                    "size and the number of images (n) have to fit the model's pixel budget, so a large size can "
+                    "limit how many frames fit. More frames cost more."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                min_val=self.MIN_GIF_FRAMES,
+                max_val=self.MAX_GIF_FRAMES,
+                slider=True,
+                ui_options={"hide": True},
+            )
+
+            ParameterInt(
+                name="frame_duration_ms",
+                default_value=self.DEFAULT_GIF_FRAME_DURATION_MS,
+                tooltip=(
+                    f"How long each frame of the animated GIF shows, in milliseconds "
+                    f"({self.MIN_GIF_FRAME_DURATION_MS}-{self.MAX_GIF_FRAME_DURATION_MS}, rounded to 10)."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                min_val=self.MIN_GIF_FRAME_DURATION_MS,
+                max_val=self.MAX_GIF_FRAME_DURATION_MS,
+                ui_options={"hide": True},
             )
 
             ParameterInt(
@@ -299,6 +370,10 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             parameter_group_initially_collapsed=True,
         )
         self._sync_output_format_visibility(self.get_parameter_value("output_format") or self.DEFAULT_OUTPUT_FORMAT)
+        self._sync_gif_settings_visibility(
+            self.DEFAULT_MODEL, self.get_parameter_value("output_format") or self.DEFAULT_OUTPUT_FORMAT
+        )
+        self._sync_complexity_visibility(self.DEFAULT_MODEL)
 
     @classmethod
     def _default_output_filename(cls, output_format: str) -> str:
@@ -310,6 +385,12 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if model_name in GPT_IMAGE_2_FAMILY:
             return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
         return list(cls.GPT_IMAGE_SIZE_OPTIONS)
+
+    @classmethod
+    def _output_format_choices_for_model(cls, model_name: str) -> list[str]:
+        if model_name in GPT_IMAGE_2_6_MODELS:
+            return list(cls.GIF_OUTPUT_FORMAT_OPTIONS)
+        return list(cls.OUTPUT_FORMAT_OPTIONS)
 
     @classmethod
     def _background_choices_for_model(cls, model_name: str) -> list[str]:
@@ -370,6 +451,42 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         self.set_parameter_value("background", choices[0])
         self.publish_update_to_parameter("background", choices[0])
 
+    def _sync_output_format_options_for_model(self, model_name: str) -> None:
+        output_format_param = self.get_parameter_by_name("output_format")
+        if output_format_param is None:
+            return
+
+        choices = self._output_format_choices_for_model(model_name)
+
+        existing_traits = output_format_param.find_elements_by_type(Options)
+        if existing_traits:
+            output_format_param.remove_trait(trait_type=existing_traits[0])
+        output_format_param.add_trait(Options(choices=choices))
+
+        current_format = self.get_parameter_value("output_format")
+        if current_format in choices:
+            return
+
+        # Switching off a GIF-capable model while `gif` is selected would leave an unusable value.
+        self.set_parameter_value("output_format", self.DEFAULT_OUTPUT_FORMAT)
+        self.publish_update_to_parameter("output_format", self.DEFAULT_OUTPUT_FORMAT)
+        self._sync_output_format_visibility(self.DEFAULT_OUTPUT_FORMAT)
+        self._sync_output_filename(self.DEFAULT_OUTPUT_FORMAT)
+
+    def _sync_gif_settings_visibility(self, model_name: str, output_format: Any) -> None:
+        show_gif_settings = model_name in GPT_IMAGE_2_6_MODELS and output_format == GIF_OUTPUT_FORMAT
+        for param_name in ("frame_count", "frame_duration_ms"):
+            if show_gif_settings:
+                self.show_parameter_by_name(param_name)
+            else:
+                self.hide_parameter_by_name(param_name)
+
+    def _sync_complexity_visibility(self, model_name: str) -> None:
+        if model_name in GPT_IMAGE_2_6_MODELS:
+            self.show_parameter_by_name("complexity")
+        else:
+            self.hide_parameter_by_name("complexity")
+
     def _sync_custom_size_visibility(self, model_name: str, size_value: Any) -> None:
         show_custom = model_name in GPT_IMAGE_2_FAMILY and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
         for param_name in ("custom_width", "custom_height"):
@@ -386,9 +503,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                     message=(
                         f"- Multiples of `{self.GPT_IMAGE_2_EDGE_MULTIPLE}px`\n"
                         f"- Max edge length: `{self.GPT_IMAGE_2_MAX_EDGE_LENGTH}px`\n"
-                        f"- Aspect ratio ≤ `{self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1`\n"
-                        f"- Total pixels: `{self.GPT_IMAGE_2_MIN_PIXELS:,}` – `{self.GPT_IMAGE_2_MAX_PIXELS:,}`\n\n"
-                        "*Aspect-ratio and pixel rules are validated at run time.*"
+                        f"- Aspect ratio ≤ `{self.GPT_IMAGE_2_MAX_ASPECT_RATIO}:1` (still images)\n"
+                        f"- Total pixels: `{self.GPT_IMAGE_2_MIN_PIXELS:,}` – `{self.GPT_IMAGE_2_MAX_PIXELS:,}` (still images)\n\n"
+                        "*Aspect-ratio and pixel rules are validated at run time. They don't apply to GIF frames.*"
                     ),
                 )
             else:
@@ -411,7 +528,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     def _sync_output_filename(self, output_format: str) -> None:
         current_value = self.get_parameter_value("output_file")
-        default_filenames = {self._default_output_filename(fmt) for fmt in self.OUTPUT_FORMAT_OPTIONS}
+        default_filenames = {self._default_output_filename(fmt) for fmt in self.GIF_OUTPUT_FORMAT_OPTIONS}
         if current_value not in default_filenames:
             return
 
@@ -439,6 +556,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if param_name == "model" and isinstance(value, str):
             self._sync_size_options_for_model(value)
             self._sync_background_options_for_model(value)
+            self._sync_output_format_options_for_model(value)
+            self._sync_gif_settings_visibility(value, self.get_parameter_value("output_format"))
+            self._sync_complexity_visibility(value)
 
         if param_name == "size" and isinstance(value, str):
             current_model = self.get_parameter_value("model") or self.DEFAULT_MODEL
@@ -449,6 +569,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         if param_name == "output_format" and isinstance(value, str):
             self._sync_output_format_visibility(value)
+            self._sync_gif_settings_visibility(self.get_parameter_value("model") or self.DEFAULT_MODEL, value)
             if not sync_only:
                 self._sync_output_filename(value)
 
@@ -480,6 +601,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
 
         model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
+        output_format = self.get_parameter_value("output_format") or self.DEFAULT_OUTPUT_FORMAT
         size = self._resolve_effective_size()
         if not size:
             exceptions.append(ValueError("'Size' is empty. Choose an image size."))
@@ -487,6 +609,8 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             valid_sizes = ", ".join(self.GPT_IMAGE_SIZE_OPTIONS)
             display_name = "GPT Image 1" if model_name == GPT_IMAGE_1_MODEL_KEY else "GPT Image 1.5"
             exceptions.append(ValueError(f"{display_name} size must be one of: {valid_sizes}."))
+        elif model_name in GPT_IMAGE_2_6_MODELS and output_format == GIF_OUTPUT_FORMAT:
+            exceptions.extend(self._validate_gif_frame_size(size, model_name))
         elif model_name in GPT_IMAGE_2_FAMILY:
             exceptions.extend(self._validate_gpt_image_2_size(size, model_name))
 
@@ -503,10 +627,29 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if n_value is None or not self.MIN_IMAGES <= int(n_value) <= self.MAX_IMAGES:
             exceptions.append(ValueError(f"'n' must be between {self.MIN_IMAGES} and {self.MAX_IMAGES}."))
 
-        output_format = self.get_parameter_value("output_format") or self.DEFAULT_OUTPUT_FORMAT
         background = self.get_parameter_value("background") or "auto"
         if background == "transparent" and output_format not in {"png", "webp"}:
             exceptions.append(ValueError("Transparent backgrounds require output_format to be png or webp."))
+
+        if output_format == GIF_OUTPUT_FORMAT:
+            if model_name not in GPT_IMAGE_2_6_MODELS:
+                exceptions.append(ValueError("GIF output is only available on the GPT Image 2.6 models."))
+            frame_count = self.get_parameter_value("frame_count")
+            if frame_count is None or not self.MIN_GIF_FRAMES <= int(frame_count) <= self.MAX_GIF_FRAMES:
+                exceptions.append(
+                    ValueError(f"'frame_count' must be between {self.MIN_GIF_FRAMES} and {self.MAX_GIF_FRAMES}.")
+                )
+            frame_duration_ms = self.get_parameter_value("frame_duration_ms")
+            if (
+                frame_duration_ms is None
+                or not self.MIN_GIF_FRAME_DURATION_MS <= int(frame_duration_ms) <= self.MAX_GIF_FRAME_DURATION_MS
+            ):
+                exceptions.append(
+                    ValueError(
+                        f"'frame_duration_ms' must be between {self.MIN_GIF_FRAME_DURATION_MS} "
+                        f"and {self.MAX_GIF_FRAME_DURATION_MS}."
+                    )
+                )
 
         if output_format in {"jpeg", "webp"}:
             output_compression = self.get_parameter_value("output_compression")
@@ -533,6 +676,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             await adelete_uploaded_artifacts((helper for helper, _ in pending), node_name=self.name)
 
     async def _build_payload(self) -> dict[str, Any]:
+        model_name = self.get_parameter_value("model") or self.DEFAULT_MODEL
         payload: dict[str, Any] = {
             "model": self._get_selected_model_id(),
             "prompt": (self.get_parameter_value("prompt") or "").strip(),
@@ -546,6 +690,15 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         if payload["output_format"] in {"jpeg", "webp"}:
             payload["output_compression"] = int(self.get_parameter_value("output_compression") or 80)
+
+        if model_name in GPT_IMAGE_2_6_MODELS:
+            payload["complexity"] = self.get_parameter_value("complexity") or self.DEFAULT_COMPLEXITY
+
+        if payload["output_format"] == GIF_OUTPUT_FORMAT:
+            payload["frame_count"] = int(self.get_parameter_value("frame_count") or self.DEFAULT_GIF_FRAMES)
+            payload["frame_duration_ms"] = int(
+                self.get_parameter_value("frame_duration_ms") or self.DEFAULT_GIF_FRAME_DURATION_MS
+            )
 
         input_images = await self._build_input_images_payload()
         if input_images:
@@ -719,6 +872,38 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             if resolved.model.provider_model_id == model_name
         }
         return display_names.pop() if len(display_names) == 1 else model_name
+
+    def _validate_gif_frame_size(self, size: str, model_name: str) -> list[ValueError]:
+        """Check the size of one GIF frame.
+
+        OpenAI asks only for a positive WIDTHxHEIGHT in multiples of 16 here. The still-image pixel,
+        aspect-ratio and edge limits don't apply to a frame, and whether the frames, their size and
+        the number of images fit the request's budget is for the API to say.
+        """
+        if size == "auto":
+            return []
+
+        display_name = self._model_display_name(model_name)
+
+        match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(size)
+        if match is None:
+            return [
+                ValueError(
+                    f"{display_name} GIF frame size must be 'auto' or formatted as WIDTHxHEIGHT, for example 768x768."
+                )
+            ]
+
+        width = int(match.group("width"))
+        height = int(match.group("height"))
+        multiple = self.GPT_IMAGE_2_EDGE_MULTIPLE
+        if width == 0 or height == 0 or width % multiple != 0 or height % multiple != 0:
+            return [
+                ValueError(
+                    f"{display_name} GIF frame width and height must both be positive multiples of {multiple}px."
+                )
+            ]
+
+        return []
 
     def _validate_gpt_image_2_size(self, size: str, model_name: str) -> list[ValueError]:
         if size == "auto":

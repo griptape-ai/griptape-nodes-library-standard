@@ -38,7 +38,7 @@
   "metadata": {
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
-    "library_version": "0.91.0",
+    "library_version": "0.91.1",
     "engine_version": "0.108.0",
     "tags": [
       "Griptape",
@@ -419,6 +419,18 @@
                 "display_name": "GPT Image 2.5 Flare",
                 "family": "GPT Image",
                 "provider_model_id": "gpt-image-2.5-flare",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_2_6_sunburst": {
+                "display_name": "GPT Image 2.6 Sunburst",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-2.6-sunburst",
+                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+              },
+              "gtc_gpt_image_2_6_flare": {
+                "display_name": "GPT Image 2.6 Flare",
+                "family": "GPT Image",
+                "provider_model_id": "gpt-image-2.6-flare",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
               "gtc_whisper_1": {
@@ -1360,6 +1372,11 @@
       "name": "KlingMultiShotEditor",
       "path": "griptape_nodes_library/video/widgets/KlingMultiShotEditor.js",
       "description": "Multi-shot editor for Kling v3 customize mode."
+    },
+    {
+      "name": "PdfPageViewer",
+      "path": "widgets/PdfPageViewer/PdfPageViewer.js",
+      "description": "Steps through the pages of a PDF in the browser."
     },
     {
       "name": "MaskAdjustmentPreview",
@@ -2614,6 +2631,9 @@
         "display_name": "Seedance Video Generation",
         "icon": "Sparkles",
         "group": "create",
+        "deprecation": {
+          "deprecation_message": "BytePlus no longer serves Seedance 1.0 Pro, 1.0 Pro Fast or 1.5 Pro through Griptape Cloud. Use Seedance 2.0 Video Generation or Seedance 2.5 Video Generation instead."
+        },
         "tags": [
           "video",
           "generation",
@@ -5921,7 +5941,9 @@
               "gtc_gpt_image_1_5",
               "gtc_gpt_image_2",
               "gtc_gpt_image_2_5_sunburst",
-              "gtc_gpt_image_2_5_flare"
+              "gtc_gpt_image_2_5_flare",
+              "gtc_gpt_image_2_6_sunburst",
+              "gtc_gpt_image_2_6_flare"
             ]
           }
         ]

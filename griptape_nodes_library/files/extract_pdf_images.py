@@ -8,18 +8,12 @@ from griptape_nodes.exe_types.node_types import AsyncResult, NodeDependencies, S
 from griptape_nodes.exe_types.param_components.project_directory_parameter import ProjectDirectoryParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.files.project_file import ProjectFileDestination
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 from griptape_nodes.traits.options import Options
 from PIL import Image
 from pypdf import PdfReader
 
-from griptape_nodes_library.image.image_preview import ImagePreviewMixin
+from griptape_nodes_library.files.pdf_viewer import PdfViewerMixin
 from griptape_nodes_library.utils.directory_settings import reject_connected_file_destination
 
 DEFAULT_DIRECTORY_NAME = "extracted"
@@ -32,8 +26,6 @@ PADDING_OPTIONS = ["1", "2", "3", "4", "5", "6", "7", "8"]
 JPEG_QUALITY = 95
 WEBP_QUALITY = 95
 FULL_TURN = 360
-PREVIEW_MAX_SIZE = 1000
-PREVIEW_QUALITY = 80
 
 
 class Rotation(StrEnum):
@@ -82,18 +74,16 @@ def _migrate_old_default_directory(value: Any) -> Any:
     return DEFAULT_DIRECTORY_NAME if value == OLD_DEFAULT_DIRECTORY else value
 
 
-class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
+class ExtractPdfImages(PdfViewerMixin, SuccessFailureNode):
     """Extract the images embedded in a PDF, such as the pages of a scanned document.
 
     Images come out at the resolution they are stored at in the PDF. Nothing is resampled.
     With the 'original' format and no rotation, JPEG images are written byte-for-byte.
     """
 
-    PREVIEW_OPERATION = "rotate"
-    PREVIEW_PARAMETERS: ClassVar[list[str]] = ["rotation"]
-    # The preview shows the first image in the PDF, which is not a parameter, so _preview_extras supplies it.
-    PREVIEW_IMAGES: ClassVar[dict[str, str]] = {}
-    PREVIEW_PARAMETER_NAME = "rotation_preview"
+    # Named for the preview it replaced, so workflows saved with that parameter still load.
+    PDF_VIEWER_PARAMETER_NAME = "rotation_preview"
+    PDF_VIEWER_SYNCED: ClassVar[list[str]] = ["rotation", "password"]
 
     def __init__(
         self,
@@ -130,8 +120,10 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
             )
         )
 
-        self._preview_cache: tuple[tuple[str, str], str] | None = None
-        self._add_preview_parameter()
+        self._add_pdf_viewer_parameter(
+            "The PDF's pages, turned by 'rotation' as they will be extracted. "
+            "Step through them to look at the document before extracting."
+        )
 
         rotation = ParameterString(
             name="rotation",
@@ -230,54 +222,6 @@ class ExtractPdfImages(ImagePreviewMixin, SuccessFailureNode):
         if not self.get_parameter_value("path"):
             return [ValueError("Set 'path' to the PDF file to extract images from.")]
         return None
-
-    # ── Preview ─────────────────────────────────────────────────────────────────
-
-    def _is_preview_source(self, parameter_name: str) -> bool:
-        # A protected PDF has no preview until the password is right, so the password counts too.
-        return parameter_name in {"path", "password"}
-
-    def _preview_extras(self) -> dict[str, Any]:
-        """The first image in the PDF, for the preview widget. The rotation reaches it from its own parameter."""
-        path = self.get_parameter_value("path") or ""
-        password = self.get_parameter_value("password") or ""
-        if self._preview_cache is not None and self._preview_cache[0] == (path, password):
-            return {"image_url": self._preview_cache[1]}
-        try:
-            image_url = self._build_preview_url(path) if path else ""
-        except Exception as e:
-            logger.warning(f"{self.name}: could not build a rotation preview for {path!r}: {e}")
-            image_url = ""
-        self._preview_cache = ((path, password), image_url)
-        return {"image_url": image_url}
-
-    def _build_preview_url(self, path: str) -> str:
-        """Save a small copy of the PDF's first image to temp storage and return its URL."""
-        reader = PdfReader(BytesIO(File(path).read_bytes()))
-        if reader.is_encrypted and not reader.decrypt(self.get_parameter_value("password") or ""):
-            return ""
-        for page in reader.pages:
-            for pdf_image in page.images:
-                with Image.open(BytesIO(pdf_image.data)) as image:
-                    thumbnail = _flatten_to_rgb(image)
-                thumbnail.thumbnail((PREVIEW_MAX_SIZE, PREVIEW_MAX_SIZE))
-                # The preview shows the rotation the PDF applies on top of the node's setting.
-                page_turn = page.rotation % FULL_TURN
-                if page_turn:
-                    thumbnail = thumbnail.transpose(TRANSPOSE_FOR_CLOCKWISE_DEGREES[page_turn])
-                buffer = BytesIO()
-                thumbnail.save(buffer, format="JPEG", quality=PREVIEW_QUALITY)
-                destination = ProjectFileDestination.from_situation(
-                    "pdf_preview.jpg", "save_temp_file", node_name=self.name
-                )
-                saved = destination.write_bytes(buffer.getvalue())
-                result = GriptapeNodes.handle_request(
-                    CreateStaticFileDownloadUrlFromPathRequest(file_path=File(saved.location).resolve())
-                )
-                if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                    return result.url
-                return ""
-        return ""
 
     # ── Process ─────────────────────────────────────────────────────────────────
 
