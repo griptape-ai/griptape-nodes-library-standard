@@ -71,8 +71,16 @@ def test_widget_url_is_empty_when_static_url_lookup_fails(monkeypatch: pytest.Mo
     assert _node()._resolve_audio_url("{outputs}/a.wav") == ""
 
 
-def test_widget_url_is_empty_for_bytes_audio() -> None:
-    assert _node()._audio_location(AudioArtifact(value=b"RIFF", format="wav")) == ""
+def test_raw_audio_bytes_become_a_data_uri() -> None:
+    assert _node()._audio_location(AudioArtifact(value=b"RIFF", format="wav")).startswith("data:audio/")
+
+
+def test_audio_location_reads_artifacts_dicts_and_strings() -> None:
+    node = _node()
+    assert node._audio_location(AudioUrlArtifact("https://x/a.wav")) == "https://x/a.wav"
+    assert node._audio_location({"type": "AudioUrlArtifact", "value": "{outputs}/a.wav"}) == "{outputs}/a.wav"
+    assert node._audio_location("/abs/a.wav") == "/abs/a.wav"
+    assert node._audio_location(None) == ""
 
 
 def test_start_past_end_of_clip_fails(monkeypatch: pytest.MonkeyPatch) -> None:

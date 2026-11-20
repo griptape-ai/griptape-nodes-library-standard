@@ -19,8 +19,7 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.widget import Widget
 
-from griptape_nodes_library.media import resolve_media_location
-from griptape_nodes_library.utils.audio_utils import to_audio_artifact
+from griptape_nodes_library.media import coerce_media_url_or_data_uri, resolve_media_location
 from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, run_ffmpeg_cmd
 from griptape_nodes_library.utils.video_utils import validate_url
 
@@ -141,15 +140,8 @@ class TrimAudio(SuccessFailureNode):
             editor.clear_badge()
 
     def _audio_location(self, audio: Any) -> str:
-        """Return the audio's file path or URL, or "" when it has none."""
-        if not audio:
-            return ""
-        try:
-            raw = getattr(to_audio_artifact(audio), "value", None)
-        except Exception as e:
-            logger.warning("%s: could not read the audio: %s", self.name, e)
-            return ""
-        return raw if isinstance(raw, str) else ""
+        """Return the audio's file path, URL, or data URI, or "" when it has none."""
+        return coerce_media_url_or_data_uri(audio, kind="audio") or ""
 
     def _is_long_local_clip(self, raw: str) -> bool:
         """Whether a local clip is past MAX_WAVEFORM_SECONDS. Remote clips are not probed, so they are never long here."""
@@ -200,11 +192,10 @@ class TrimAudio(SuccessFailureNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []
-        audio = self.get_parameter_value("audio")
-        audio_value = audio.get("value") if isinstance(audio, dict) else getattr(audio, "value", None)
-        if not audio_value:
+        location = self._audio_location(self.get_parameter_value("audio"))
+        if not location:
             exceptions.append(NodeError("Connect audio to 'Audio'."))
-        elif not isinstance(audio_value, str):
+        elif location.startswith("data:"):
             exceptions.append(
                 NodeError(
                     "The audio connected to 'Audio' is raw audio data with no file or URL to trim. "
@@ -253,8 +244,8 @@ class TrimAudio(SuccessFailureNode):
         start_sec = self.get_parameter_value("start_time") or 0.0
         end_sec = self.get_parameter_value("end_time") or 0.0
         try:
-            input_path = resolve_media_location(to_audio_artifact(self.get_parameter_value("audio")).value)
-            if not input_path.startswith("data:") and not validate_url(input_path):
+            input_path = resolve_media_location(self._audio_location(self.get_parameter_value("audio")))
+            if not validate_url(input_path):
                 msg = f"The audio connected to 'Audio' can't be opened: {input_path}. Connect audio from a file or an http(s) URL."
                 raise NodeError(msg)  # noqa: TRY301
             await asyncio.to_thread(self._process, input_path, start_sec, end_sec)
