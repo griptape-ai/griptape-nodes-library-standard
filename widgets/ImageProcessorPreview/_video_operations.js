@@ -3,6 +3,8 @@
 // operations convert each pixel to YUV, apply the filter's math, and convert back. Film grain and the
 // blurs are approximations; the rest follow FFmpeg's integer math.
 
+import { divisibleSize } from "./_divisible_size.js";
+
 const num = (value, fallback) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -448,6 +450,10 @@ function videoResizeLayout(v, w, h) {
     const width = Math.trunc((w * f) / 2) * 2, height = Math.trunc((h * f) / 2) * 2;
     if (width < 1 || height < 1) return { error: "The result would be 0 pixels wide or tall" };
     return { width, height };
+  }
+  if (mode === "divisible by") {
+    if (Math.trunc(num(v.divisor, 64)) % 2 !== 0) return { error: "Divisor must be even for video" };
+    return divisibleSize(v, w, h);
   }
   if (mode !== "width and height") return { error: `Unknown resize mode "${mode}"` };
   const ew = makeEven(Math.trunc(num(v.target_width, 1000)));
