@@ -159,8 +159,50 @@ class TestResolveVideoInput:
         node = _make_node()
         video = _make_video(tmp_path / "silent.mp4", with_audio=False)
 
-        with pytest.raises(NodeError, match="Could not extract an audio track"):
+        with pytest.raises(NodeError, match="has no audio track"):
             await node._resolve_audio_data_uri(VideoUrlArtifact(str(video)))
+
+    @pytest.mark.asyncio
+    async def test_missing_video_file_does_not_blame_missing_audio(self, tmp_path: Path) -> None:
+        node = _make_node()
+
+        with pytest.raises(NodeError, match="Could not read the video") as exc_info:
+            await node._resolve_audio_data_uri(VideoUrlArtifact(str(tmp_path / "gone.mp4")))
+
+        assert "no audio track" not in str(exc_info.value)
+        assert "No such file or directory" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_long_ffmpeg_reason_is_shortened(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        node = _make_node()
+        long_reason = "FFmpeg error: " + "x " * 1000
+
+        def _fail(*_args: object, **_kwargs: object) -> None:
+            raise ValueError(long_reason)
+
+        monkeypatch.setattr(transcribe_audio_module, "run_ffmpeg_cmd", _fail)
+
+        with pytest.raises(NodeError, match="Could not read the video") as exc_info:
+            await node._resolve_audio_data_uri(VideoUrlArtifact(str(tmp_path / "clip.mp4")))
+
+        assert len(str(exc_info.value)) < 400
+        assert "FFmpeg error:" not in str(exc_info.value)
+        assert exc_info.value.fields["ffmpeg_error"] == long_reason
+
+    @pytest.mark.asyncio
+    async def test_ffmpeg_timeout_says_to_use_a_shorter_video(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        node = _make_node()
+
+        def _timeout(*_args: object, **_kwargs: object) -> None:
+            msg = "FFmpeg timed out after 300s"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(transcribe_audio_module, "run_ffmpeg_cmd", _timeout)
+
+        with pytest.raises(NodeError, match="took too long"):
+            await node._resolve_audio_data_uri(VideoUrlArtifact(str(tmp_path / "long.mp4")))
 
     @pytest.mark.asyncio
     async def test_audio_track_over_upload_limit_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

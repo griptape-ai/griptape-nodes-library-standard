@@ -4,6 +4,7 @@ import asyncio
 import base64
 import logging
 import tempfile
+import textwrap
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
@@ -330,9 +331,23 @@ class TranscribeAudio(GriptapeProxyNode):
             try:
                 await asyncio.to_thread(run_ffmpeg_cmd, cmd, log=self._log)
             except ValueError as e:
-                msg = (
-                    "Could not extract an audio track from the video connected to 'Audio'. Connect a video with sound."
-                )
+                detail = str(e)
+                # With -v error, ffmpeg's last line is the reason, e.g. "Error opening input files: No such file".
+                last_line = detail.strip().splitlines()[-1] if detail.strip() else detail
+                # The full stderr is in ffmpeg_error; keep the message to one short line.
+                reason = textwrap.shorten(last_line.removeprefix("FFmpeg error: "), width=150, placeholder="...")
+                if "matches no streams" in detail:
+                    msg = "The video connected to 'Audio' has no audio track. Connect a video with sound."
+                elif "timed out" in detail:
+                    msg = (
+                        "Extracting the audio from the video connected to 'Audio' took too long. "
+                        "Use a shorter video, or a local file instead of a remote URL, and run the node again."
+                    )
+                else:
+                    msg = (
+                        f"Could not read the video connected to 'Audio' ({reason}). "
+                        "Check that the file exists and plays, or reconnect the video, then run the node again."
+                    )
                 raise NodeError(msg, fields={"ffmpeg_error": str(e)}) from e
             audio_bytes = output_path.read_bytes()
         finally:
