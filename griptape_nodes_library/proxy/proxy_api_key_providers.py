@@ -161,6 +161,7 @@ _NODE_PROVIDER_CONFIGS = {
     "JevAskYesNo": TYPESAFE,
     "JevPickOne": TYPESAFE,
     "JevRate": TYPESAFE,
+    "JevAsk": TYPESAFE,
     "TranscribeAudio": OPENAI,
     "TripoImageTo3DGeneration": TRIPO,
     "TripoMultiviewTo3DGeneration": TRIPO,

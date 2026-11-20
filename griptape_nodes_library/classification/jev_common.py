@@ -8,12 +8,13 @@ from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 from griptape.artifacts import ImageArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
 from PIL import Image, ImageOps
 
+from griptape_nodes_library.classification.jev_questions import QUESTION_TYPE
 from griptape_nodes_library.utils.image_utils import grayscale_to_eight_bit
 
 if TYPE_CHECKING:
@@ -29,10 +30,13 @@ __all__ = [
     "add_context_parameter",
     "add_images_parameter",
     "add_model_group",
+    "add_question_key_parameter",
+    "add_question_output",
     "build_batch_payload",
     "build_payload",
     "build_state_and_assets",
     "image_reference",
+    "question_key",
     "to_state",
 ]
 
@@ -216,6 +220,39 @@ def add_context_parameter(node: BaseNode) -> None:
             placeholder_text="Text to ask about",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             input_types=CONTEXT_INPUT_TYPES,
+        )
+    )
+
+
+def add_question_key_parameter(node: BaseNode) -> None:
+    """Add the Name parameter a question builder uses to key its answer."""
+    node.add_parameter(
+        ParameterString(
+            name="key",
+            display_name="Name",
+            tooltip="The name this question's answer goes under in the Ask node's answers. "
+            "Leave empty to use the node's name.",
+            default_value="",
+            placeholder_text="is_truck",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+    )
+
+
+def question_key(node: BaseNode) -> str:
+    """The name a question builder's answer goes under."""
+    return (node.get_parameter_value("key") or "").strip() or node.name
+
+
+def add_question_output(node: BaseNode) -> None:
+    """Add the output a question builder hands to the Ask node."""
+    node.add_parameter(
+        Parameter(
+            name="question",
+            display_name="Question",
+            tooltip="Connect to a JEV Ask node's Questions list.",
+            output_type=QUESTION_TYPE,
+            allowed_modes={ParameterMode.OUTPUT},
         )
     )
 

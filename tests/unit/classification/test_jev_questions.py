@@ -3,7 +3,12 @@ import pytest
 from griptape_nodes_library.classification.jev_common import QUESTION_KEY, build_batch_payload, build_payload
 from griptape_nodes_library.classification.jev_questions import (
     MAX_LEVELS,
+    QuestionKind,
     choice_question,
+    make_spec,
+    parse_levels,
+    parse_options,
+    read_answer,
     score_question,
     yes_no_question,
 )
@@ -65,3 +70,56 @@ def test_build_batch_payload_lists_unreferenced_images() -> None:
     assert payload["questions"] == questions
     assert payload["state"] == {"images": []}
     assert payload["assets"] == assets
+
+
+def test_parse_options_keeps_descriptions_and_skips_empty_rows() -> None:
+    assert parse_options(["Lighting: rim and shadow", "", "Layout"]) == {"Lighting": "rim and shadow", "Layout": None}
+
+
+def test_parse_options_rejects_duplicates_and_too_few() -> None:
+    with pytest.raises(ValueError, match="more than once"):
+        parse_options(["A", "A"])
+    with pytest.raises(ValueError, match="at least two"):
+        parse_options(["A", " "])
+
+
+def test_parse_levels_names_unlabeled_rows_by_position() -> None:
+    assert parse_levels(["Minor: workaround exists", "", "it is broken"]) == (
+        ["workaround exists", "it is broken"],
+        ["Minor", "Level 2"],
+    )
+
+
+def test_read_yes_no_applies_the_threshold() -> None:
+    spec = make_spec(QuestionKind.YES_NO, "truck", {}, threshold=0.7)
+    assert read_answer(spec, {"noul": 0.6}) == (False, {"answer": False, "probability": 0.6})
+    assert read_answer(spec, {"noul": 0.7}) == (True, {"answer": True, "probability": 0.7})
+
+
+def test_read_choice_returns_the_label() -> None:
+    spec = make_spec(QuestionKind.CHOICE, "dept", {})
+    answer = {"choice": "Lighting", "confidence": 0.9, "probabilities": {"Lighting": 0.9, "Layout": 0.1}}
+    assert read_answer(spec, answer) == (
+        "Lighting",
+        {"label": "Lighting", "confidence": 0.9, "probabilities": {"Lighting": 0.9, "Layout": 0.1}},
+    )
+
+
+def test_read_score_rounds_half_up_and_numbers_levels_from_one() -> None:
+    spec = make_spec(QuestionKind.SCORE, "sharp", {}, labels=["Soft", "OK", "Sharp"])
+    value, details = read_answer(spec, {"score": 1.5, "probabilities": {"0": 0.1, "1": 0.4, "2": 0.5}})
+    assert value == 3
+    assert details["label"] == "Sharp"
+    assert details["score"] == 2.5
+    assert details["probabilities"] == {"1": 0.1, "2": 0.4, "3": 0.5}
+    assert read_answer(spec, {"score": 9})[0] == 3
+
+
+@pytest.mark.parametrize("kind", list(QuestionKind))
+def test_read_answer_is_none_when_jev_left_the_answer_out(kind: QuestionKind) -> None:
+    assert read_answer(make_spec(kind, "q", {}, threshold=0.5, labels=["a", "b"]), {}) is None
+
+
+def test_read_answer_rejects_an_unknown_kind() -> None:
+    with pytest.raises(ValueError, match="Unknown question kind"):
+        read_answer({"kind": "other"}, {})

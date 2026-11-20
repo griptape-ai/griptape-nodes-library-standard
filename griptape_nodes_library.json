@@ -7710,6 +7710,59 @@
           }
         ]
       }
+    },
+    {
+      "class_name": "JevAsk",
+      "file_path": "griptape_nodes_library/classification/jev_ask.py",
+      "metadata": {
+        "category": "classification",
+        "description": "Ask several questions about the same text and images in one TypeSafe JEV call.",
+        "display_name": "Ask Questions (JEV)",
+        "icon": "messages-square",
+        "group": "classification",
+        "declarations": [
+          {
+            "type": "model_usage",
+            "model_ids": [
+              "gtc_jev_latest",
+              "gtc_jev_preview"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "JevYesNoQuestion",
+      "file_path": "griptape_nodes_library/classification/jev_yes_no_question.py",
+      "metadata": {
+        "category": "classification",
+        "description": "Describe a yes/no question for the JEV Ask Questions node.",
+        "display_name": "Yes/No Question (JEV)",
+        "icon": "check-circle",
+        "group": "classification"
+      }
+    },
+    {
+      "class_name": "JevPickOneQuestion",
+      "file_path": "griptape_nodes_library/classification/jev_pick_one_question.py",
+      "metadata": {
+        "category": "classification",
+        "description": "Describe a pick-one question for the JEV Ask Questions node.",
+        "display_name": "Pick One Question (JEV)",
+        "icon": "list-checks",
+        "group": "classification"
+      }
+    },
+    {
+      "class_name": "JevRateQuestion",
+      "file_path": "griptape_nodes_library/classification/jev_rate_question.py",
+      "metadata": {
+        "category": "classification",
+        "description": "Describe a rating question for the JEV Ask Questions node.",
+        "display_name": "Rate Question (JEV)",
+        "icon": "bar-chart-2",
+        "group": "classification"
+      }
     }
   ],
   "workflows": [
