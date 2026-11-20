@@ -11,15 +11,24 @@ from griptape_nodes.exe_types.core_types import (
     ParameterList,
     ParameterMode,
 )
+from griptape_nodes.exe_types.node_types import NODE_DEFAULT_SIZE
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
-from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest, CreateConnectionResultSuccess
+from griptape_nodes.retained_mode.events.connection_events import (
+    CreateConnectionRequest,
+    CreateConnectionResultSuccess,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
 from griptape_nodes.retained_mode.events.node_events import (
     CreateNodeRequest,
     CreateNodeResultSuccess,
     DeleteNodeRequest,
     GetFlowForNodeRequest,
     GetFlowForNodeResultSuccess,
+    GetNodeMetadataRequest,
+    GetNodeMetadataResultSuccess,
+    SetNodeMetadataRequest,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -39,9 +48,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["JevAsk"]
 
-# A new question node goes this far left of the Questions node, and each one below the last.
-QUESTION_NODE_OFFSET_X = 800
-QUESTION_NODE_OFFSET_Y = 300
+# Pixels of clear space between a new question node and its neighbours.
+QUESTION_NODE_GAP = 40
 
 
 class JevAsk(GriptapeProxyNode):
@@ -142,22 +150,15 @@ class JevAsk(GriptapeProxyNode):
                 response=button_details,
             )
 
-        position = self.metadata.get("position") or {"x": 0, "y": 0}
         questions = self.get_parameter_by_name("questions")
         assert isinstance(questions, ParameterList)
-        # Count rows, not values: a question wired a moment ago has no value until it resolves.
-        count = len(questions.find_elements_by_type(Parameter, find_recursively=False))
+        row_names = {row.name for row in questions.find_elements_by_type(Parameter, find_recursively=False)}
+        existing = self._connected_question_nodes(row_names)
         created = GriptapeNodes.handle_request(
             CreateNodeRequest(
                 node_type=node_type,
                 override_parent_flow_name=flow_result.flow_name,
                 parent_group_name=self.parent_group.name if self.parent_group else None,
-                metadata={
-                    "position": {
-                        "x": position["x"] - QUESTION_NODE_OFFSET_X,
-                        "y": position["y"] + QUESTION_NODE_OFFSET_Y * count,
-                    }
-                },
             )
         )
         if not isinstance(created, CreateNodeResultSuccess):
@@ -167,6 +168,7 @@ class JevAsk(GriptapeProxyNode):
                 response=button_details,
             )
 
+        self._place_question_node(created.node_name, existing)
         row = questions.add_child_parameter()
         connected = GriptapeNodes.handle_request(
             CreateConnectionRequest(
@@ -189,6 +191,36 @@ class JevAsk(GriptapeProxyNode):
             details=f"Added {created.node_name}.",
             response=button_details,
             altered_workflow_state=True,
+        )
+
+    @staticmethod
+    def _node_box(node_name: str) -> tuple[float, float, float, float] | None:
+        """The node's (x, y, width, height) from its metadata, or None if it can't be read."""
+        result = GriptapeNodes.handle_request(GetNodeMetadataRequest(node_name=node_name))
+        if not isinstance(result, GetNodeMetadataResultSuccess):
+            return None
+        position = result.metadata.get("position") or {"x": 0, "y": 0}
+        size = result.metadata.get("size") or NODE_DEFAULT_SIZE
+        return position["x"], position["y"], size["width"], size["height"]
+
+    def _connected_question_nodes(self, row_names: set[str]) -> list[str]:
+        """Names of the nodes connected to the Questions rows."""
+        result = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=self.name))
+        if not isinstance(result, ListConnectionsForNodeResultSuccess):
+            return []
+        return [c.source_node_name for c in result.incoming_connections if c.target_parameter_name in row_names]
+
+    def _place_question_node(self, node_name: str, existing: list[str]) -> None:
+        """Put a new question node left of this one, below the lowest question node already connected."""
+        mine = self._node_box(node_name)
+        here = self._node_box(self.name)
+        if mine is None or here is None:
+            return
+        x = here[0] - mine[2] - QUESTION_NODE_GAP
+        boxes = [box for name in existing if (box := self._node_box(name)) is not None]
+        y = max(top + height for _, top, _, height in boxes) + QUESTION_NODE_GAP if boxes else here[1]
+        GriptapeNodes.handle_request(
+            SetNodeMetadataRequest(node_name=node_name, metadata={"position": {"x": x, "y": y}})
         )
 
     def _specs(self) -> dict[str, dict[str, Any]]:
