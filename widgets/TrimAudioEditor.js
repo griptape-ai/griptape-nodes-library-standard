@@ -15,8 +15,8 @@ const IDLE_COLOR = "#aaa";
 const ACTIVE_COLOR = "#d4a030";
 // Decoding holds the whole clip in memory (about 10 MB per channel per minute at 44.1 kHz), so long clips draw a
 // flat waveform. The node flags the ones it can measure with `long_clip` and shows a badge, and sends its
-// limit as `max_waveform_seconds` for a clip it could not measure, such as a remote one. A clip whose length
-// is unknown to both falls back to a size limit.
+// limit as `max_waveform_seconds` for a clip it could not measure, such as a remote one. A flagged clip, or one
+// the server says is over the size limit, is never downloaded into the tab: the player streams it from its URL.
 const MAX_DECODE_BYTES = 150 * 1024 * 1024;
 const METADATA_TIMEOUT_MS = 10000;
 const END_EPSILON = 0.001;
@@ -367,7 +367,6 @@ export default function TrimAudioEditor(container, props) {
     });
   }
 
-  // One download feeds both the waveform and the player.
   async function load(newUrl) {
     url = newUrl;
     revision = value.revision || "";
@@ -379,19 +378,27 @@ export default function TrimAudioEditor(container, props) {
     status.textContent = url ? "Loading…" : "Connect audio to trim";
     if (!url) { audio.removeAttribute("src"); audio.load(); readParams(); draw(); return; }
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Could not load audio (${res.status})`);
-      const bytes = await res.arrayBuffer();
+      // One download feeds both the waveform and the player. Skipped for a clip too big to decode.
+      let bytes = null;
+      if (!value.long_clip) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Could not load audio (${res.status})`);
+        if (Number(res.headers.get("content-length")) > MAX_DECODE_BYTES) {
+          res.body?.cancel();
+        } else {
+          bytes = await res.arrayBuffer();
+          if (id !== loadId) return;
+          objectUrl = URL.createObjectURL(new Blob([bytes], { type: res.headers.get("content-type") || "audio/mpeg" }));
+        }
+      }
       if (id !== loadId) return;
-      objectUrl = URL.createObjectURL(new Blob([bytes], { type: res.headers.get("content-type") || "audio/mpeg" }));
-      audio.src = objectUrl;
+      audio.src = objectUrl || url;
       const length = await metadataDuration();
       if (id !== loadId) return;
-      const maxSeconds = value.max_waveform_seconds ?? Infinity;
-      const tooLong = value.long_clip || length > maxSeconds || (length === 0 && bytes.byteLength > MAX_DECODE_BYTES);
-      if (tooLong && length === 0) {
+      const flat = !bytes || length > (value.max_waveform_seconds ?? Infinity);
+      if (flat && length === 0) {
         throw new Error("Could not read the length of this clip");
-      } else if (tooLong) {
+      } else if (flat) {
         duration = length;
         peaks = new Float32Array(SAMPLES).fill(0.15);
         status.textContent = "";
