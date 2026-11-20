@@ -5,8 +5,10 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode, NodeDependencies
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
+from griptape_nodes_library.files.pdf_viewer import PdfViewerMixin
 
-class LoadPdf(ControlNode):
+
+class LoadPdf(PdfViewerMixin, ControlNode):
     def __init__(
         self,
         name: str,
@@ -42,6 +44,8 @@ class LoadPdf(ControlNode):
                 tooltip="Optional password for password-protected PDFs. Leave blank if not needed.",
             )
         )
+
+        self._add_pdf_viewer_parameter("The PDF's pages. Step through them to look at the document.")
 
         self.add_parameter(
             Parameter(
