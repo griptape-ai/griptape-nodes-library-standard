@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -290,17 +290,17 @@ class TranscribeAudio(GriptapeProxyNode):
         provider's 25MB limit.
 
         Raises:
-            ValueError: If the video can't be loaded, has no audio track, or the audio is too long.
+            NodeError: If the video can't be loaded, has no audio track, or the audio is too long.
         """
         try:
             input_path = File(video_url).resolve()
         except FileLoadError as e:
-            msg = f"Failed to load the video input: {e}"
-            raise ValueError(msg) from e
+            msg = f"Could not load the video connected to 'Audio'. Check that the file still exists. {e}"
+            raise NodeError(msg) from e
 
         if not validate_url(input_path):
-            msg = f"The video input is not a valid file path or URL: {input_path}"
-            raise ValueError(msg)
+            msg = f"The video connected to 'Audio' is not a valid file path or URL: {input_path}"
+            raise NodeError(msg)
 
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
             output_path = Path(temp_file.name)
@@ -308,6 +308,9 @@ class TranscribeAudio(GriptapeProxyNode):
         try:
             cmd = [
                 get_ffmpeg_path(),
+                "-hide_banner",
+                "-v",
+                "error",
                 "-i",
                 input_path,
                 "-map",
@@ -327,15 +330,17 @@ class TranscribeAudio(GriptapeProxyNode):
             try:
                 await asyncio.to_thread(run_ffmpeg_cmd, cmd, log=self._log)
             except ValueError as e:
-                msg = f"Could not extract an audio track from the video input. {e}"
-                raise ValueError(msg) from e
+                msg = (
+                    "Could not extract an audio track from the video connected to 'Audio'. Connect a video with sound."
+                )
+                raise NodeError(msg, fields={"ffmpeg_error": str(e)}) from e
             audio_bytes = output_path.read_bytes()
         finally:
             output_path.unlink(missing_ok=True)
 
         if len(audio_bytes) > MAX_UPLOAD_BYTES:
-            msg = "The video's audio track is too long to transcribe in one request. Trim the video and try again."
-            raise ValueError(msg)
+            msg = "The audio in the video connected to 'Audio' is too long to transcribe in one request. Trim the video and run the node again."
+            raise NodeError(msg)
 
         return f"data:audio/mpeg;base64,{base64.b64encode(audio_bytes).decode()}"
 

@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.retained_mode.events.os_events import FileIOFailureReason
 
@@ -158,7 +159,7 @@ class TestResolveVideoInput:
         node = _make_node()
         video = _make_video(tmp_path / "silent.mp4", with_audio=False)
 
-        with pytest.raises(ValueError, match="Could not extract an audio track from the video input"):
+        with pytest.raises(NodeError, match="Could not extract an audio track"):
             await node._resolve_audio_data_uri(VideoUrlArtifact(str(video)))
 
     @pytest.mark.asyncio
@@ -167,7 +168,7 @@ class TestResolveVideoInput:
         video = _make_video(tmp_path / "clip.mp4", with_audio=True)
         monkeypatch.setattr(transcribe_audio_module, "MAX_UPLOAD_BYTES", 1)
 
-        with pytest.raises(ValueError, match="too long to transcribe"):
+        with pytest.raises(NodeError, match="too long to transcribe"):
             await node._resolve_audio_data_uri(VideoUrlArtifact(str(video)))
 
     @pytest.mark.asyncio
