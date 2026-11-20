@@ -37,6 +37,12 @@ def test_validate_requires_audio() -> None:
     assert "Connect audio" in str(errors[0])
 
 
+def test_validate_rejects_raw_audio_bytes() -> None:
+    errors = _node(audio=AudioArtifact(value=b"RIFF", format="wav")).validate_before_node_run()
+    assert errors
+    assert "raw audio data" in str(errors[0])
+
+
 def test_validate_rejects_end_before_start() -> None:
     errors = _node(audio=AudioUrlArtifact("http://x/a.wav"), start_time=5.0, end_time=2.0).validate_before_node_run()
     assert errors
@@ -55,6 +61,12 @@ def test_widget_url_is_empty_without_audio() -> None:
 
 def test_widget_url_passes_http_through() -> None:
     assert _node()._resolve_audio_url(AudioUrlArtifact("https://x/a.wav")) == "https://x/a.wav"
+
+
+def test_widget_url_is_empty_when_static_url_lookup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(trim_audio.GriptapeNodes, "handle_request", lambda *_: SimpleNamespace())
+    monkeypatch.setattr(trim_audio.File, "resolve", lambda self: "/abs/a.wav")
+    assert _node()._resolve_audio_url(AudioUrlArtifact("{outputs}/a.wav")) == ""
 
 
 def test_widget_url_is_empty_for_bytes_audio() -> None:

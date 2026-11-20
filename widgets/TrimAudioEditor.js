@@ -13,7 +13,11 @@ const FLAG_H = 7;
 const MOVE_H = 10; // height of the strip along the bottom of the selection that drags it as a whole
 const IDLE_COLOR = "#aaa";
 const ACTIVE_COLOR = "#d4a030";
-const MAX_DECODE_BYTES = 150 * 1024 * 1024; // decoding holds the whole clip in memory, so very long clips skip it
+// Decoding holds the whole clip in memory (about 10 MB per channel per minute at 44.1 kHz), so clips longer
+// than this skip it and draw a flat waveform. A clip whose length is unknown falls back to a size limit.
+const MAX_DECODE_SECONDS = 30 * 60;
+const MAX_DECODE_BYTES = 150 * 1024 * 1024;
+const METADATA_TIMEOUT_MS = 10000;
 const END_EPSILON = 0.001;
 
 const round3 = (t) => Math.round(t * 1000) / 1000;
@@ -342,11 +346,22 @@ export default function TrimAudioEditor(container, props) {
     objectUrl = "";
   }
 
+  // The clip's length from the media element, or 0 when it cannot be read (an error, a stream with no length,
+  // or no answer in time).
   function metadataDuration() {
     return new Promise((resolve) => {
-      if (isFinite(audio.duration) && audio.duration > 0) return resolve(audio.duration);
-      audio.addEventListener("loadedmetadata", () => resolve(audio.duration), { once: true });
-      audio.addEventListener("error", () => resolve(0), { once: true });
+      const finish = (d) => {
+        clearTimeout(timer);
+        audio.removeEventListener("loadedmetadata", onMeta);
+        audio.removeEventListener("error", onError);
+        resolve(isFinite(d) && d > 0 ? d : 0);
+      };
+      const onMeta = () => finish(audio.duration);
+      const onError = () => finish(0);
+      const timer = setTimeout(() => finish(0), METADATA_TIMEOUT_MS);
+      if (isFinite(audio.duration) && audio.duration > 0) return finish(audio.duration);
+      audio.addEventListener("loadedmetadata", onMeta);
+      audio.addEventListener("error", onError);
     });
   }
 
@@ -367,8 +382,13 @@ export default function TrimAudioEditor(container, props) {
       if (id !== loadId) return;
       objectUrl = URL.createObjectURL(new Blob([bytes], { type: res.headers.get("content-type") || "audio/mpeg" }));
       audio.src = objectUrl;
-      if (bytes.byteLength > MAX_DECODE_BYTES) {
-        duration = await metadataDuration();
+      const length = await metadataDuration();
+      if (id !== loadId) return;
+      const tooLong = length > MAX_DECODE_SECONDS || (length === 0 && bytes.byteLength > MAX_DECODE_BYTES);
+      if (tooLong && length === 0) {
+        throw new Error("Could not read the length of this clip");
+      } else if (tooLong) {
+        duration = length;
         peaks = new Float32Array(SAMPLES).fill(0.15);
         status.textContent = "Clip too long to draw a waveform";
       } else {

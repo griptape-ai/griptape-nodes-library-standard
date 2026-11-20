@@ -133,7 +133,7 @@ class TrimAudio(SuccessFailureNode):
         except Exception as e:
             logger.warning("%s: could not build a playable URL for the audio: %s", self.name, e)
             return ""
-        return result.url if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess) else raw
+        return result.url if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess) else ""
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "audio":
@@ -158,8 +158,14 @@ class TrimAudio(SuccessFailureNode):
     def validate_before_node_run(self) -> list[Exception] | None:
         exceptions: list[Exception] = []
         audio = self.get_parameter_value("audio")
-        if not audio or (not isinstance(audio, dict) and not getattr(audio, "value", None)):
+        audio_value = audio.get("value") if isinstance(audio, dict) else getattr(audio, "value", None)
+        if not audio_value:
             exceptions.append(ValueError("Connect audio to 'audio'."))
+        elif not isinstance(audio_value, str):
+            msg = (
+                "The audio connected to 'audio' is raw audio data with no file or URL to trim. Save it to a file first."
+            )
+            exceptions.append(ValueError(msg))
         start = self.get_parameter_value("start_time") or 0.0
         end = self.get_parameter_value("end_time") or 0.0
         if 0 < end <= start:
