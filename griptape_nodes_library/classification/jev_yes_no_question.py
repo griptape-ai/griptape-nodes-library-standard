@@ -25,10 +25,13 @@ class JevYesNoQuestion(DataNode):
 
     Inputs:
         - key (str): Name for this question's answer. Defaults to the node's name.
-        - question (str): A yes/no question about the context.
+        - question_text (str): A yes/no question about the context.
         - yes_means (str): Optional description of what counts as Yes.
         - no_means (str): Optional description of what counts as No.
         - threshold (float): Minimum probability to answer Yes (default 0.5).
+
+    Outputs:
+        - question (JevQuestion): The question, for a Questions (JEV) node.
     """
 
     def __init__(self, **kwargs: Any) -> None:

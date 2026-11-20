@@ -29,8 +29,11 @@ class JevRateQuestion(DataNode):
 
     Inputs:
         - key (str): Name for this question's answer. Defaults to the node's name.
-        - question (str): Optional. What JEV should rate.
+        - question_text (str): Optional. What JEV should rate.
         - levels (list[str]): Two to ten levels, lowest first, as 'Label: description' or a description.
+
+    Outputs:
+        - question (JevQuestion): The question, for a Questions (JEV) node.
     """
 
     def __init__(self, **kwargs: Any) -> None:

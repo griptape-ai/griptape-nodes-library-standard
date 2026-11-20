@@ -25,8 +25,11 @@ class JevPickOneQuestion(DataNode):
 
     Inputs:
         - key (str): Name for this question's answer. Defaults to the node's name.
-        - question (str): Optional. What JEV should decide.
+        - question_text (str): Optional. What JEV should decide.
         - options (list[str]): Two or more options as 'Label' or 'Label: description'.
+
+    Outputs:
+        - question (JevQuestion): The question, for a Questions (JEV) node.
     """
 
     def __init__(self, **kwargs: Any) -> None:

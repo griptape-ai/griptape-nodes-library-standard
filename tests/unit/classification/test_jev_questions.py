@@ -63,13 +63,48 @@ def test_build_batch_payload_sends_every_named_question() -> None:
     assert build_batch_payload("ctx", questions, {}) == {"state": "ctx", "questions": questions}
 
 
-def test_build_batch_payload_lists_unreferenced_images() -> None:
-    assets = {"[image 1]": {"type": "image", "format": "jpg", "data_base64": "AAAA"}}
+IMAGE_ASSETS = {"[image 1]": {"type": "image", "format": "jpg", "data_base64": "AAAA"}}
+
+
+def test_an_image_only_one_question_names_is_still_listed_for_the_others() -> None:
     questions = {"truck": yes_no_question("Is [image 1] a truck?"), "crayon": yes_no_question("A drawing?")}
-    payload = build_batch_payload(None, questions, assets)
+    payload = build_batch_payload(None, questions, IMAGE_ASSETS)
     assert payload["questions"] == questions
+    assert payload["state"] == {"images": ["[image 1]"]}
+    assert payload["assets"] == IMAGE_ASSETS
+
+
+def test_an_image_every_question_names_is_not_listed() -> None:
+    questions = {
+        "truck": yes_no_question("Is [image 1] a truck?"),
+        "crayon": yes_no_question("Is [image 1] a drawing?"),
+    }
+    assert build_batch_payload(None, questions, IMAGE_ASSETS)["state"] == {"images": []}
+
+
+def test_an_image_the_context_names_is_not_listed() -> None:
+    questions = {"truck": yes_no_question("A truck?"), "crayon": yes_no_question("A drawing?")}
+    payload = build_batch_payload("Look at [image 1].", questions, IMAGE_ASSETS)
+    assert payload["state"] == {"context": "Look at [image 1].", "images": []}
+
+
+def test_a_single_question_naming_its_image_does_not_list_it() -> None:
+    payload = build_payload(None, yes_no_question("Is [image 1] a truck?"), IMAGE_ASSETS)
     assert payload["state"] == {"images": []}
-    assert payload["assets"] == assets
+
+
+def test_the_size_limit_counts_an_image_once_per_use_plus_once_for_the_list() -> None:
+    big = {"[image 1]": {"type": "image", "format": "jpg", "data_base64": "A" * (16 * 1024 * 1024)}}
+    one_question_each = {"a": yes_no_question("Is [image 1] a truck?"), "b": yes_no_question("A drawing?")}
+    # Named once and listed once: two copies, 32 MiB of base64, over the 30 MiB limit.
+    with pytest.raises(ValueError, match="more than JEV accepts"):
+        build_batch_payload(None, one_question_each, big)
+    # Named by every question and not listed: two copies as well.
+    both_name_it = {"a": yes_no_question("Is [image 1] a truck?"), "b": yes_no_question("Is [image 1] a drawing?")}
+    with pytest.raises(ValueError, match="more than JEV accepts"):
+        build_batch_payload(None, both_name_it, big)
+    single = build_payload(None, yes_no_question("Is [image 1] a truck?"), big)
+    assert single["assets"] == big
 
 
 def test_parse_options_keeps_descriptions_and_skips_empty_rows() -> None:

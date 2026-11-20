@@ -185,24 +185,32 @@ def build_batch_payload(
     """Build the JEV request body for named questions asked about the same state.
 
     JEV swaps every occurrence of an asset's reference for the image itself, so each
-    use sends the image again. Images the context or question already name are left
-    out of the state's "images" list; the rest are listed there so every asset is
-    referenced at least once.
+    use sends the image again. Each question sees the shared state plus its own text, so
+    an image the context names, or that every question names, is left out of the state's
+    "images" list. Any other image is listed there, so a question that doesn't name it
+    still sees it.
     """
     if not assets:
         return {"state": state, "questions": questions}
 
-    texts = list(_strings([state, questions]))
+    context_texts = list(_strings(state))
+    question_texts = [list(_strings(question)) for question in questions.values()]
+    texts = context_texts + [text for group in question_texts for text in group]
     uses = {reference: sum(text.count(reference) for text in texts) for reference in assets}
-    unreferenced = [reference for reference, count in uses.items() if count == 0]
-    payload_bytes = sum(len(asset["data_base64"]) * max(uses[ref], 1) for ref, asset in assets.items())
+    listed = [
+        reference
+        for reference in assets
+        if not any(reference in text for text in context_texts)
+        and not all(any(reference in text for text in group) for group in question_texts)
+    ]
+    payload_bytes = sum(len(asset["data_base64"]) * (uses[ref] + (ref in listed)) for ref, asset in assets.items())
     if payload_bytes > MAX_IMAGE_PAYLOAD_BYTES:
         raise ValueError(
             "The images, counting each time the context or question names one, add up to more than JEV "
             "accepts in one request. Connect fewer images or name each one fewer times."
         )
 
-    image_state: dict[str, Any] = {"images": unreferenced}
+    image_state: dict[str, Any] = {"images": listed}
     if state is not None:
         image_state = {"context": state, **image_state}
     return {"state": image_state, "questions": questions, "assets": assets}
