@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["JevAsk"]
 
 # A new question node goes this far left of the Questions node, and each one below the last.
-QUESTION_NODE_OFFSET_X = 500
+QUESTION_NODE_OFFSET_X = 800
 QUESTION_NODE_OFFSET_Y = 300
 
 
