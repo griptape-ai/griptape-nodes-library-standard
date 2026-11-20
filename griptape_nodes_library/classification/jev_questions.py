@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 MAX_LEVELS = 10
-# The wire type the question builder nodes output and the JEV Ask node accepts.
+# The wire type the question builder nodes output and the Questions node accepts.
 QUESTION_TYPE = "JevQuestion"
 
 
@@ -91,7 +91,7 @@ def parse_levels(rows: list[str]) -> tuple[list[str], list[str]]:
 
 
 def make_spec(kind: QuestionKind, key: str, question: dict[str, Any], **extra: Any) -> dict[str, Any]:
-    """Bundle a JEV question with what the Ask node needs to name and read its answer."""
+    """Bundle a JEV question with what the Questions node needs to name and read its answer."""
     return {"key": key, "kind": str(kind), "question": question, **extra}
 
 

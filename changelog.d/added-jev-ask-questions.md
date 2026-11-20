@@ -1,4 +1,4 @@
-- `Ask Questions (JEV)` with `Yes/No Question (JEV)`, `Pick One Question (JEV)` and
+- `Questions (JEV)` with `Yes/No Question (JEV)`, `Pick One Question (JEV)` and
   `Rate Question (JEV)` nodes. Connect any mix of question nodes to ask several questions about
   the same text and images in one JEV call, so the context is billed once. The answers come out
   as a dictionary keyed by each question's name.

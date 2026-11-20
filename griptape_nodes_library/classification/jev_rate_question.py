@@ -23,9 +23,9 @@ __all__ = ["JevRateQuestion"]
 
 
 class JevRateQuestion(DataNode):
-    """Describe a rating question for a JEV Ask node to ask alongside others.
+    """Describe a rating question for a Questions (JEV) node to ask alongside others.
 
-    This node makes no JEV call. Connect its Question output to a JEV Ask node's Questions list.
+    This node makes no JEV call. Connect its Question output to a Questions (JEV) node's Questions list.
 
     Inputs:
         - key (str): Name for this question's answer. Defaults to the node's name.

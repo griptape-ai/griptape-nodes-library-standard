@@ -1,4 +1,4 @@
-"""The question builder nodes hand specs to JEV Ask, which asks them in one call and reads each answer."""
+"""The question builder nodes hand specs to the Questions node, which asks them in one call and reads each answer."""
 
 from __future__ import annotations
 

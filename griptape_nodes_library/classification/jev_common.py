@@ -230,7 +230,7 @@ def add_question_key_parameter(node: BaseNode) -> None:
         ParameterString(
             name="key",
             display_name="Name",
-            tooltip="The name this question's answer goes under in the Ask node's answers. "
+            tooltip="The name this question's answer goes under in the Questions node's answers. "
             "Leave empty to use the node's name.",
             default_value="",
             placeholder_text="is_truck",
@@ -245,12 +245,12 @@ def question_key(node: BaseNode) -> str:
 
 
 def add_question_output(node: BaseNode) -> None:
-    """Add the output a question builder hands to the Ask node."""
+    """Add the output a question builder hands to the Questions node."""
     node.add_parameter(
         Parameter(
             name="question",
             display_name="Question",
-            tooltip="Connect to a JEV Ask node's Questions list.",
+            tooltip="Connect to a Questions (JEV) node's Questions list.",
             output_type=QUESTION_TYPE,
             allowed_modes={ParameterMode.OUTPUT},
         )
