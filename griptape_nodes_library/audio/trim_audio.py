@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
@@ -160,16 +160,23 @@ class TrimAudio(SuccessFailureNode):
         audio = self.get_parameter_value("audio")
         audio_value = audio.get("value") if isinstance(audio, dict) else getattr(audio, "value", None)
         if not audio_value:
-            exceptions.append(ValueError("Connect audio to 'audio'."))
+            exceptions.append(NodeError("Connect audio to 'Audio'."))
         elif not isinstance(audio_value, str):
-            msg = (
-                "The audio connected to 'audio' is raw audio data with no file or URL to trim. Save it to a file first."
+            exceptions.append(
+                NodeError(
+                    "The audio connected to 'Audio' is raw audio data with no file or URL to trim. "
+                    "Save it to a file first, then connect the saved audio."
+                )
             )
-            exceptions.append(ValueError(msg))
         start = self.get_parameter_value("start_time") or 0.0
         end = self.get_parameter_value("end_time") or 0.0
         if 0 < end <= start:
-            exceptions.append(ValueError("'end_time' must be greater than 'start_time'."))
+            exceptions.append(
+                NodeError(
+                    f"'End Time' must be greater than 'Start Time'. 'End Time' is {end:g} and 'Start Time' is "
+                    f"{start:g}. Set 'End Time' after the start, or to 0 to keep the rest of the clip."
+                )
+            )
         return exceptions or None
 
     def _process(self, input_path: str, start_sec: float, end_sec: float) -> None:
@@ -178,15 +185,18 @@ class TrimAudio(SuccessFailureNode):
 
         duration = probe_audio_duration(get_ffprobe_path(), input_path)
         if duration is not None and start_sec >= duration:
-            msg = f"'start_time' ({start_sec:.3f}s) is at or past the end of the audio ({duration:.3f}s)."
-            raise ValueError(msg)
+            msg = (
+                f"'Start Time' is {start_sec:g}s, but the audio is only {duration:.3f}s long. "
+                "Set 'Start Time' before the end of the clip."
+            )
+            raise NodeError(msg)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / f"trimmed{extension}"
             run_ffmpeg_cmd(build_audio_trim_cmd(get_ffmpeg_path(), input_path, start_sec, end_sec, str(out_path)))
             if not out_path.exists() or out_path.stat().st_size == 0:
-                msg = "ffmpeg wrote no audio."
-                raise ValueError(msg)
+                msg = "The trim produced no audio. Check 'Start Time' and 'End Time', then run the node again."
+                raise NodeError(msg)
             audio_bytes = out_path.read_bytes()
 
         saved = dest.write_bytes(audio_bytes)
@@ -202,11 +212,11 @@ class TrimAudio(SuccessFailureNode):
         try:
             input_path = resolve_media_location(to_audio_artifact(self.get_parameter_value("audio")).value)
             if not input_path.startswith("data:") and not validate_url(input_path):
-                msg = f"The audio location is not valid or not safe to open: {input_path}"
-                raise ValueError(msg)  # noqa: TRY301
+                msg = f"The audio connected to 'Audio' can't be opened: {input_path}. Connect audio from a file or an http(s) URL."
+                raise NodeError(msg)  # noqa: TRY301
             await asyncio.to_thread(self._process, input_path, start_sec, end_sec)
         except Exception as e:
-            self._set_status_results(was_successful=False, result_details=f"Audio trim failed: {e!s}")
+            self._set_status_results(was_successful=False, result_details=str(e))
             self._handle_failure_exception(e)
             return
         end_label = f"{end_sec:.3f}s" if end_sec > 0 else "the end"

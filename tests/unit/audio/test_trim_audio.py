@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from griptape.artifacts import AudioArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
+from griptape_nodes.exe_types.core_types import NodeError
 
 from griptape_nodes_library.audio import trim_audio
 from griptape_nodes_library.audio.trim_audio import TrimAudio, build_audio_trim_cmd, probe_audio_duration
@@ -34,6 +35,7 @@ def test_probe_duration_is_none_when_ffprobe_is_missing() -> None:
 def test_validate_requires_audio() -> None:
     errors = _node(audio=None).validate_before_node_run()
     assert errors
+    assert isinstance(errors[0], NodeError)
     assert "Connect audio" in str(errors[0])
 
 
@@ -46,7 +48,7 @@ def test_validate_rejects_raw_audio_bytes() -> None:
 def test_validate_rejects_end_before_start() -> None:
     errors = _node(audio=AudioUrlArtifact("http://x/a.wav"), start_time=5.0, end_time=2.0).validate_before_node_run()
     assert errors
-    assert "'end_time' must be greater" in str(errors[0])
+    assert "'End Time' must be greater" in str(errors[0])
 
 
 def test_validate_accepts_zero_end() -> None:
@@ -78,5 +80,28 @@ def test_start_past_end_of_clip_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     node._output_file = SimpleNamespace(build_file=lambda: SimpleNamespace(location="{outputs}/trimmed.wav"))  # type: ignore[assignment]
     monkeypatch.setattr(trim_audio, "get_ffprobe_path", lambda: "ffprobe")
     monkeypatch.setattr(trim_audio, "probe_audio_duration", lambda *_: 5.0)
-    with pytest.raises(ValueError, match="past the end of the audio"):
+    with pytest.raises(NodeError, match="only 5.000s long"):
         node._process("in.wav", 6.0, 0.0)
+
+
+def _failing_node(monkeypatch: pytest.MonkeyPatch, *, failed_is_wired: bool) -> TrimAudio:
+    node = _node(audio=AudioUrlArtifact("clip.wav"), start_time=0.0, end_time=0.0)
+    monkeypatch.setattr(trim_audio, "resolve_media_location", lambda _: "not-a-location")
+    node._clear_execution_status = lambda: None  # type: ignore[method-assign]
+    node._set_status_results = lambda **_: None  # type: ignore[method-assign]
+    node._has_outgoing_connections = lambda _param: failed_is_wired  # type: ignore[method-assign]
+    node.failure_output = object()  # type: ignore[assignment]
+    return node
+
+
+@pytest.mark.asyncio
+async def test_unopenable_audio_raises_when_failed_is_unwired(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _failing_node(monkeypatch, failed_is_wired=False)
+    with pytest.raises(NodeError, match="can't be opened"):
+        await node.aprocess()
+
+
+@pytest.mark.asyncio
+async def test_unopenable_audio_follows_failed_when_wired(monkeypatch: pytest.MonkeyPatch) -> None:
+    node = _failing_node(monkeypatch, failed_is_wired=True)
+    await node.aprocess()
