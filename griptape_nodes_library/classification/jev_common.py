@@ -29,6 +29,7 @@ __all__ = [
     "add_context_parameter",
     "add_images_parameter",
     "add_model_group",
+    "build_batch_payload",
     "build_payload",
     "build_state_and_assets",
     "image_reference",
@@ -170,7 +171,14 @@ def _strings(value: Any) -> Iterator[str]:
 def build_payload(
     state: str | dict | list | None, question: dict[str, Any], assets: dict[str, dict[str, str]]
 ) -> dict[str, Any]:
-    """Build the JEV request body for one question, with image assets when there are any.
+    """Build the JEV request body for one question, with image assets when there are any."""
+    return build_batch_payload(state, {QUESTION_KEY: question}, assets)
+
+
+def build_batch_payload(
+    state: str | dict | list | None, questions: dict[str, dict[str, Any]], assets: dict[str, dict[str, str]]
+) -> dict[str, Any]:
+    """Build the JEV request body for named questions asked about the same state.
 
     JEV swaps every occurrence of an asset's reference for the image itself, so each
     use sends the image again. Images the context or question already name are left
@@ -178,9 +186,9 @@ def build_payload(
     referenced at least once.
     """
     if not assets:
-        return {"state": state, "questions": {QUESTION_KEY: question}}
+        return {"state": state, "questions": questions}
 
-    texts = list(_strings([state, question]))
+    texts = list(_strings([state, questions]))
     uses = {reference: sum(text.count(reference) for text in texts) for reference in assets}
     unreferenced = [reference for reference, count in uses.items() if count == 0]
     payload_bytes = sum(len(asset["data_base64"]) * max(uses[ref], 1) for ref, asset in assets.items())
@@ -193,7 +201,7 @@ def build_payload(
     image_state: dict[str, Any] = {"images": unreferenced}
     if state is not None:
         image_state = {"context": state, **image_state}
-    return {"state": image_state, "questions": {QUESTION_KEY: question}, "assets": assets}
+    return {"state": image_state, "questions": questions, "assets": assets}
 
 
 def add_context_parameter(node: BaseNode) -> None:

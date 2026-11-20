@@ -16,6 +16,7 @@ from griptape_nodes_library.classification.jev_common import (
     build_payload,
     build_state_and_assets,
 )
+from griptape_nodes_library.classification.jev_questions import choice_question
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
@@ -152,16 +153,7 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         state, assets = await build_state_and_assets(self)
 
-        criteria = self._criteria()
-        question = (self.get_parameter_value("question") or "").strip()
-
-        choice_q: dict[str, Any] = {
-            "type": "choice",
-            "criteria": {k: v or k for k, v in criteria.items()},
-        }
-        if question:
-            choice_q["instructions"] = question
-
+        choice_q = choice_question(self.get_parameter_value("question"), self._criteria())
         return build_payload(state, choice_q, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:

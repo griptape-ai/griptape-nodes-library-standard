@@ -17,6 +17,7 @@ from griptape_nodes_library.classification.jev_common import (
     build_payload,
     build_state_and_assets,
 )
+from griptape_nodes_library.classification.jev_questions import MAX_LEVELS, score_question
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
@@ -24,8 +25,6 @@ from griptape_nodes_library.utils.node_error_utils import error_fields, error_re
 logger = logging.getLogger(__name__)
 
 __all__ = ["JevRate"]
-
-MAX_LEVELS = 10
 
 
 class JevRate(RowOutputsMixin, GriptapeProxyNode):
@@ -173,16 +172,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
 
         rows = self._rows()
         descriptions = [parse_row(text)[1] or text for _, text in rows]
-        if len(descriptions) < 2:  # noqa: PLR2004
-            raise ValueError("'Levels' needs at least two rows for JEV to rate against. Add another level.")
-        if len(descriptions) > MAX_LEVELS:
-            raise ValueError(f"'Levels' has {len(descriptions)} rows. JEV accepts up to {MAX_LEVELS}; remove some.")
-
-        question = (self.get_parameter_value("question") or "").strip()
-        score_q: dict[str, Any] = {"type": "score", "criteria": descriptions}
-        if question:
-            score_q["instructions"] = question
-
+        score_q = score_question(self.get_parameter_value("question"), descriptions)
         return build_payload(state, score_q, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
