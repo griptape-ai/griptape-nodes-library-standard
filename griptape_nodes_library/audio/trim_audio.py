@@ -225,6 +225,15 @@ class TrimAudio(SuccessFailureNode):
             )
         return exceptions or None
 
+    def _output_extension(self) -> str:
+        """The extension of the 'Output File' name, which picks the format ffmpeg writes.
+
+        The destination's own location is a macro template, so its suffix is not the real extension.
+        """
+        filename = self.get_parameter_value("output_file")
+        suffix = Path(filename).suffix if isinstance(filename, str) else ""
+        return suffix or DEFAULT_OUTPUT_EXTENSION
+
     def _process(self, input_path: str, start_sec: float, end_sec: float) -> None:
         duration = probe_audio_duration(get_ffprobe_path(), input_path)
         if duration is not None and start_sec >= duration:
@@ -235,7 +244,7 @@ class TrimAudio(SuccessFailureNode):
             raise NodeError(msg)
 
         dest = self._output_file.build_file()
-        extension = Path(dest.location).suffix or DEFAULT_OUTPUT_EXTENSION
+        extension = self._output_extension()
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / f"trimmed{extension}"
             run_ffmpeg_cmd(build_audio_trim_cmd(get_ffmpeg_path(), input_path, start_sec, end_sec, str(out_path)))

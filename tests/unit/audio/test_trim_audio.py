@@ -190,3 +190,11 @@ def test_failed_start_check_does_not_build_the_output_file(monkeypatch: pytest.M
     with pytest.raises(NodeError):
         node._process("in.wav", 6.0, 0.0)
     assert built == []
+
+
+@pytest.mark.parametrize(
+    ("output_file", "expected"),
+    [("mix.mp3", ".mp3"), ("trimmed.wav", ".wav"), ("no_extension", ".wav"), ("", ".wav"), (None, ".wav")],
+)
+def test_output_extension_follows_the_output_file_name(output_file: str | None, expected: str) -> None:
+    assert _node(output_file=output_file)._output_extension() == expected
