@@ -77,26 +77,26 @@ class Switch(RowOutputsMixin, ControlNode):
     text) or '?' (one character) is a pattern, so '*fx' matches 'fx' and 'cfx'. Any other row must
     match the whole value.
 
-    When 'Value' is a dictionary, JSON or YAML, set 'Path' to the field to switch on, using a
+    When 'Switch on' is a dictionary, JSON or YAML, set 'Path' to the field to switch on, using a
     JMESPath expression such as 'department' or 'details.size.label'.
 
-    Each case also has a row in 'Values' for the data to pass on when that case matches. Type text
+    Each case can also have an optional input, a row in 'Optional inputs', for the data to pass on when that case matches. Type text
     into it, or connect anything. The matching case's data comes out of 'Result'. Every connected
     value is computed, matching or not, so wire cheap data here and use the exits to run expensive
     nodes only for the case that matched.
 
     Inputs:
-        - value (any): What to switch on. Text, a number, a bool, or structured data with a path.
+        - value (any, 'Switch on'): What to switch on. Text, a number, a bool, or structured data with a path.
         - path (str): A JMESPath expression that picks the field out of structured data.
         - case_sensitive (bool): Whether 'Fx' and 'fx' differ.
         - pattern_matching (bool): Whether '*' and '?' in a case row are patterns. Turn off to match them literally.
         - cases (list[str]): One row per case. Use '*' and '?' for patterns. Bools match 'true' and 'false'.
-        - values (list): The data for each case, one row per case row, kept in step with 'cases'.
-        - default_result (any): The data when no case matches.
+        - values (list, 'Optional inputs'): The data for each case, one row per case row, kept in step with 'cases'.
+        - default_result (any, 'Default input'): The data when no case matches.
 
     Outputs:
         - One flow exit per case row, and Default for when none match.
-        - result (any): The data of the case that matched, or 'default_result'.
+        - result (any): The data of the case that matched, or the default input.
     """
 
     ROWS_PARAM = "cases"
@@ -113,7 +113,7 @@ class Switch(RowOutputsMixin, ControlNode):
 
         self.value_param = Parameter(
             name="value",
-            display_name="Value",
+            display_name="Switch on",
             type=ParameterTypeBuiltin.ANY.value,
             input_types=[ParameterTypeBuiltin.ANY.value],
             default_value=None,
@@ -174,8 +174,8 @@ class Switch(RowOutputsMixin, ControlNode):
         self.add_parameter(
             ParameterList(
                 name=VALUES_PARAM,
-                display_name="Values",
-                tooltip="The data to pass on for each case, one row per case row, in the same order. "
+                display_name="Optional inputs",
+                tooltip="An optional input per case: the data to pass on when that case matches, one row per case row, in the same order. "
                 "Type text, or connect anything. 'Result' carries the matching case's data. Everything "
                 "connected here is computed whether or not its case matches.",
                 type=ParameterTypeBuiltin.ANY.value,
@@ -187,12 +187,12 @@ class Switch(RowOutputsMixin, ControlNode):
         self.add_parameter(
             Parameter(
                 name=DEFAULT_RESULT,
-                display_name="Default result",
+                display_name="Default input",
                 type=ParameterTypeBuiltin.ANY.value,
                 input_types=[ParameterTypeBuiltin.ANY.value],
                 default_value=None,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="The data for 'Result' when no case matches.",
+                tooltip="The data for 'Result' when no case matches. Optional.",
             )
         )
 
@@ -216,17 +216,17 @@ class Switch(RowOutputsMixin, ControlNode):
 
     @staticmethod
     def _data_row_name(case_row_name: str) -> str:
-        """The 'Values' row that goes with a case row, keyed by the case row's ID."""
+        """The 'Optional inputs' row that goes with a case row, keyed by the case row's ID."""
         return f"{VALUES_PARAM}_ParameterListUniqueParamID_{case_row_name.rsplit('_', 1)[-1]}"
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
-        # A row added or deleted in 'Values' by hand is put right: it has to match 'Cases'.
+        # A row added or deleted in 'Optional inputs' by hand is put right: it has to match 'Cases'.
         if parameter.name == VALUES_PARAM:
             self._sync_row_outputs()
         return super().after_value_set(parameter, value)
 
     def _sync_row_companions(self) -> None:
-        """Give every case that has text a row in 'Values', in the same order, named after its case row's ID.
+        """Give every case that has text a row in 'Optional inputs', in the same order, named after its case row's ID.
 
         Like the exits, a row is made only once its case has text, so a saved Switch that is loading, with
         case rows that have no value yet, never gets a second copy of rows it is about to restore. A row is
@@ -326,12 +326,12 @@ class Switch(RowOutputsMixin, ControlNode):
                 self.hide_parameter_by_name(param.name)
 
     def _selected_value(self) -> Any:
-        """The value to switch on: 'Value', or the field 'Path' picks out of it."""
+        """The value to switch on: 'Switch on', or the field 'Path' picks out of it."""
         value = self.get_parameter_value("value")
         path = (self.get_parameter_value("path") or "").strip()
         if not path:
             if value is None:
-                raise NodeError("'Value' is empty. Connect a value to it, or type one.")
+                raise NodeError("'Switch on' is empty. Connect a value to it, or type one.")
             return value
 
         data = value
@@ -340,7 +340,7 @@ class Switch(RowOutputsMixin, ControlNode):
                 data = YAML(typ="safe").load(StringIO(value))
             except Exception as e:
                 raise NodeError(
-                    "'Value' isn't valid JSON or YAML, so 'Path' can't read it. "
+                    "'Switch on' isn't valid JSON or YAML, so 'Path' can't read it. "
                     "Fix the text, or clear 'Path' to switch on the text itself."
                 ) from e
         try:
@@ -352,7 +352,7 @@ class Switch(RowOutputsMixin, ControlNode):
             ) from e
         if found is None:
             keys = f" The top-level fields are: {', '.join(map(str, data))}." if isinstance(data, dict) else ""
-            raise NodeError(f"'Value' has nothing at '{path}', or it's null. Check 'Path'.{keys}")
+            raise NodeError(f"'Switch on' has nothing at '{path}', or it's null. Check 'Path'.{keys}")
         return found
 
     def process(self) -> None:

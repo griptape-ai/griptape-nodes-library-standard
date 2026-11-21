@@ -1,4 +1,4 @@
-"""Switch adapts its options to the type wired into 'Value', through the real engine."""
+"""Switch adapts its options to the type wired into 'Switch on', through the real engine."""
 
 from __future__ import annotations
 
@@ -271,6 +271,6 @@ def test_a_failed_run_leaves_no_stale_result(canvas: str) -> None:
     assert switch.parameter_output_values["result"] == "Sam"
 
     switch.set_parameter_value("value", None)
-    with pytest.raises(NodeError, match="'Value' is empty"):
+    with pytest.raises(NodeError, match="'Switch on' is empty"):
         switch.process()
     assert "result" not in switch.parameter_output_values

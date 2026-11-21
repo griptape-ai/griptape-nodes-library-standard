@@ -156,5 +156,5 @@ def test_a_dictionary_without_a_path_fails() -> None:
 
 def test_an_empty_value_fails() -> None:
     node = _switch(None, ["dog"])
-    with pytest.raises(NodeError, match="'Value' is empty"):
+    with pytest.raises(NodeError, match="'Switch on' is empty"):
         node.process()
