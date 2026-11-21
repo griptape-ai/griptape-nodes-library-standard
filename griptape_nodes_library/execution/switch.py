@@ -294,13 +294,14 @@ class Switch(RowOutputsMixin, ControlNode):
             self._show_options_for(ParameterTypeBuiltin.ANY.value)
 
     def _seed_bool_cases(self) -> None:
-        """Give a Switch with no cases a 'true' and a 'false' row, the only values a bool can have.
+        """Give a Switch with no case rows a 'true' and a 'false' row, the only values a bool can have.
 
-        Only an empty list is seeded, so connecting again, or loading a saved Switch that already has
-        its rows, never adds a second pair.
+        Any existing row stops it, even one with no text yet. A saved workflow restores its connections
+        before it sets its values, so a loading Switch has its rows but not their text, and seeding then
+        would add a second pair on every reload.
         """
         rows = self.get_parameter_by_name(self.ROWS_PARAM)
-        if not isinstance(rows, ParameterList) or self._rows():
+        if not isinstance(rows, ParameterList) or rows.get_child_parameters():
             return
         for text in (TRUE_TEXT, FALSE_TEXT):
             self.set_parameter_value(rows.add_child_parameter().name, text)
@@ -328,7 +329,7 @@ class Switch(RowOutputsMixin, ControlNode):
     def _selected_value(self) -> Any:
         """The value to switch on: 'Switch on', or the field 'Path' picks out of it."""
         value = self.get_parameter_value("value")
-        path = (self.get_parameter_value("path") or "").strip()
+        path = "" if self.path_param.hide else (self.get_parameter_value("path") or "").strip()
         if not path:
             if value is None:
                 raise NodeError("'Switch on' is empty. Connect a value to it, or type one.")
@@ -365,8 +366,10 @@ class Switch(RowOutputsMixin, ControlNode):
                 f"The value to switch on is {kind}. Set 'Path' to one field inside it, such as 'department'."
             )
 
-        case_sensitive = bool(self.get_parameter_value("case_sensitive"))
-        patterns = self.get_parameter_value("pattern_matching") is not False
+        # A hidden option is one that means nothing for the connected type, so it has no effect. Its
+        # value is kept, in case the type changes back.
+        case_sensitive = not self.case_sensitive_param.hide and bool(self.get_parameter_value("case_sensitive"))
+        patterns = self.pattern_matching_param.hide or self.get_parameter_value("pattern_matching") is not False
         self._route = DEFAULT_OUTPUT
         result_name = DEFAULT_RESULT
         for output_name, text in self._rows():

@@ -291,6 +291,27 @@ class TestSwitchValues:
         ] == expected
 
 
+class TestSwitchBoolReload:
+    def test_reloading_a_bool_switch_does_not_add_cases_again(
+        self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = _create("ToBool", canvas)
+        node = cast(RowOutputsMixin, _create("Switch", canvas))
+        _connect(source, "output", node, "value")
+        assert [label for _, label in node._rows()] == ["true", "false"]
+
+        loaded_source = _create("ToBool", scratch)
+
+        def restore_the_connection(copy_name: str) -> None:
+            copy = GriptapeNodes.NodeManager().get_node_by_name(copy_name)
+            _connect(loaded_source, "output", copy, "value", initial_setup=True)
+
+        copy, _ = load_copy(node.name, scratch, monkeypatch, before_values=restore_the_connection)
+
+        assert [label for _, label in cast(RowOutputsMixin, copy)._rows()] == ["true", "false"]
+        assert len(cast(RowOutputsMixin, copy)._row_output_params()) == 2
+
+
 class TestDisplayList:
     def test_loaded_copy_keeps_the_declared_element_type(
         self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch

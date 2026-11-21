@@ -158,3 +158,30 @@ def test_an_empty_value_fails() -> None:
     node = _switch(None, ["dog"])
     with pytest.raises(NodeError, match="'Switch on' is empty"):
         node.process()
+
+
+def test_a_hidden_path_has_no_effect_and_comes_back_with_its_value() -> None:
+    node = _switch("cartoon", ["cartoon"], path="department")
+    node._show_options_for("str")
+    assert _exit_label(node) == "cartoon"
+
+    node._show_options_for("json")
+    with pytest.raises(NodeError, match="nothing at 'department'"):
+        node.process()
+
+
+def test_hidden_case_sensitivity_has_no_effect_on_a_bool() -> None:
+    node = _switch(True, ["True"], case_sensitive=True)
+    node._show_options_for("bool")
+    assert _exit_label(node) == "True"
+
+    node._show_options_for("str")
+    assert _exit_label(node) == "Default"
+
+
+def test_hidden_pattern_matching_is_back_to_its_default() -> None:
+    node = _switch("cfx", ["*fx"], pattern_matching=False)
+    assert _exit_label(node) == "Default"
+
+    node._show_options_for("int")
+    assert _exit_label(node) == "*fx"
