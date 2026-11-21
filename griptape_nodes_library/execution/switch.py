@@ -24,6 +24,9 @@ __all__ = ["Switch", "matches", "value_text"]
 
 MAX_CASES = 255
 DEFAULT_OUTPUT = "default"
+VALUES_PARAM = "values"
+DEFAULT_RESULT = "default_result"
+RESULT_PARAM = "result"
 TRUE_TEXT = "true"
 FALSE_TEXT = "false"
 WILDCARD_CHARS = "*?"
@@ -77,15 +80,23 @@ class Switch(RowOutputsMixin, ControlNode):
     When 'Value' is a dictionary, JSON or YAML, set 'Path' to the field to switch on, using a
     JMESPath expression such as 'department' or 'details.size.label'.
 
+    Each case also has a row in 'Values' for the data to pass on when that case matches. Type text
+    into it, or connect anything. The matching case's data comes out of 'Result'. Every connected
+    value is computed, matching or not, so wire cheap data here and use the exits to run expensive
+    nodes only for the case that matched.
+
     Inputs:
         - value (any): What to switch on. Text, a number, a bool, or structured data with a path.
         - path (str): A JMESPath expression that picks the field out of structured data.
         - case_sensitive (bool): Whether 'Fx' and 'fx' differ.
         - pattern_matching (bool): Whether '*' and '?' in a case row are patterns. Turn off to match them literally.
         - cases (list[str]): One row per case. Use '*' and '?' for patterns. Bools match 'true' and 'false'.
+        - values (list): The data for each case, one row per case row, kept in step with 'cases'.
+        - default_result (any): The data when no case matches.
 
     Outputs:
         - One flow exit per case row, and Default for when none match.
+        - result (any): The data of the case that matched, or 'default_result'.
     """
 
     ROWS_PARAM = "cases"
@@ -161,12 +172,100 @@ class Switch(RowOutputsMixin, ControlNode):
         )
 
         self.add_parameter(
+            ParameterList(
+                name=VALUES_PARAM,
+                display_name="Values",
+                tooltip="The data to pass on for each case, one row per case row, in the same order. "
+                "Type text, or connect anything. 'Result' carries the matching case's data. Everything "
+                "connected here is computed whether or not its case matches.",
+                type=ParameterTypeBuiltin.ANY.value,
+                input_types=[ParameterTypeBuiltin.ANY.value],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name=DEFAULT_RESULT,
+                display_name="Default result",
+                type=ParameterTypeBuiltin.ANY.value,
+                input_types=[ParameterTypeBuiltin.ANY.value],
+                default_value=None,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                tooltip="The data for 'Result' when no case matches.",
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name=RESULT_PARAM,
+                display_name="Result",
+                output_type=ParameterTypeBuiltin.ALL.value,
+                allowed_modes={ParameterMode.OUTPUT},
+                tooltip="The data of the case that matched, or the default result.",
+            )
+        )
+
+        self.add_parameter(
             ControlParameterOutput(
                 name=DEFAULT_OUTPUT,
                 display_name="Default",
                 tooltip="Taken when no case matches.",
             )
         )
+
+    @staticmethod
+    def _data_row_name(case_row_name: str) -> str:
+        """The 'Values' row that goes with a case row, keyed by the case row's ID."""
+        return f"{VALUES_PARAM}_ParameterListUniqueParamID_{case_row_name.rsplit('_', 1)[-1]}"
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        # A row added or deleted in 'Values' by hand is put right: it has to match 'Cases'.
+        if parameter.name == VALUES_PARAM:
+            self._sync_row_outputs()
+        return super().after_value_set(parameter, value)
+
+    def _sync_row_companions(self) -> None:
+        """Give every case that has text a row in 'Values', in the same order, named after its case row's ID.
+
+        Like the exits, a row is made only once its case has text, so a saved Switch that is loading, with
+        case rows that have no value yet, never gets a second copy of rows it is about to restore. A row is
+        removed only when its case row is gone.
+        """
+        cases = self.get_parameter_by_name(self.ROWS_PARAM)
+        values = self.get_parameter_by_name(VALUES_PARAM)
+        if not isinstance(cases, ParameterList) or not isinstance(values, ParameterList):
+            return
+
+        case_rows = cases.get_child_parameters()
+        case_data_names = {row.name: self._data_row_name(row.name) for row in case_rows}
+        for child in values.get_child_parameters():
+            if child.name not in case_data_names.values():
+                self._delete_input_connections(child.name)
+                values.remove_child(child)
+
+        have = {child.name for child in values.get_child_parameters()}
+        texts = {row.name: (self.parameter_values.get(row.name) or "").strip() for row in case_rows}
+        for row in case_rows:
+            name = case_data_names[row.name]
+            if texts[row.name] and name not in have:
+                values.add_child_parameter().name = name
+
+        have = {child.name: child for child in values.get_child_parameters()}
+        position = 0
+        for row in case_rows:
+            child = have.get(case_data_names[row.name])
+            if child is None:
+                continue
+            current = values.get_child_parameters().index(child)
+            if current != position:
+                values.move_child(current, position)
+            position += 1
+            # A case with no text yet keeps the label it has: a loading Switch's rows get their text later.
+            label = texts[row.name]
+            if label and child.display_name != label:
+                child.display_name = label
+                child.tooltip = f"The data for 'Result' when the value matches '{label}'."
 
     def _row_output_label(self, index: int, text: str) -> str:  # noqa: ARG002
         return text.strip()
@@ -258,6 +357,7 @@ class Switch(RowOutputsMixin, ControlNode):
 
     def process(self) -> None:
         self._route = None
+        self.parameter_output_values.pop(RESULT_PARAM, None)
         selected = self._selected_value()
         if isinstance(selected, dict | list):
             kind = "a dictionary" if isinstance(selected, dict) else "a list"
@@ -268,10 +368,13 @@ class Switch(RowOutputsMixin, ControlNode):
         case_sensitive = bool(self.get_parameter_value("case_sensitive"))
         patterns = self.get_parameter_value("pattern_matching") is not False
         self._route = DEFAULT_OUTPUT
+        result_name = DEFAULT_RESULT
         for output_name, text in self._rows():
             if matches(selected, text, case_sensitive=case_sensitive, patterns=patterns):
                 self._route = output_name
-                return
+                result_name = self._data_row_name(output_name)
+                break
+        self.parameter_output_values[RESULT_PARAM] = self.get_parameter_value(result_name)
 
     def get_next_control_output(self) -> Parameter | None:
         if self._route is None:

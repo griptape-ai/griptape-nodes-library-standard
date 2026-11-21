@@ -6,11 +6,14 @@ from collections.abc import Generator
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types.core_types import NodeError, ParameterList
 from griptape_nodes.retained_mode.events.connection_events import (
     CreateConnectionRequest,
     CreateConnectionResultSuccess,
     DeleteConnectionRequest,
     DeleteConnectionResultSuccess,
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
 )
 from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest, CreateFlowResultSuccess
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest, CreateNodeResultSuccess
@@ -139,3 +142,135 @@ def test_a_bool_switch_routes_to_the_matching_exit(canvas: str) -> None:
     exit_ = switch.get_next_control_output()
     assert exit_ is not None
     assert exit_.display_name == "false"
+
+
+def _case_rows(node: Switch) -> list[Any]:
+    cases = node.get_parameter_by_name("cases")
+    assert isinstance(cases, ParameterList)
+    return cases.get_child_parameters()
+
+
+def _data_rows(node: Switch) -> list[Any]:
+    values = node.get_parameter_by_name("values")
+    assert isinstance(values, ParameterList)
+    return values.get_child_parameters()
+
+
+def _add_case(node: Switch, text: str) -> Any:
+    cases = node.get_parameter_by_name("cases")
+    assert isinstance(cases, ParameterList)
+    row = cases.add_child_parameter()
+    if text:
+        node.set_parameter_value(row.name, text)
+    return row
+
+
+def _data_labels(node: Switch) -> list[str]:
+    return [row.display_name for row in _data_rows(node)]
+
+
+def test_each_case_gets_a_data_row_named_after_it(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    lighting = _add_case(switch, "Lighting")
+    _add_case(switch, "Layout")
+
+    assert _data_labels(switch) == ["Lighting", "Layout"]
+    assert _data_rows(switch)[0].name == switch._data_row_name(lighting.name)
+
+
+def test_a_case_with_no_text_gets_its_data_row_when_it_gets_text(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    blank = _add_case(switch, "")
+    assert _data_rows(switch) == []
+
+    switch.set_parameter_value(blank.name, "Lighting")
+
+    assert _data_labels(switch) == ["Lighting"]
+
+
+def test_renaming_a_case_renames_its_data_row(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    row = _add_case(switch, "Lighting")
+    switch.set_parameter_value(row.name, "Lights")
+
+    assert _data_labels(switch) == ["Lights"]
+
+
+def test_reordering_the_cases_reorders_the_data_rows_with_them(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    for text in ("Lighting", "Layout", "Animation"):
+        _add_case(switch, text)
+    typed = {row.display_name: row.name for row in _data_rows(switch)}
+    switch.set_parameter_value(typed["Lighting"], "Sam")
+
+    cases = switch.get_parameter_by_name("cases")
+    cases.move_child(0, 2)
+
+    assert [row.display_name for row in _data_rows(switch)] == ["Layout", "Animation", "Lighting"]
+    assert switch.get_parameter_value(typed["Lighting"]) == "Sam"
+
+
+def test_deleting_a_case_removes_its_data_row_and_the_wire_into_it(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    doomed = _add_case(switch, "Lighting")
+    _add_case(switch, "Layout")
+    data_name = switch._data_row_name(doomed.name)
+    source = _create("ToText", canvas)
+    result = GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=source.name,
+            source_parameter_name="output",
+            target_node_name=switch.name,
+            target_parameter_name=data_name,
+        )
+    )
+    assert isinstance(result, CreateConnectionResultSuccess), result.result_details
+
+    switch.get_parameter_by_name("cases").remove_child(doomed)
+
+    assert _data_labels(switch) == ["Layout"]
+    connections = GriptapeNodes.handle_request(ListConnectionsForNodeRequest(node_name=switch.name))
+    assert isinstance(connections, ListConnectionsForNodeResultSuccess)
+    assert [c.target_parameter_name for c in connections.incoming_connections] == []
+
+
+def test_an_extra_data_row_added_by_hand_is_removed(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    _add_case(switch, "Lighting")
+    values = switch.get_parameter_by_name("values")
+    values.add_child_parameter()
+    switch.set_parameter_value("values", switch.get_parameter_value("values"))
+
+    assert _data_labels(switch) == ["Lighting"]
+
+
+def test_result_is_the_data_of_the_matching_case(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    for text in ("Lighting", "Layout"):
+        _add_case(switch, text)
+    rows = {row.display_name: row.name for row in _data_rows(switch)}
+    switch.set_parameter_value(rows["Lighting"], "Sam")
+    switch.set_parameter_value(rows["Layout"], "Priya")
+    switch.set_parameter_value("default_result", "Triage")
+
+    switch.set_parameter_value("value", "layout")
+    switch.process()
+    assert switch.parameter_output_values["result"] == "Priya"
+
+    switch.set_parameter_value("value", "animation")
+    switch.process()
+    assert switch.parameter_output_values["result"] == "Triage"
+
+
+def test_a_failed_run_leaves_no_stale_result(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    _add_case(switch, "Lighting")
+    switch.set_parameter_value(_data_rows(switch)[0].name, "Sam")
+    switch.set_parameter_value("value", "lighting")
+    switch.process()
+    assert switch.parameter_output_values["result"] == "Sam"
+
+    switch.set_parameter_value("value", None)
+    with pytest.raises(NodeError, match="'Value' is empty"):
+        switch.process()
+    assert "result" not in switch.parameter_output_values

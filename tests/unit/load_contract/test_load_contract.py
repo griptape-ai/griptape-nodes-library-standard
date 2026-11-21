@@ -263,6 +263,34 @@ class TestRowOutputs:
         assert [p.name for p in cast(RowOutputsMixin, copy)._row_output_params()] == outputs
 
 
+class TestSwitchValues:
+    def test_loading_keeps_the_data_rows_and_what_was_typed_in_them(
+        self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        node = cast(RowOutputsMixin, _create("Switch", canvas))
+        rows = node.get_parameter_by_name(node.ROWS_PARAM)
+        assert isinstance(rows, ParameterList)
+        for text in ("Lighting", "Layout"):
+            node.set_parameter_value(rows.add_child_parameter().name, text)
+        values = node.get_parameter_by_name("values")
+        assert isinstance(values, ParameterList)
+        for row, data in zip(values.get_child_parameters(), ("Sam", "Priya"), strict=True):
+            node.set_parameter_value(row.name, data)
+        expected = [
+            (row.name, row.display_name, node.get_parameter_value(row.name)) for row in values.get_child_parameters()
+        ]
+        assert len(expected) == 2
+
+        copy, recorder = load_copy(node.name, scratch, monkeypatch)
+
+        assert recorder.forbidden() == []
+        loaded = copy.get_parameter_by_name("values")
+        assert isinstance(loaded, ParameterList)
+        assert [
+            (row.name, row.display_name, copy.get_parameter_value(row.name)) for row in loaded.get_child_parameters()
+        ] == expected
+
+
 class TestDisplayList:
     def test_loaded_copy_keeps_the_declared_element_type(
         self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch

@@ -141,8 +141,28 @@ class RowOutputsMixin(BaseNode):
                         self.root_ui_element.add_child(param)
 
             self._keep_failure_last()
+            self._sync_row_companions()
         finally:
             self._syncing = False
+
+    def _sync_row_companions(self) -> None:
+        """Keep anything else that follows the rows in step with them. Runs inside the row sync."""
+
+    def _delete_input_connections(self, parameter_name: str) -> None:
+        """Delete the wires entering an input before removing it."""
+        result = self.engine.handle_request(ListConnectionsForNodeRequest(node_name=self.name, broadcast_result=False))
+        if not isinstance(result, ListConnectionsForNodeResultSuccess):
+            return
+        for connection in result.incoming_connections:
+            if connection.target_parameter_name == parameter_name:
+                self.engine.handle_request(
+                    DeleteConnectionRequest(
+                        source_node_name=connection.source_node_name,
+                        source_parameter_name=connection.source_parameter_name,
+                        target_node_name=self.name,
+                        target_parameter_name=parameter_name,
+                    )
+                )
 
     def _delete_output_connections(self, parameter_name: str) -> None:
         """Delete the wires leaving an output before removing it."""
