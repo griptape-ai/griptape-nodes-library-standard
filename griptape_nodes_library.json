@@ -1404,6 +1404,11 @@
       "description": "Interactive video crop editor — drag handles on a live video frame with frame scrubber, aspect ratio, resolution, and position presets."
     },
     {
+      "name": "TrimAudioEditor",
+      "path": "widgets/TrimAudioEditor.js",
+      "description": "Audio player with a waveform and draggable in and out handles that set the start and end time to trim."
+    },
+    {
       "name": "SelectFromGrid",
       "path": "widgets/SelectFromGrid/SelectFromGrid.js",
       "description": "Interactive grid selector — displays list items as thumbnails (images, video, audio, text) and lets the user click to select one or more."
@@ -2485,6 +2490,22 @@
               "gtc_eleven_music_1_0"
             ]
           }
+        ]
+      }
+    },
+    {
+      "class_name": "TrimAudio",
+      "file_path": "griptape_nodes_library/audio/trim_audio.py",
+      "metadata": {
+        "category": "audio",
+        "description": "Trim audio to a start and end time by dragging in and out points on the waveform",
+        "display_name": "Trim Audio",
+        "icon": "scissors",
+        "group": "edit",
+        "tags": [
+          "audio",
+          "trim",
+          "ffmpeg"
         ]
       }
     },
