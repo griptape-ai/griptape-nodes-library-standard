@@ -7,7 +7,6 @@ from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterList,
     ParameterMode,
-    ParameterType,
 )
 from griptape_nodes.exe_types.node_groups import SubflowNodeGroup
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
@@ -34,6 +33,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
+from griptape_nodes_library.utils.connection_utils import remove_incompatible_outgoing_connections
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
@@ -195,34 +195,7 @@ class DescribeImage(ControlNode):
         output_param.output_type = new_output_type
         output_param.type = new_output_type
 
-        connections = GriptapeNodes.FlowManager().get_connections()
-        outgoing_for_node = connections.outgoing_index.get(self.name, {})
-        connection_ids = outgoing_for_node.get("output", [])
-
-        for connection_id in connection_ids:
-            connection = connections.connections[connection_id]
-            target_param = connection.target_parameter
-            target_node = connection.target_node
-
-            is_compatible = any(
-                ParameterType.are_types_compatible(new_output_type, input_type)
-                for input_type in target_param.input_types
-            )
-
-            if not is_compatible:
-                logger.info(
-                    f"Removing incompatible connection: DescribeImage '{self.name}' output ({new_output_type}) to "
-                    f"'{target_node.name}.{target_param.name}' (accepts: {target_param.input_types})"
-                )
-
-                GriptapeNodes.handle_request(
-                    DeleteConnectionRequest(
-                        source_node_name=self.name,
-                        source_parameter_name="output",
-                        target_node_name=target_node.name,
-                        target_parameter_name=target_param.name,
-                    )
-                )
+        remove_incompatible_outgoing_connections(self, "output", new_output_type)
 
     def set_parameter_value(
         self,
