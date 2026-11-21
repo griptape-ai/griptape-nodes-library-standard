@@ -42,14 +42,14 @@ def value_text(value: Any) -> str:
             return str(value)
 
 
-def matches(value: Any, pattern: str, *, case_sensitive: bool) -> bool:
+def matches(value: Any, pattern: str, *, case_sensitive: bool, patterns: bool = True) -> bool:
     """Whether a case row's text matches the value.
 
-    A row with '*' (any run of text) or '?' (one character) is a wildcard pattern. Any other row
-    must match the whole value.
+    With `patterns` on, a row with '*' (any run of text) or '?' (one character) is a wildcard
+    pattern. Any other row, or any row with `patterns` off, must match the whole value.
     """
     pattern = pattern.strip()
-    is_wildcard = any(char in pattern for char in WILDCARD_CHARS)
+    is_wildcard = patterns and any(char in pattern for char in WILDCARD_CHARS)
     # An exact row on a number compares numerically, so a row of '3.0' matches 3.
     if not is_wildcard and isinstance(value, int | float) and not isinstance(value, bool):
         try:
@@ -70,8 +70,9 @@ class Switch(RowOutputsMixin, ControlNode):
     """Send the flow down the exit whose case matches a value.
 
     Each case row gets its own flow exit. The first row, from the top, that matches the value
-    wins. If none match, the flow takes Default. A row with '*' (any text) or '?' (one character)
-    is a pattern, so '*fx' matches 'fx' and 'cfx'. Any other row must match the whole value.
+    wins. If none match, the flow takes Default. With 'Pattern matching' on, a row with '*' (any
+    text) or '?' (one character) is a pattern, so '*fx' matches 'fx' and 'cfx'. Any other row must
+    match the whole value.
 
     When 'Value' is a dictionary, JSON or YAML, set 'Path' to the field to switch on, using a
     JMESPath expression such as 'department' or 'details.size.label'.
@@ -80,6 +81,7 @@ class Switch(RowOutputsMixin, ControlNode):
         - value (any): What to switch on. Text, a number, a bool, or structured data with a path.
         - path (str): A JMESPath expression that picks the field out of structured data.
         - case_sensitive (bool): Whether 'Fx' and 'fx' differ.
+        - pattern_matching (bool): Whether '*' and '?' in a case row are patterns. Turn off to match them literally.
         - cases (list[str]): One row per case. Use '*' and '?' for patterns. Bools match 'true' and 'false'.
 
     Outputs:
@@ -135,12 +137,22 @@ class Switch(RowOutputsMixin, ControlNode):
         )
         self.add_parameter(self.case_sensitive_param)
 
+        self.pattern_matching_param = ParameterBool(
+            name="pattern_matching",
+            display_name="Pattern matching",
+            tooltip="When on, '*' in a case matches any text and '?' matches one character, so '*fx' matches "
+            "'fx' and 'cfx'. Turn off to match '*' and '?' as written.",
+            default_value=True,
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.add_parameter(self.pattern_matching_param)
+
         self.add_parameter(
             ParameterList(
                 name="cases",
                 display_name="Cases",
                 tooltip="One case per row. The first row that matches the value, from the top, sets the exit. "
-                "Use '*' for any text and '?' for one character, so '*fx' matches 'fx' and 'cfx'. "
+                "With Pattern matching on, '*' matches any text and '?' one character, so '*fx' matches 'fx' and 'cfx'. "
                 "A bool matches 'true' or 'false'. Each case gets its own flow exit.",
                 type="str",
                 ui_options={"placeholder_text": "Text to match"},
@@ -184,13 +196,17 @@ class Switch(RowOutputsMixin, ControlNode):
         """Show only the options that mean something for the connected type."""
         match value_type:
             case ParameterTypeBuiltin.BOOL | ParameterTypeBuiltin.INT | ParameterTypeBuiltin.FLOAT:
-                show_path, show_case = False, False
+                show_path, show_text_options = False, False
             case ParameterTypeBuiltin.STR:
-                show_path, show_case = False, True
+                show_path, show_text_options = False, True
             case _:
                 # json, dict, yaml, any and everything else: the field inside could be anything.
-                show_path, show_case = True, True
-        for param, show in ((self.path_param, show_path), (self.case_sensitive_param, show_case)):
+                show_path, show_text_options = True, True
+        for param, show in (
+            (self.path_param, show_path),
+            (self.case_sensitive_param, show_text_options),
+            (self.pattern_matching_param, show_text_options),
+        ):
             if show:
                 self.show_parameter_by_name(param.name)
             else:
@@ -236,9 +252,10 @@ class Switch(RowOutputsMixin, ControlNode):
             )
 
         case_sensitive = bool(self.get_parameter_value("case_sensitive"))
+        patterns = self.get_parameter_value("pattern_matching") is not False
         self._route = DEFAULT_OUTPUT
         for output_name, text in self._rows():
-            if matches(selected, text, case_sensitive=case_sensitive):
+            if matches(selected, text, case_sensitive=case_sensitive, patterns=patterns):
                 self._route = output_name
                 return
 

@@ -50,6 +50,16 @@ def test_matches(value: Any, pattern: str, case_sensitive: bool, expected: bool)
     assert matches(value, pattern, case_sensitive=case_sensitive) is expected
 
 
+@pytest.mark.parametrize(
+    ("value", "pattern", "expected"),
+    [("Why?", "Why?", True), ("Whys", "Why?", False), ("cfx", "*fx", False), ("*fx", "*fx", True), (3, "3*", False)],
+)
+def test_matches_with_patterns_off_reads_wildcard_characters_literally(
+    value: Any, pattern: str, expected: bool
+) -> None:  # noqa: FBT001
+    assert matches(value, pattern, case_sensitive=True, patterns=False) is expected
+
+
 def _switch(value: Any, cases: list[str], **settings: Any) -> Switch:
     node = Switch(name="switch")
     rows = node.get_parameter_by_name("cases")
@@ -86,6 +96,12 @@ def test_exact_and_pattern_rows_mix_in_one_switch() -> None:
     assert _exit_label(_switch("cfx", cases)) == "*fx"
     assert _exit_label(_switch("lighting", cases)) == "light*"
     assert _exit_label(_switch("animation", cases)) == "Default"
+
+
+def test_the_pattern_matching_option_turns_wildcards_off() -> None:
+    assert _exit_label(_switch("cfx", ["*fx"])) == "*fx"
+    assert _exit_label(_switch("cfx", ["*fx"], pattern_matching=False)) == "Default"
+    assert _exit_label(_switch("*fx", ["*fx"], pattern_matching=False)) == "*fx"
 
 
 def test_no_match_takes_default() -> None:
