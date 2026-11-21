@@ -85,3 +85,11 @@ class TestLoadTextProcess:
 
         mock_read.assert_called_once()
         assert node.parameter_output_values["output"] == "TITLE: MY_EDL\nFCM: DROP FRAME\n"
+
+    @pytest.mark.parametrize("path", [None, ""])
+    def test_missing_path_raises_clear_error(self, node: LoadText, path: str | None) -> None:
+        """A missing path, e.g. from an empty upstream lookup, should name the problem."""
+        node.parameter_values["path"] = path
+
+        with pytest.raises(ValueError, match="no file path"):
+            node.process()
