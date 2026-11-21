@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from griptape_nodes.exe_types.core_types import NodeError, ParameterList
 
-from griptape_nodes_library.execution.switch import MatchMode, Switch, matches, value_text
+from griptape_nodes_library.execution.switch import Switch, matches, value_text
 
 
 @pytest.mark.parametrize(
@@ -19,34 +19,35 @@ def test_value_text(value: Any, text: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("value", "pattern", "mode", "case_sensitive", "expected"),
+    ("value", "pattern", "case_sensitive", "expected"),
     [
-        ("fx", "fx", MatchMode.EQUALS, True, True),
-        ("Fx", "fx", MatchMode.EQUALS, True, False),
-        ("Fx", "fx", MatchMode.EQUALS, False, True),
-        ("cfx", "fx", MatchMode.EQUALS, False, False),
-        ("fx", "*fx", MatchMode.WILDCARD, True, True),
-        ("cfx", "*fx", MatchMode.WILDCARD, True, True),
-        ("fxx", "*fx", MatchMode.WILDCARD, True, False),
-        ("CFX", "*fx", MatchMode.WILDCARD, False, True),
-        ("CFX", "*fx", MatchMode.WILDCARD, True, False),
-        ("Level 2", "Level ?", MatchMode.WILDCARD, True, True),
-        (True, "true", MatchMode.EQUALS, False, True),
-        (False, "true", MatchMode.EQUALS, False, False),
-        (3, "3.0", MatchMode.EQUALS, True, True),
-        (3.0, "3", MatchMode.EQUALS, True, True),
-        (3, "three", MatchMode.EQUALS, True, False),
-        (3, "3*", MatchMode.WILDCARD, True, True),
-        ("3", "3.0", MatchMode.EQUALS, True, False),
+        ("fx", "fx", True, True),
+        ("Fx", "fx", True, False),
+        ("Fx", "fx", False, True),
+        ("cfx", "fx", False, False),
+        ("fx", "*fx", True, True),
+        ("cfx", "*fx", True, True),
+        ("fxx", "*fx", True, False),
+        ("CFX", "*fx", False, True),
+        ("CFX", "*fx", True, False),
+        ("fx_hero", "fx*", True, True),
+        ("a_fx_b", "*fx*", True, True),
+        ("Level 2", "Level ?", True, True),
+        ("Level 10", "Level ?", True, False),
+        ("[fx]", "[fx]", True, True),
+        ("f", "[fx]", True, False),
+        ("[fx]", "*[fx]", True, True),
+        (True, "true", False, True),
+        (False, "true", False, False),
+        (3, "3.0", True, True),
+        (3.0, "3", True, True),
+        (3, "three", True, False),
+        (3, "3*", True, True),
+        ("3", "3.0", True, False),
     ],
 )
-def test_matches(value: Any, pattern: str, mode: MatchMode, case_sensitive: bool, expected: bool) -> None:  # noqa: FBT001
-    assert matches(value, pattern, mode, case_sensitive=case_sensitive) is expected
-
-
-def test_matches_rejects_an_unknown_mode() -> None:
-    with pytest.raises(ValueError, match="Unknown match mode"):
-        matches("a", "a", "Regex", case_sensitive=True)  # type: ignore[arg-type]
+def test_matches(value: Any, pattern: str, case_sensitive: bool, expected: bool) -> None:  # noqa: FBT001
+    assert matches(value, pattern, case_sensitive=case_sensitive) is expected
 
 
 def _switch(value: Any, cases: list[str], **settings: Any) -> Switch:
@@ -75,8 +76,16 @@ def test_each_case_row_gets_a_flow_exit_and_default_stays_last() -> None:
 
 
 def test_the_first_matching_row_wins() -> None:
-    assert _exit_label(_switch("cfx", ["cfx", "*fx"], match_mode="Wildcard")) == "cfx"
-    assert _exit_label(_switch("cfx", ["*fx", "cfx"], match_mode="Wildcard")) == "*fx"
+    assert _exit_label(_switch("cfx", ["cfx", "*fx"])) == "cfx"
+    assert _exit_label(_switch("cfx", ["*fx", "cfx"])) == "*fx"
+
+
+def test_exact_and_pattern_rows_mix_in_one_switch() -> None:
+    cases = ["layout", "*fx", "light*"]
+    assert _exit_label(_switch("Layout", cases)) == "layout"
+    assert _exit_label(_switch("cfx", cases)) == "*fx"
+    assert _exit_label(_switch("lighting", cases)) == "light*"
+    assert _exit_label(_switch("animation", cases)) == "Default"
 
 
 def test_no_match_takes_default() -> None:

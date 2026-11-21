@@ -40,7 +40,7 @@ def _create(node_type: str, flow: str) -> Any:
 
 
 def _hidden(node: Switch) -> set[str]:
-    return {p.name for p in (node.path_param, node.match_mode_param, node.case_sensitive_param) if p.hide}
+    return {p.name for p in (node.path_param, node.case_sensitive_param) if p.hide}
 
 
 def test_a_bool_wired_in_hides_every_option_and_removing_it_brings_them_back(canvas: str) -> None:
@@ -57,7 +57,7 @@ def test_a_bool_wired_in_hides_every_option_and_removing_it_brings_them_back(can
         )
     )
     assert isinstance(connected, CreateConnectionResultSuccess), connected.result_details
-    assert _hidden(switch) == {"path", "match_mode", "case_sensitive"}
+    assert _hidden(switch) == {"path", "case_sensitive"}
 
     removed = GriptapeNodes.handle_request(
         DeleteConnectionRequest(
@@ -75,8 +75,8 @@ def test_a_bool_wired_in_hides_every_option_and_removing_it_brings_them_back(can
     ("value_type", "hidden"),
     [
         ("str", {"path"}),
-        ("int", {"path", "match_mode", "case_sensitive"}),
-        ("float", {"path", "match_mode", "case_sensitive"}),
+        ("int", {"path", "case_sensitive"}),
+        ("float", {"path", "case_sensitive"}),
         ("json", set()),
         ("yaml", set()),
         ("dict", set()),

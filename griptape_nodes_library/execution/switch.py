@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import fnmatch
-from enum import StrEnum
 from io import StringIO
 from typing import Any
 
@@ -17,22 +16,17 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import BaseNode, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.traits.options import Options
 from ruamel.yaml import YAML
 
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin
 
-__all__ = ["MatchMode", "Switch", "matches", "value_text"]
+__all__ = ["Switch", "matches", "value_text"]
 
 MAX_CASES = 255
 DEFAULT_OUTPUT = "default"
 TRUE_TEXT = "true"
 FALSE_TEXT = "false"
-
-
-class MatchMode(StrEnum):
-    EQUALS = "Equals"
-    WILDCARD = "Wildcard"
+WILDCARD_CHARS = "*?"
 
 
 def value_text(value: Any) -> str:
@@ -48,11 +42,16 @@ def value_text(value: Any) -> str:
             return str(value)
 
 
-def matches(value: Any, pattern: str, mode: MatchMode, *, case_sensitive: bool) -> bool:
-    """Whether a case row's text matches the value."""
+def matches(value: Any, pattern: str, *, case_sensitive: bool) -> bool:
+    """Whether a case row's text matches the value.
+
+    A row with '*' (any run of text) or '?' (one character) is a wildcard pattern. Any other row
+    must match the whole value.
+    """
     pattern = pattern.strip()
-    # Equals on a number compares numerically, so a row of '3.0' matches 3.
-    if mode == MatchMode.EQUALS and isinstance(value, int | float) and not isinstance(value, bool):
+    is_wildcard = any(char in pattern for char in WILDCARD_CHARS)
+    # An exact row on a number compares numerically, so a row of '3.0' matches 3.
+    if not is_wildcard and isinstance(value, int | float) and not isinstance(value, bool):
         try:
             return float(pattern) == value
         except ValueError:
@@ -61,22 +60,18 @@ def matches(value: Any, pattern: str, mode: MatchMode, *, case_sensitive: bool) 
     text = value_text(value)
     if not case_sensitive:
         text, pattern = text.casefold(), pattern.casefold()
-    match mode:
-        case MatchMode.EQUALS:
-            return text == pattern
-        case MatchMode.WILDCARD:
-            # fnmatchcase, because fnmatch folds case by operating system.
-            return fnmatch.fnmatchcase(text, pattern)
-        case _:
-            msg = f"Unknown match mode: {mode!r}"
-            raise ValueError(msg)
+    if is_wildcard:
+        # Escape '[' so only * and ? are special. fnmatchcase, because fnmatch folds case by operating system.
+        return fnmatch.fnmatchcase(text, pattern.replace("[", "[[]"))
+    return text == pattern
 
 
 class Switch(RowOutputsMixin, ControlNode):
     """Send the flow down the exit whose case matches a value.
 
     Each case row gets its own flow exit. The first row, from the top, that matches the value
-    wins. If none match, the flow takes Default.
+    wins. If none match, the flow takes Default. A row with '*' (any text) or '?' (one character)
+    is a pattern, so '*fx' matches 'fx' and 'cfx'. Any other row must match the whole value.
 
     When 'Value' is a dictionary, JSON or YAML, set 'Path' to the field to switch on, using a
     JMESPath expression such as 'department' or 'details.size.label'.
@@ -84,9 +79,8 @@ class Switch(RowOutputsMixin, ControlNode):
     Inputs:
         - value (any): What to switch on. Text, a number, a bool, or structured data with a path.
         - path (str): A JMESPath expression that picks the field out of structured data.
-        - match_mode (str): Equals, or Wildcard where '*' matches any text and '?' one character.
         - case_sensitive (bool): Whether 'Fx' and 'fx' differ.
-        - cases (list[str]): One row per case. Bools match 'true' and 'false'.
+        - cases (list[str]): One row per case. Use '*' and '?' for patterns. Bools match 'true' and 'false'.
 
     Outputs:
         - One flow exit per case row, and Default for when none match.
@@ -132,17 +126,6 @@ class Switch(RowOutputsMixin, ControlNode):
         )
         self.add_parameter(self.path_param)
 
-        self.match_mode_param = ParameterString(
-            name="match_mode",
-            display_name="Match",
-            tooltip="Equals needs the whole value to match. Wildcard also accepts '*' for any run of text "
-            "and '?' for one character, so '*fx' matches 'fx' and 'cfx'.",
-            default_value=MatchMode.EQUALS,
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            traits={Options(choices=list(MatchMode))},
-        )
-        self.add_parameter(self.match_mode_param)
-
         self.case_sensitive_param = ParameterBool(
             name="case_sensitive",
             display_name="Case sensitive",
@@ -157,6 +140,7 @@ class Switch(RowOutputsMixin, ControlNode):
                 name="cases",
                 display_name="Cases",
                 tooltip="One case per row. The first row that matches the value, from the top, sets the exit. "
+                "Use '*' for any text and '?' for one character, so '*fx' matches 'fx' and 'cfx'. "
                 "A bool matches 'true' or 'false'. Each case gets its own flow exit.",
                 type="str",
                 ui_options={"placeholder_text": "Text to match"},
@@ -200,17 +184,13 @@ class Switch(RowOutputsMixin, ControlNode):
         """Show only the options that mean something for the connected type."""
         match value_type:
             case ParameterTypeBuiltin.BOOL | ParameterTypeBuiltin.INT | ParameterTypeBuiltin.FLOAT:
-                show_path, show_text_options = False, False
+                show_path, show_case = False, False
             case ParameterTypeBuiltin.STR:
-                show_path, show_text_options = False, True
+                show_path, show_case = False, True
             case _:
                 # json, dict, yaml, any and everything else: the field inside could be anything.
-                show_path, show_text_options = True, True
-        for param, show in (
-            (self.path_param, show_path),
-            (self.match_mode_param, show_text_options),
-            (self.case_sensitive_param, show_text_options),
-        ):
+                show_path, show_case = True, True
+        for param, show in ((self.path_param, show_path), (self.case_sensitive_param, show_case)):
             if show:
                 self.show_parameter_by_name(param.name)
             else:
@@ -255,11 +235,10 @@ class Switch(RowOutputsMixin, ControlNode):
                 f"The value to switch on is {kind}. Set 'Path' to one field inside it, such as 'department'."
             )
 
-        mode = MatchMode(self.get_parameter_value("match_mode") or MatchMode.EQUALS)
         case_sensitive = bool(self.get_parameter_value("case_sensitive"))
         self._route = DEFAULT_OUTPUT
         for output_name, text in self._rows():
-            if matches(selected, text, mode, case_sensitive=case_sensitive):
+            if matches(selected, text, case_sensitive=case_sensitive):
                 self._route = output_name
                 return
 
