@@ -297,7 +297,66 @@ Choose an appropriate [Lucide icon](https://lucide.dev/icons/) name. Common choi
 - Music: `"music"`
 - 3D: `"box"`
 
-## 7. Update __init__.py (if applicable)
+## 7. Declare the Model in the Catalog
+
+**Don't skip this.** A node that calls a model has to say which model it calls, or the license check can't resolve what it's gating. There are two parts, both in `griptape_nodes_library.json`.
+
+First, the library's model catalog. Find the `model_catalog` block in the top-level `"metadata": {"declarations": [...]}` and add your model under its provider (add the provider if it's new):
+
+```json
+{
+    "type": "model_catalog",
+    "providers": {
+        "<provider_key>": {
+            "display_name": "<Provider Display Name>",
+            "models": {
+                "gtc_<model_slug>": {
+                    "display_name": "<Model Display Name>",
+                    "family": "<Family>",
+                    "provider_model_id": "<the provider's own model id>",
+                    "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
+                }
+            }
+        }
+    }
+}
+```
+
+The `gtc_...` key is the catalog id. It's ours, it's stable, and it's what the permission check gates on. Name it after the model, matching the style of the neighboring entries (`gtc_claude_opus_4_7`, `gtc_gpt_5`). The `provider_model_id` is the provider's name for the same model — the string `_get_api_model_id()` returns. The node never returns the catalog id itself: at run time the declaration layer resolves the selected `provider_model_id` back to the catalog id (`resolve_catalog_model_id` in `utils/model_invocation.py`), scoped to the models the node declares. `provider_model_id` doesn't have to be unique across the catalog (a BYOK entry and a hosted-key entry can share one), but within one node's declared models it must resolve to exactly one catalog id, or the resolver fails closed.
+
+Second, the node's own entry from step 6 gets a `declarations` list naming the catalog ids it can invoke:
+
+```json
+{
+    "class_name": "<ClassName>",
+    "file_path": "griptape_nodes_library/<category>/<filename>.py",
+    "metadata": {
+        "category": "<category>",
+        "declarations": [
+            {"type": "model_usage", "model_ids": ["gtc_<model_slug>"]}
+        ]
+    }
+}
+```
+
+One entry per model the node can reach. If the node has a model dropdown, list all of them — the dropdown is wired through `ModelAccessComponent` over the model parameter (see the base class's `_model_access` comment), and these declarations are what it license-filters by.
+
+Only nodes that actually invoke a model need this — a utility node that just reshapes data doesn't.
+
+### What goes wrong if you get it wrong
+
+- **A `model_usage` id that isn't in the catalog** — the library fails validation and won't load at all. Annoying, but you'll know immediately.
+- **No declaration at all** — the library loads and the node runs, but the invocation is declared with the raw provider model id instead of a catalog id: provider- and family-scoped license rules won't match it, the dropdown isn't license-filtered, and all you get is one warning line in the log. This is the one to watch for.
+
+The first case is caught automatically (`test_full_manifest_validates_against_engine_schema` validates the whole manifest through the engine's own load path). The second is only covered by the per-node tests in `test_model_catalog_consistency.py`, which enumerate node classes explicitly — add yours to the parametrized list.
+
+Verify with:
+
+```bash
+uv run pytest tests/unit/test_model_catalog_consistency.py
+```
+
+## 8. Update __init__.py (if applicable)
 
 Check if `griptape_nodes_library/<category>/__init__.py` exists and has explicit imports. If so, add the new class:
 
@@ -309,7 +368,7 @@ And add it to `__all__` if the file uses one.
 
 Note: This repo uses manifest-based discovery via `griptape_nodes_library.json`, so the `__init__.py` update may not be strictly required. Check the existing `__init__.py` to see if other nodes in the same category are imported there. If they are, add yours too for consistency. If the file only has an empty `__all__` or doesn't exist, skip this step.
 
-## 8. Write an Integration Test
+## 9. Write an Integration Test
 
 **Prerequisites:** The integration test requires:
 - "Griptape Nodes Testing Library" installed (provides `AssertFileExists` node). Verify it's available before writing the test.
@@ -331,7 +390,7 @@ Study the existing test carefully and replicate its structure. Key patterns:
 - Connection creation via `CreateConnectionRequest`
 - Workflow execution via `LocalWorkflowExecutor`
 
-## 9. Run the Integration Test
+## 10. Run the Integration Test
 
 The local griptape-cloud infrastructure should still be running from the `/impl-proxy-client` phase.
 
@@ -353,7 +412,7 @@ If the test fails:
 
 Fix issues and re-run until the test passes.
 
-## 10. Run Linting
+## 11. Run Linting
 
 ```bash
 make check
@@ -361,7 +420,7 @@ make check
 
 Fix any linting or type errors.
 
-## 11. Review: Verify Node Against Spec and Docs
+## 12. Review: Verify Node Against Spec and Docs
 
 Re-read the spec file and use `/agent-browser` to open the API documentation page. Compare both against the node implementation.
 
@@ -391,9 +450,15 @@ Re-read the spec file and use `/agent-browser` to open the API documentation pag
 - [ ] `_get_api_model_id()` returns IDs that match `get_model_ids()` in the proxy client
 - [ ] The friendly names in the dropdown are accurate
 
+**Model declarations:**
+- [ ] Every model the node can invoke has an entry in the library's `model_catalog` block
+- [ ] The node's manifest entry has a `model_usage` declaration listing those catalog ids
+- [ ] No two of the node's declared catalog ids share a `provider_model_id`, so every selectable model resolves to exactly one catalog id (`test_declared_models_resolve_uniquely_per_node` guards this)
+- [ ] The node's class is in the parametrized list in `test_model_catalog_consistency.py`
+
 Fix any discrepancies before proceeding.
 
-## 12. Commit and Create a PR
+## 13. Commit and Create a PR
 
 ```bash
 git add -A
