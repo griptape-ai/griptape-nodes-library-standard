@@ -87,3 +87,55 @@ def test_each_type_shows_only_the_options_that_mean_something(canvas: str, value
     switch = _create("Switch", canvas)
     switch._show_options_for(value_type)
     assert _hidden(switch) == hidden
+
+
+def _connect(source: Any, source_param: str, target: Any) -> None:
+    result = GriptapeNodes.handle_request(
+        CreateConnectionRequest(
+            source_node_name=source.name,
+            source_parameter_name=source_param,
+            target_node_name=target.name,
+            target_parameter_name="value",
+        )
+    )
+    assert isinstance(result, CreateConnectionResultSuccess), result.result_details
+
+
+def _exit_labels(node: Switch) -> list[str]:
+    return [p.display_name or p.name for p in node.parameters if p.name.startswith("switch_case_")]
+
+
+def test_wiring_in_a_bool_adds_true_and_false_cases(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    _connect(_create("ToBool", canvas), "output", switch)
+
+    assert _exit_labels(switch) == ["true", "false"]
+    assert switch._rows()[0][1] == "true"
+
+
+def test_wiring_in_a_bool_keeps_cases_that_are_already_there(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    rows = switch.get_parameter_by_name("cases")
+    switch.set_parameter_value(rows.add_child_parameter().name, "true")
+    _connect(_create("ToBool", canvas), "output", switch)
+
+    assert _exit_labels(switch) == ["true"]
+
+
+def test_wiring_in_text_adds_no_cases(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    _connect(_create("ToText", canvas), "output", switch)
+
+    assert _exit_labels(switch) == []
+
+
+def test_a_bool_switch_routes_to_the_matching_exit(canvas: str) -> None:
+    switch = _create("Switch", canvas)
+    _connect(_create("ToBool", canvas), "output", switch)
+
+    switch.set_parameter_value("value", False)
+    switch.process()
+
+    exit_ = switch.get_next_control_output()
+    assert exit_ is not None
+    assert exit_.display_name == "false"

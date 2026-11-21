@@ -182,6 +182,8 @@ class Switch(RowOutputsMixin, ControlNode):
     ) -> None:
         if target_parameter is self.value_param:
             self._show_options_for(source_parameter.output_type)
+            if source_parameter.output_type == ParameterTypeBuiltin.BOOL:
+                self._seed_bool_cases()
 
     def after_incoming_connection_removed(
         self,
@@ -191,6 +193,18 @@ class Switch(RowOutputsMixin, ControlNode):
     ) -> None:
         if target_parameter is self.value_param:
             self._show_options_for(ParameterTypeBuiltin.ANY.value)
+
+    def _seed_bool_cases(self) -> None:
+        """Give a Switch with no cases a 'true' and a 'false' row, the only values a bool can have.
+
+        Only an empty list is seeded, so connecting again, or loading a saved Switch that already has
+        its rows, never adds a second pair.
+        """
+        rows = self.get_parameter_by_name(self.ROWS_PARAM)
+        if not isinstance(rows, ParameterList) or self._rows():
+            return
+        for text in (TRUE_TEXT, FALSE_TEXT):
+            self.set_parameter_value(rows.add_child_parameter().name, text)
 
     def _show_options_for(self, value_type: str) -> None:
         """Show only the options that mean something for the connected type."""
