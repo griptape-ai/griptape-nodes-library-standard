@@ -23,6 +23,7 @@ from griptape_nodes_library.classification.jev_common import (
     build_payload,
     build_state_and_assets,
 )
+from griptape_nodes_library.classification.jev_questions import yes_no_question
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
 
@@ -154,19 +155,11 @@ class JevAskYesNo(GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         state, assets = await build_state_and_assets(self)
 
-        question = (self.get_parameter_value("question") or "").strip()
-        if not question:
-            raise ValueError("'Question' is empty. Write a yes/no question about the context.")
-
-        noul: dict[str, Any] = {"type": "noul", "instructions": question}
-        criteria: dict[str, str] = {}
-        if yes_means := (self.get_parameter_value("yes_means") or "").strip():
-            criteria["true"] = yes_means
-        if no_means := (self.get_parameter_value("no_means") or "").strip():
-            criteria["false"] = no_means
-        if criteria:
-            noul["criteria"] = criteria
-
+        noul = yes_no_question(
+            self.get_parameter_value("question"),
+            self.get_parameter_value("yes_means"),
+            self.get_parameter_value("no_means"),
+        )
         return build_payload(state, noul, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:

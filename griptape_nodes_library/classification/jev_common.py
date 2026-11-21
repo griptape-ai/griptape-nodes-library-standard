@@ -8,12 +8,13 @@ from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 from griptape.artifacts import ImageArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File, FileLoadError
 from PIL import Image, ImageOps
 
+from griptape_nodes_library.classification.jev_questions import QUESTION_TYPE
 from griptape_nodes_library.utils.image_utils import grayscale_to_eight_bit
 
 if TYPE_CHECKING:
@@ -29,9 +30,13 @@ __all__ = [
     "add_context_parameter",
     "add_images_parameter",
     "add_model_group",
+    "add_question_key_parameter",
+    "add_question_output",
+    "build_batch_payload",
     "build_payload",
     "build_state_and_assets",
     "image_reference",
+    "question_key",
     "to_state",
 ]
 
@@ -170,30 +175,45 @@ def _strings(value: Any) -> Iterator[str]:
 def build_payload(
     state: str | dict | list | None, question: dict[str, Any], assets: dict[str, dict[str, str]]
 ) -> dict[str, Any]:
-    """Build the JEV request body for one question, with image assets when there are any.
+    """Build the JEV request body for one question, with image assets when there are any."""
+    return build_batch_payload(state, {QUESTION_KEY: question}, assets)
+
+
+def build_batch_payload(
+    state: str | dict | list | None, questions: dict[str, dict[str, Any]], assets: dict[str, dict[str, str]]
+) -> dict[str, Any]:
+    """Build the JEV request body for named questions asked about the same state.
 
     JEV swaps every occurrence of an asset's reference for the image itself, so each
-    use sends the image again. Images the context or question already name are left
-    out of the state's "images" list; the rest are listed there so every asset is
-    referenced at least once.
+    use sends the image again. Each question sees the shared state plus its own text, so
+    an image the context names, or that every question names, is left out of the state's
+    "images" list. Any other image is listed there, so a question that doesn't name it
+    still sees it.
     """
     if not assets:
-        return {"state": state, "questions": {QUESTION_KEY: question}}
+        return {"state": state, "questions": questions}
 
-    texts = list(_strings([state, question]))
+    context_texts = list(_strings(state))
+    question_texts = [list(_strings(question)) for question in questions.values()]
+    texts = context_texts + [text for group in question_texts for text in group]
     uses = {reference: sum(text.count(reference) for text in texts) for reference in assets}
-    unreferenced = [reference for reference, count in uses.items() if count == 0]
-    payload_bytes = sum(len(asset["data_base64"]) * max(uses[ref], 1) for ref, asset in assets.items())
+    listed = [
+        reference
+        for reference in assets
+        if not any(reference in text for text in context_texts)
+        and not all(any(reference in text for text in group) for group in question_texts)
+    ]
+    payload_bytes = sum(len(asset["data_base64"]) * (uses[ref] + (ref in listed)) for ref, asset in assets.items())
     if payload_bytes > MAX_IMAGE_PAYLOAD_BYTES:
         raise ValueError(
             "The images, counting each time the context or question names one, add up to more than JEV "
             "accepts in one request. Connect fewer images or name each one fewer times."
         )
 
-    image_state: dict[str, Any] = {"images": unreferenced}
+    image_state: dict[str, Any] = {"images": listed}
     if state is not None:
         image_state = {"context": state, **image_state}
-    return {"state": image_state, "questions": {QUESTION_KEY: question}, "assets": assets}
+    return {"state": image_state, "questions": questions, "assets": assets}
 
 
 def add_context_parameter(node: BaseNode) -> None:
@@ -208,6 +228,39 @@ def add_context_parameter(node: BaseNode) -> None:
             placeholder_text="Text to ask about",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             input_types=CONTEXT_INPUT_TYPES,
+        )
+    )
+
+
+def add_question_key_parameter(node: BaseNode) -> None:
+    """Add the Name parameter a question builder uses to key its answer."""
+    node.add_parameter(
+        ParameterString(
+            name="key",
+            display_name="Name",
+            tooltip="The name this question's answer goes under in the Questions node's answers. "
+            "Leave empty to use the node's name.",
+            default_value="",
+            placeholder_text="is_truck",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+    )
+
+
+def question_key(node: BaseNode) -> str:
+    """The name a question builder's answer goes under."""
+    return (node.get_parameter_value("key") or "").strip() or node.name
+
+
+def add_question_output(node: BaseNode) -> None:
+    """Add the output a question builder hands to the Questions node."""
+    node.add_parameter(
+        Parameter(
+            name="question",
+            display_name="Question",
+            tooltip="Connect to a Questions (JEV) node's Questions list.",
+            output_type=QUESTION_TYPE,
+            allowed_modes={ParameterMode.OUTPUT},
         )
     )
 

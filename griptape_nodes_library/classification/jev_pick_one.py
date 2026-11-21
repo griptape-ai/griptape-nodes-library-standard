@@ -16,6 +16,7 @@ from griptape_nodes_library.classification.jev_common import (
     build_payload,
     build_state_and_assets,
 )
+from griptape_nodes_library.classification.jev_questions import choice_question, parse_options
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
@@ -137,31 +138,12 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
         return parse_row(text)[0]
 
     def _criteria(self) -> dict[str, str | None]:
-        criteria: dict[str, str | None] = {}
-        for row in self.get_parameter_value("options") or []:
-            label, description = parse_row(row)
-            if not label:
-                continue
-            if label in criteria:
-                raise ValueError(f"'{label}' appears more than once in 'Options'. Give each option a unique label.")
-            criteria[label] = description
-        if len(criteria) < 2:  # noqa: PLR2004
-            raise ValueError("'Options' needs at least two rows for JEV to pick from. Add another option.")
-        return criteria
+        return parse_options(self.get_parameter_value("options") or [])
 
     async def _build_payload(self) -> dict[str, Any]:
         state, assets = await build_state_and_assets(self)
 
-        criteria = self._criteria()
-        question = (self.get_parameter_value("question") or "").strip()
-
-        choice_q: dict[str, Any] = {
-            "type": "choice",
-            "criteria": {k: v or k for k, v in criteria.items()},
-        }
-        if question:
-            choice_q["instructions"] = question
-
+        choice_q = choice_question(self.get_parameter_value("question"), self._criteria())
         return build_payload(state, choice_q, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
