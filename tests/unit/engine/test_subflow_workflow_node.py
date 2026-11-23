@@ -56,12 +56,13 @@ from griptape_nodes.retained_mode.events.workflow_events import (
     GetWorkflowShapeResultFailure,
     GetWorkflowShapeResultSuccess,
     ImportWorkflowAsReferencedSubFlowRequest,
+    ImportWorkflowAsReferencedSubFlowResultFailure,
     ImportWorkflowAsReferencedSubFlowResultSuccess,
     ListCallableWorkflowsResultSuccess,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.engine.subflow_workflow_node import SubflowWorkflowNode
+from griptape_nodes_library.engine.subflow_workflow_node import SubflowImportError, SubflowWorkflowNode
 
 
 @pytest.fixture
@@ -399,6 +400,69 @@ class TestAprocessReDerivesShapeFromSubflow:
         # The failure output is unconnected on a bare node, so the failure re-raises.
         with pytest.raises(RuntimeError, match="has no shape defined"):
             await node.aprocess()
+
+
+class TestAprocessReportsImportRefusal:
+    """aprocess surfaces the engine's reason when the workflow cannot be imported as a subflow."""
+
+    @pytest.fixture
+    def refusal(self) -> ImportWorkflowAsReferencedSubFlowResultFailure:
+        """An import refusal carrying a reason and an underlying exception."""
+        return ImportWorkflowAsReferencedSubFlowResultFailure(
+            result_details="Workflow 'child' nests deeper than max_workflow_recursion_depth (5).",
+            exception=ValueError("too deep"),
+        )
+
+    @pytest.fixture
+    def refusing_engine(
+        self,
+        node: SubflowWorkflowNode,
+        monkeypatch: pytest.MonkeyPatch,
+        refusal: ImportWorkflowAsReferencedSubFlowResultFailure,
+    ) -> None:
+        """Make the engine refuse the subflow import."""
+
+        def _handle(request: Any) -> Any:
+            metadata_result = _node_metadata_result(node, request)
+            if metadata_result is not None:
+                return metadata_result
+            if isinstance(request, GetFlowForNodeRequest):
+                return GetFlowForNodeResultSuccess(flow_name="ParentFlow", result_details="stubbed")
+            if isinstance(request, ImportWorkflowAsReferencedSubFlowRequest):
+                return refusal
+            return None
+
+        monkeypatch.setattr(GriptapeNodes, "handle_request", _handle)
+
+    @pytest.mark.usefixtures("aprocess_env", "refusing_engine")
+    @pytest.mark.asyncio
+    async def test_refusal_reports_reason_and_chains_exception(
+        self, node: SubflowWorkflowNode, refusal: ImportWorkflowAsReferencedSubFlowResultFailure
+    ) -> None:
+        expected = (
+            "Attempted to load workflow 'child' as a subflow. Failed due to: "
+            "Workflow 'child' nests deeper than max_workflow_recursion_depth (5)."
+        )
+
+        with pytest.raises(SubflowImportError) as exc_info:
+            await node.aprocess()
+
+        assert str(exc_info.value) == expected
+        assert exc_info.value.fields == {"Workflow": "child"}
+        assert exc_info.value.__cause__ is refusal.exception
+        assert node.get_parameter_value("result_details") == expected
+
+    @pytest.mark.usefixtures("aprocess_env", "refusing_engine")
+    @pytest.mark.asyncio
+    async def test_connected_failure_output_records_reason_without_raising(
+        self, node: SubflowWorkflowNode, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(node, "_has_outgoing_connections", lambda _parameter: True)
+
+        await node.aprocess()
+
+        status = node.get_parameter_value("result_details")
+        assert "nests deeper than max_workflow_recursion_depth (5)" in status
 
 
 def _legacy_flow(name: str, referenced: str, *, transient: bool = False) -> SimpleNamespace:

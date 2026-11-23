@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode, ParameterTypeBuiltin
 from griptape_nodes.exe_types.node_types import NodeDependencies, SuccessFailureNode
 from griptape_nodes.node_library.workflow_registry import WorkflowRegistry
 from griptape_nodes.retained_mode.events.execution_events import (
@@ -42,6 +42,7 @@ from griptape_nodes.retained_mode.events.workflow_events import (
     GetWorkflowShapeRequest,
     GetWorkflowShapeResultSuccess,
     ImportWorkflowAsReferencedSubFlowRequest,
+    ImportWorkflowAsReferencedSubFlowResultFailure,
     ImportWorkflowAsReferencedSubFlowResultSuccess,
     ListCallableWorkflowsRequest,  # pyright: ignore[reportAttributeAccessIssue]
     ListCallableWorkflowsResultSuccess,  # pyright: ignore[reportAttributeAccessIssue]
@@ -61,6 +62,10 @@ TRANSIENT_KEY = "transient"
 # used solely to migrate them (see _claim_legacy_serialised_flow).
 SUBFLOW_NAME_KEY = "subflow_name"
 SUBFLOW_WORKFLOW_KEY = "_subflow_workflow"
+
+
+class SubflowImportError(NodeError):
+    """The engine refused to import a workflow as a subflow."""
 
 
 class SubflowWorkflowNode(SuccessFailureNode):
@@ -166,7 +171,9 @@ class SubflowWorkflowNode(SuccessFailureNode):
 
     def _load_subflow(self, workflow_name: str) -> str | None:
         """Import ``workflow_name`` as a transient child subflow and return its
-        name (``None`` on failure).
+        name (``None`` if there is nothing to load).
+
+        Raises ``SubflowImportError`` carrying the engine's reason when the import is refused.
 
         Reuses the subflow already imported by this node if it is still live.
         The created flow is flagged ``transient`` so the engine never serializes
@@ -219,6 +226,9 @@ class SubflowWorkflowNode(SuccessFailureNode):
                 imported_flow_metadata={TRANSIENT_KEY: True},
             )
         )
+        if isinstance(result, ImportWorkflowAsReferencedSubFlowResultFailure):
+            msg = f"Attempted to load workflow '{workflow_name}' as a subflow. Failed due to: {result.result_details}"
+            raise SubflowImportError(msg, fields={"Workflow": workflow_name}) from result.exception
         if not isinstance(result, ImportWorkflowAsReferencedSubFlowResultSuccess):
             return None
         self._track_subflow(result.created_flow_name)
@@ -484,7 +494,12 @@ class SubflowWorkflowNode(SuccessFailureNode):
 
         # Import the subflow now (execution time), reusing it if this node already has one live.
         # Load it before deriving the shape so the shape reflects the live (imported) nodes.
-        subflow_name = self._load_subflow(workflow_name)
+        try:
+            subflow_name = self._load_subflow(workflow_name)
+        except SubflowImportError as e:
+            self._set_status_results(was_successful=False, result_details=str(e))
+            self._handle_failure_exception(e)
+            return
         if subflow_name is None:
             msg = f"Failed to load subflow for workflow '{workflow_name}'."
             self._set_status_results(was_successful=False, result_details=msg)
