@@ -15,8 +15,12 @@ from griptape_nodes_library.classification.jev_questions import (
     read_choice,
     read_yes_no,
     score_question,
+    structured,
     yes_no_question,
 )
+
+RUBRIC = '{"what": "light and shadow", "not_for": ["framing"]}'
+RUBRIC_VALUE = {"what": "light and shadow", "not_for": ["framing"]}
 
 
 def test_yes_no_question_with_criteria() -> None:
@@ -56,6 +60,57 @@ def test_score_question() -> None:
 def test_score_question_rejects_bad_level_counts(levels: list[str]) -> None:
     with pytest.raises(ValueError, match="Levels"):
         score_question("", levels)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (RUBRIC, RUBRIC_VALUE),
+        (' ["a", "b"] ', ["a", "b"]),
+        ("plain text", "plain text"),
+        ("{not json", "{not json"),
+        ('"quoted"', '"quoted"'),
+        ("42", "42"),
+    ],
+)
+def test_structured_parses_only_json_objects_and_arrays(text: str, expected: object) -> None:
+    assert structured(text) == expected
+
+
+def test_yes_no_question_sends_json_fields_as_structured_values() -> None:
+    assert yes_no_question('{"ask": "truck?"}', RUBRIC, "[1, 2]") == {
+        "type": "noul",
+        "instructions": {"ask": "truck?"},
+        "criteria": {"true": RUBRIC_VALUE, "false": [1, 2]},
+    }
+
+
+def test_yes_no_question_keeps_invalid_json_as_text() -> None:
+    assert yes_no_question("{Is it a truck?", "[has wheels") == {
+        "type": "noul",
+        "instructions": "{Is it a truck?",
+        "criteria": {"true": "[has wheels"},
+    }
+
+
+def test_choice_question_sends_json_fields_as_structured_values() -> None:
+    assert choice_question('{"ask": "which?"}', {"Lighting": RUBRIC, "Layout": "framing", "Other": None}) == {
+        "type": "choice",
+        "criteria": {"Lighting": RUBRIC_VALUE, "Layout": "framing", "Other": "Other"},
+        "instructions": {"ask": "which?"},
+    }
+
+
+def test_choice_question_keeps_invalid_json_as_text() -> None:
+    assert choice_question("[which?", {"A": "{first", "B": None})["criteria"] == {"A": "{first", "B": "B"}
+
+
+def test_score_question_sends_json_fields_as_structured_values() -> None:
+    assert score_question("[1, 2]", [RUBRIC, "good", "{bad"]) == {
+        "type": "score",
+        "criteria": [RUBRIC_VALUE, "good", "{bad"],
+        "instructions": [1, 2],
+    }
 
 
 def test_build_payload_wraps_the_question_under_the_shared_key() -> None:
@@ -121,6 +176,33 @@ def test_parse_options_rejects_duplicates_and_too_few() -> None:
         parse_options(["A", "A"])
     with pytest.raises(ValueError, match="at least two"):
         parse_options(["A", " "])
+
+
+def test_parse_options_keeps_a_json_description_whole_under_its_label() -> None:
+    options = parse_options([f"Lighting: {RUBRIC}", "Layout"])
+    assert options == {"Lighting": RUBRIC, "Layout": None}
+    assert choice_question("", options)["criteria"]["Lighting"] == RUBRIC_VALUE
+
+
+@pytest.mark.parametrize(
+    ("row", "label", "description"),
+    [
+        ("Minor: workaround exists", "Minor", "workaround exists"),
+        ("it is broken", "Level 3", "it is broken"),
+        (f"Minor: {RUBRIC}", "Minor", RUBRIC),
+        (RUBRIC, "Level 3", RUBRIC),
+        ('{"what": broken', '{"what"', "broken"),
+    ],
+)
+def test_level_splits_the_label_unless_the_row_is_all_json(row: str, label: str, description: str) -> None:
+    assert level_label(2, row) == label
+    assert level_description(row) == description
+
+
+def test_parse_levels_leaves_a_json_row_unlabeled() -> None:
+    descriptions, labels = parse_levels([RUBRIC, f"Major: {RUBRIC}"])
+    assert labels == ["Level 1", "Major"]
+    assert score_question("", descriptions)["criteria"] == [RUBRIC_VALUE, RUBRIC_VALUE]
 
 
 def test_parse_levels_names_unlabeled_rows_by_position() -> None:
