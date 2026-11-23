@@ -7,7 +7,7 @@ when_to_use: Use it when you want to inspect JSON during a workflow, or turn tex
 
 Display JSON parses its input and shows the result. Use it to inspect JSON while you build a workflow, check a structure, look at an API response or a configuration file, or follow data as it moves between nodes.
 
-A string is parsed as JSON first, with `json-repair` as a fallback for malformed JSON. If the text is YAML, or JSON or YAML inside a markdown code block such as a model's reply, that is extracted and parsed. If the text cannot be parsed as either, the node fails with an error. Dictionaries pass through. Other values are converted to text and repaired.
+A string is parsed as JSON first, with `json-repair` as a fallback for malformed JSON. The fallback returns text, not an object, so repaired JSON is shown as JSON text. Text that is not JSON at all gives an empty string, with no error. If the text is YAML, or JSON or YAML inside a markdown code block such as a model's reply, that is extracted and parsed. The node fails with an error only when the text looks like YAML but cannot be parsed as YAML, such as truncated JSON like `{"name": "John"`. Dictionaries pass through. Other values are converted to text and repaired.
 
 ## Examples
 
@@ -18,11 +18,11 @@ A well-formed object is shown as it is:
 # Output: {"name": "John", "age": 30, "active": true}
 ```
 
-Malformed JSON is repaired:
+Malformed JSON is repaired, and the result is text:
 
 ```python
 # Input: '{"name": "John", age: 30, "city": "New York"}'  # Missing quotes around age
-# Output: {"name": "John", "age": 30, "city": "New York"}
+# Output: '{"name": "John", "age": 30, "city": "New York"}'  # a string, not an object
 ```
 
 A JSON string is parsed:
@@ -36,7 +36,7 @@ A JSON string is parsed:
 
 ### json
 
-You can set the value on the node or connect it. The output `json` is the parsed result.
+You can set the value on the node or connect it. The output `json` is the parsed object for valid JSON and for dictionaries. For repaired JSON it is text.
 
 ## Related nodes
 

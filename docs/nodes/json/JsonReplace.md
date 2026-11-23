@@ -55,21 +55,18 @@ A JSON string must be valid JSON. The node does not repair it and fails with an 
 
 Dot notation with list indexes, such as `user.profile.email`, `items[0].title` or `orders[0].items[1].price`.
 
-- A path that does not exist is created.
-- If the path cannot be followed, for example because it goes through a value that is not an object or list, the output is an unchanged copy of the input.
+- A missing key is created, so `a.b.c` on `{}` gives `{"a": {"b": {"c": ...}}}`. A missing list index is not: see the warning below.
+- If the path goes through a value that is not an object or list, the output is an unchanged copy of the input.
 - If `path` is empty, the output is the replacement value itself.
 
 > [!WARNING]
-> A path that ends in a list index, such as `items[0]` or `items[2]`, does not set the value. This is a known bug (#1081). `items[0]` leaves the list unchanged, and an index past the end pads the list with `null` without writing the value:
+> A list index in the path does not work as a way to set a value, whether it comes last or in the middle. This is a known bug (#1081).
 >
-> ```python
-> # Original JSON: {"items": ["a", "b"]}
-> # Path: "items[2]"
-> # Replacement Value: "X"
-> # Output: {"items": ["a", "b", null]}
-> ```
+> - A path that ends in a list index does not set the value. `items[0]` leaves the list unchanged, and an index past the end pads the list with `null` without writing anything: `items[2]` on `{"items": ["a", "b"]}` gives `{"items": ["a", "b", null]}`.
+> - An index past the end anywhere in the path pads the same way. `items[3].t` on `{"items": ["a"]}` gives `{"items": ["a", null, null, null]}`, and `items[0].title` on `{}` gives `{"items": [null]}`.
+> - A path that continues into an item that already exists works, for example `items[0].title` on `{"items": [{"title": "Book"}]}`.
 >
-> Paths that continue into the item work, for example `items[0].title`. To replace a whole list item for now, change the item with [JSON Extract Value](JsonExtractValue.md) and rebuild the list with the list nodes.
+> To change a list for now, rebuild the whole list, connect it to `replacement_value`, and set `path` to the list's key (`items`). A list or dictionary connected to `replacement_value` replaces the value as it is.
 
 ### replacement_value
 

@@ -86,7 +86,7 @@ A schema lets you ask for specific fields instead of a paragraph. Say you track 
 1. Connect its `schema` output to the Agent's `output_schema` input.
 1. Optionally add rules in `ruleset_example`, such as "status must be one of: pending, in_progress, review, approved". Connect `agent_ruleset` to the Agent's **Behaviors (Rulesets)** input so the Agent follows them.
 1. Set the Agent's prompt to "Extract the shot status from this production note: [note text]".
-1. The Agent responds with structured data containing exactly those fields. You can connect `frames_remaining` or `status` to other nodes, for example a [Compare Numbers](../execution/CompareNumbers.md) node that flags shots with frames still to do.
+1. The Agent responds with structured data containing exactly those fields. The node has one `output` that holds the whole object, not a separate output for each field. To use one field, connect `output` to a [JSON Extract Value](../json/JsonExtractValue.md) node with `path` set to `frames_remaining`, then send the result on, for example to a [Compare Numbers](../execution/CompareNumbers.md) node that flags shots with frames still to do.
 
 The schema types, the `null` rule and the top-level list case are described on the [Create Agent Schema](create_agent_schema.md) page, along with the generated schema for a similar example.
 

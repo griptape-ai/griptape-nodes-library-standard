@@ -136,7 +136,7 @@ The index of the first match, or -1 if nothing matched.
 
 ## No match and empty inputs
 
-If `search_field` or `search_value` is empty, or the input has no array to search, nothing is found. With nothing found, `found_item` is `{}` for `first` and `[]` for `all`, `found_count` is 0 and `found_index` is -1.
+If `search_field` or `search_value` is empty, or the input has no array to search, `found_item` is `{}` in both modes. If the search runs and nothing matches, `found_item` is `{}` for `first` and `[]` for `all`. Either way `found_count` is 0 and `found_index` is -1.
 
 ## Related nodes
 

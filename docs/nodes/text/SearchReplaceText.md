@@ -113,7 +113,7 @@ Plain text by default. With `use_regex` on, it is a regular expression and speci
 
 ### replacement_text
 
-The replacement is passed to Python's `re.sub` in both modes, so a backslash in it is interpreted. `\1` inserts the first captured group, and a bad escape returns the original text. Case-insensitive mode only affects matching. The replacement is inserted exactly as you typed it.
+The replacement is passed to Python's `re.sub` in both modes, so backslashes in it are interpreted: `\n` inserts a newline and `\\` inserts one backslash. With `use_regex` on, `\1` inserts the first captured group. In plain-text mode there are no groups, so `\1` or any other bad escape returns the original text. Case-insensitive mode only affects matching.
 
 ### case_sensitive
 
