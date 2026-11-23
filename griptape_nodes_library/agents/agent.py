@@ -7,14 +7,12 @@ from griptape_nodes.exe_types.core_types import (
     ParameterGroup,
     ParameterList,
     ParameterMode,
-    ParameterType,
 )
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_json import ParameterJson
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.connection_events import DeleteConnectionRequest
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 from griptape_nodes.traits.options import Options
 from jinja2 import Template
@@ -50,6 +48,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     resolve_cloud_api_key,
 )
 from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
+from griptape_nodes_library.utils.connection_utils import remove_incompatible_outgoing_connections
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
@@ -255,38 +254,7 @@ class Agent(ControlNode):
         output_param.output_type = new_output_type
         output_param.type = new_output_type
 
-        # Get outgoing connections from the output parameter
-        connections = GriptapeNodes.FlowManager().get_connections()
-        outgoing_for_node = connections.outgoing_index.get(self.name, {})
-        connection_ids = outgoing_for_node.get("output", [])
-
-        # Validate type compatibility and remove incompatible connections
-        for connection_id in connection_ids:
-            connection = connections.connections[connection_id]
-            target_param = connection.target_parameter
-            target_node = connection.target_node
-
-            # Check if target parameter accepts the new output type
-            is_compatible = any(
-                ParameterType.are_types_compatible(new_output_type, input_type)
-                for input_type in target_param.input_types
-            )
-
-            if not is_compatible:
-                logger.info(
-                    f"Removing incompatible connection: Agent '{self.name}' output ({new_output_type}) to "
-                    f"'{target_node.name}.{target_param.name}' (accepts: {target_param.input_types})"
-                )
-
-                # Remove the incompatible connection
-                GriptapeNodes.handle_request(
-                    DeleteConnectionRequest(
-                        source_node_name=self.name,
-                        source_parameter_name="output",
-                        target_node_name=target_node.name,
-                        target_parameter_name=target_param.name,
-                    )
-                )
+        remove_incompatible_outgoing_connections(self, "output", new_output_type)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         super().after_value_set(parameter, value)
