@@ -15,8 +15,7 @@ from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.color_picker import ColorPicker
 from griptape_nodes.traits.file_format import FileFormat, FileFormatKind
 from griptape_nodes.traits.options import Options
@@ -24,6 +23,7 @@ from griptape_nodes.traits.slider import Slider
 from griptape_nodes.traits.widget import Widget
 from PIL import Image
 
+from griptape_nodes_library.media import browser_url
 from griptape_nodes_library.utils.color_utils import NAMED_COLORS, parse_color_to_rgba
 from griptape_nodes_library.utils.file_utils import generate_filename
 from griptape_nodes_library.utils.image_utils import (
@@ -201,27 +201,8 @@ class CropImage(ControlNode):
 
     def _resolve_image_url(self, artifact: Any) -> str:
         """Return a browser-accessible URL for an image artifact."""
-        from griptape_nodes.retained_mode.events.static_file_events import (
-            CreateStaticFileDownloadUrlFromPathRequest,
-            CreateStaticFileDownloadUrlFromPathResultSuccess,
-        )
-
         raw = artifact if isinstance(artifact, str) else (getattr(artifact, "value", "") or "")
-        if not raw:
-            return ""
-        if isinstance(raw, str) and raw.startswith(("http://", "https://", "data:")):
-            return raw
-        try:
-            resolved = File(raw).resolve()
-        except Exception:
-            resolved = str(raw)
-        try:
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
-        except Exception as e:
-            logger.warning("%s: could not resolve static file URL for %r: %s", self.name, resolved, e)
-        return raw
+        return browser_url(raw)
 
     # ── Widget ─────────────────────────────────────────────────────────────────
 

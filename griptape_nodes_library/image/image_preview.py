@@ -6,15 +6,11 @@ import PIL
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
-from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.widget import Widget
 from PIL import ImageFont
 
+from griptape_nodes_library.media import browser_url
 from griptape_nodes_library.utils.image_utils import load_pil_from_url
 
 
@@ -155,15 +151,7 @@ class ImagePreviewMixin(BaseNode):
 
     def _static_url(self, path: str) -> str:
         """Return the static server's URL for a file, or the path itself when there is no server to ask."""
-        try:
-            resolved = File(path).resolve()
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-        except Exception as e:
-            logger.warning(f"{self.name}: could not build a preview URL for {path!r}: {e}")
-            return path
-        if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-            return result.url
-        return path
+        return browser_url(path)
 
     def _image_mode(self, parameter_name: str) -> str:
         """The Pillow mode of an image parameter's image, or "" when it can't be read.

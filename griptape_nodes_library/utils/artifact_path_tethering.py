@@ -12,7 +12,7 @@ from griptape_nodes.retained_mode.events.parameter_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.file_system_picker import FileSystemPicker
 
-from griptape_nodes_library.utils.video_utils import validate_url
+from griptape_nodes_library.media.local_files import validate_url
 
 
 def default_extract_url_from_artifact_value(

@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -16,6 +16,7 @@ from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
 
+from griptape_nodes_library.media.local_files import validate_url
 from griptape_nodes_library.utils.ffmpeg_utils import (
     RATE_TOLERANCE,
     describe_ffmpeg_failure,
@@ -186,18 +187,6 @@ def extract_url_from_video_object(obj: Any) -> str | None:
             return value
 
     return None
-
-
-def validate_url(url: str) -> bool:
-    """Validate that the URL is safe for ffmpeg processing."""
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme in ("http", "https", "file") and parsed.netloc:
-            return True
-        # Also accept absolute file paths (e.g., resolved from project macro paths)
-        return Path(url).is_absolute()
-    except Exception:
-        return False
 
 
 async def get_video_duration(video_url: str) -> float:
