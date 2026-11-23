@@ -28,7 +28,7 @@ Accepts:
 - A string. The node tries JSON first, then YAML, then plain lines of `key: value` or `key=value`. Values from the plain-line form are always strings.
 - A list of pairs, either `[["NAME", "Jason"]]` or `[{"key": "NAME", "value": "Jason"}]`. A single-entry dictionary per item also works.
 
-If a key repeats, the last value wins. Empty data fails the node.
+If a key repeats, the last value wins. Missing or blank data fails the node. An empty dictionary or list writes nothing and succeeds.
 
 Types are guessed as bool, int, float, str, list, json for dictionaries, and any for the rest.
 

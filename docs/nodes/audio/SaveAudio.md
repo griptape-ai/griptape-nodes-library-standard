@@ -7,7 +7,7 @@ when_to_use: Use it when you want to keep generated or processed audio as a file
 
 Connect audio from a generator, trimmer or mixer to save it to disk. The audio also passes through the `audio` output, so you can keep building after the save.
 
-If the audio input is empty, the node finishes with a warning and creates no file.
+If the audio input is empty, validation fails with "Audio parameter is required" and the run is cancelled before this node starts. If audio is connected but yields no data, the node finishes with a warning and creates no file.
 
 ## Parameters
 

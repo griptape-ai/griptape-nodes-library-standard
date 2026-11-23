@@ -29,7 +29,7 @@ One option per row, up to 255. Write a label, or `Label: description` to tell JE
 
 - You need at least two options, and each label must be unique.
 - Empty rows are ignored.
-- The outputs follow the list as you edit it. Deleting or renaming a row removes the old output and any wires on it. Reordering keeps wires on their rows.
+- The outputs follow the list as you edit it. Deleting a row, or clearing its text, removes its output and any wires on it. Renaming a row keeps its output and wires and only changes the label. Reordering keeps wires on their rows.
 
 ### label and description
 

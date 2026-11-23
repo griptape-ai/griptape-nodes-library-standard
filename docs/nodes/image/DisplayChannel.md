@@ -62,7 +62,7 @@ A common workflow pattern:
 - **No Output**: Check that your image source is properly connected to the "input_image" parameter
 - **Solid Black Mask**: This may indicate that the selected channel has no variation or low values
 - **Solid White Mask**: This may indicate that the selected channel has high values throughout
-- **Solid White Alpha**: An RGB or grayscale image has no alpha channel, so selecting `alpha` gives an all-white image
+- **Solid White Alpha**: An RGB image has no alpha channel, so selecting `alpha` gives an all-white image
 - **Unsupported Mode Error**: Images in other modes, such as palette (P) or CMYK, are rejected. Convert the image to RGB first
 
 ## Technical Details

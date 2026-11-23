@@ -7,7 +7,7 @@ when_to_use: Use it when you want a clip to take on the color palette of a still
 
 You have a reference still and want a clip to look like it. For example, take one graded frame from a hero shot as `reference_image` and match the rest of the sequence to it. For one image instead of a video, use [Color Match](../image/ColorMatch.md). For manual corrections, see [Adjust Video EQ](AdjustVideoEQ.md) and [Add Color Curves](AddColorCurves.md).
 
-Both `reference_image` and `target_video` are needed. If either is empty, the node does nothing when it runs.
+Both `reference_image` and `target_video` are needed. If either is empty, validation fails with "Connect a video to 'target_video'." or "Connect an image to 'reference_image'." and the run does not start.
 
 The output is re-encoded as H.264. Each ffmpeg step times out after 600 seconds.
 

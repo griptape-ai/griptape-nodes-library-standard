@@ -7,7 +7,7 @@ when_to_use: Use it when you want to put characters from existing clips into a n
 
 You have clips of a character, or of up to three characters, and you want them in a new scene. The model takes the subject and voice from each reference video. The prompt describes the new scene.
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own Alibaba Cloud Model Studio key instead. The reference videos and audio are uploaded to Griptape Cloud storage so the service can fetch them. The uploads are deleted when the run ends. The node waits for the result. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
+The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own Alibaba Cloud Model Studio key instead. The reference videos and audio are sent inline in the request as base64 data, so nothing is uploaded, and large clips make a large request. The node waits for the result. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
 
 ## Parameters
 

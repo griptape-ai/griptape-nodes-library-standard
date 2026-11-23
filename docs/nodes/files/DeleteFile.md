@@ -1,11 +1,11 @@
 ---
-description: Permanently deletes files or folders, including everything inside a folder.
+description: Deletes files or folders, including everything inside a folder.
 when_to_use: Use it when a workflow needs to clean up files it created, such as temporary renders or old outputs.
 ---
 
 ## When to use it
 
-You want a workflow to remove files or folders when it finishes with them. Deleted items are not moved to a trash and can't be recovered.
+You want a workflow to remove files or folders when it finishes with them. On engine 0.114 and later, items go to the trash or recycle bin when the system has one, and are deleted permanently only when that fails. Don't count on getting them back. The warning on the node says deletes are permanent, and older engines may delete permanently without trying the trash.
 
 > [!WARNING]
 > Deleting a folder deletes everything inside it. Check the preview on the node before you run it.

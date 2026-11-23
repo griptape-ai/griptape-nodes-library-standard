@@ -1,6 +1,6 @@
 ---
 description: Reads a text file and converts its contents to a dictionary.
-when_to_use: Use it when a dictionary is stored in a file such as JSON or a key: value text file.
+when_to_use: "Use it when a dictionary is stored in a file such as JSON or a key: value text file."
 ---
 
 ## When to use it

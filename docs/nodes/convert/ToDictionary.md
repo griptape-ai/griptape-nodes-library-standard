@@ -1,6 +1,6 @@
 ---
 description: Converts text, a list or another value into a dictionary.
-when_to_use: Use it when a node needs a dictionary and you have JSON text, key: value lines, or a list.
+when_to_use: "Use it when a node needs a dictionary and you have JSON text, key: value lines, or a list."
 ---
 
 ## When to use it

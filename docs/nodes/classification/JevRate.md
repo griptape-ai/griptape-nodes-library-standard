@@ -31,7 +31,7 @@ One level per row, lowest first. You need 2 to 10. Describe the situation at eac
 
 - A row with a colon is named by its label. A row without one is named `Level N`, counting non-empty rows from 1, and the whole row is its description.
 - Empty rows are ignored.
-- Deleting or renaming a row removes its output and any wires on it. Reordering keeps wires on their rows.
+- Deleting a row, or clearing its text, removes its output and any wires on it. Renaming a row keeps its output and wires and only changes the label. Reordering keeps wires on their rows.
 
 ### score
 

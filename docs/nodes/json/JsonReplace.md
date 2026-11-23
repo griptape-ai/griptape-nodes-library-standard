@@ -45,7 +45,6 @@ path = "user.profile.email"  # Replace nested email
 
 ```python
 # Replace array elements
-path = "items[0]"  # Replace first item
 path = "items[0].title"  # Replace title of first item
 path = "users[2].name"  # Replace name of third user
 ```
@@ -95,14 +94,18 @@ path = "orders[0].items[1].price"  # Replace price of second item in first order
 # Output: {"orders": [{"items": [{"name": "Product A"}, {"name": "Product C"}]}]}
 ```
 
-### Extending Arrays
+### Paths that end in a list index
+
+A path that ends in a list index, such as `items[0]` or `items[2]`, does not set the value. This is a known bug (#1081). `items[0]` leaves the list unchanged, and an index past the end pads the list with `null` without writing the value:
 
 ```python
-# Original JSON: {"items": [{"title": "Book"}]}
-# Path: "items[2].title"
-# Replacement Value: "Magazine"
-# Output: {"items": [{"title": "Book"}, null, {"title": "Magazine"}]}
+# Original JSON: {"items": ["a", "b"]}
+# Path: "items[2]"
+# Replacement Value: "X"
+# Output: {"items": ["a", "b", null]}
 ```
+
+Paths that continue into the item work, for example `items[0].title`. To replace a whole list item for now, change the item with [JSON Extract Value](JsonExtractValue.md) and rebuild the list with the list nodes.
 
 ## Use Cases
 

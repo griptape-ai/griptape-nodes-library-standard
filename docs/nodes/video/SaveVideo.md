@@ -7,7 +7,7 @@ when_to_use: Use it when you want to keep a render, a generated clip or a proces
 
 Connect a video from a generator or an editing node to save it to disk. For example, save the output of a [Resize Video](ResizeVideo.md) node as a proxy for review. The video also passes through the `video` output, so you can keep building after the save.
 
-If the video input is empty at run time, the node finishes with a warning and creates no file.
+If the video input is empty, validation fails with "Video parameter is required" and the run is cancelled before this node starts. If a video is connected but yields no data, the node finishes with a warning and creates no file.
 
 ## Parameters
 

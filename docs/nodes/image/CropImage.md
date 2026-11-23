@@ -35,7 +35,7 @@ The adjustment is logged. Negative `width` or `height` fails validation.
 
 ### zoom
 
-Percent, 0 to 500, default 100. Zoom changes the size of the crop window around its center. 200 halves the window, so the output covers half the area and is half as wide and tall. 50 doubles it, up to the image edges. The output is not scaled back up. Values are limited to between 10% and 1000% of the window when applied.
+Percent, 0 to 500, default 100. Zoom changes the size of the crop window around its center. 200 halves the window's width and height, so the output covers a quarter of the area. 50 doubles them, up to the image edges. The output is not scaled back up. Values are limited to between 10% and 1000% of the window when applied.
 
 ### rotate
 
