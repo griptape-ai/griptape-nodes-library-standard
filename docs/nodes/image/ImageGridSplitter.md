@@ -20,28 +20,30 @@ For a 2x2 grid, `r1c1` is top-left, `r1c2` is top-right, `r2c1` is bottom-left a
 
 ### grid_detection_mode
 
-- `auto`: estimates a regular grid of equal-sized cells. This is best-effort and can be less accurate when neighboring cells look alike.
-- `manual`: uses `rows` and `cols`.
+- `auto`: estimates a regular grid of equal-sized cells from edge strength at evenly spaced positions, trying 1 to 12 rows and columns. It falls back to 1 when no count stands out. This is best-effort. In tests it was right for some grids and wrong for others, for example 1x4 as 5x4, 4x1 as 1x1 and 6x6 as 3x2. Check `detected_rows` and `detected_cols`, or use `manual`.
+- `manual`: uses `rows` and `cols`. Dividers are not needed.
 
 ### rows, cols
 
-Manual mode only. Sliders from 1 to 12, default 2 each.
+Manual mode only. Sliders from 1 to 12, default 2 each. Values outside 1 to 12 are rejected when you set them.
 
 ### preview
 
-The original image with dotted yellow grid lines. The editor shows the lines live as you change the settings. The output file is written when the node runs.
+The original image with dotted yellow grid lines, saved as JPEG. The editor shows the lines live as you change the settings. The `preview` output is written when the node runs, and is empty if there is no input image.
 
 ### detected_rows, detected_cols, detected_count
 
-The `detections_auto` group. Filled on each run in auto mode and hidden in manual mode.
+The `detections_auto` group. Filled on every run with the grid that was used, in auto and manual mode. The group is hidden in manual mode.
 
 ### images
 
-A list of image URL artifacts in row-major order, left to right and top to bottom. Cells are saved as JPEG. The node trims uniform gap strips and edge strips between cells, so cells can be a few pixels smaller than an even split.
+A list of image URL artifacts in row-major order, left to right and top to bottom. Cells are saved as JPEG, so alpha is dropped. With no `input_image` the node does nothing and `images` is an empty list.
+
+Cells are not an exact even split. The node removes divider strips between cells. It also trims up to 12 pixels from each cell edge where the rows or columns are nearly one color, even when there is no divider. A cell with a flat background can lose a lot: in tests 100x80 cells with flat edges came out 76x56, and a 200x200 image with a flat black background came out 172x172 as a single cell. A smooth gradient with no flat edges was not trimmed.
 
 ### grid_cells
 
-One image output per cell, named `r1c1`, `r1c2`, up to `r{row}c{col}`. These outputs are created or updated when you run the node, based on the chosen or detected grid size.
+One image output per cell, named `r1c1`, `r1c2`, up to `r{row}c{col}`, saved as JPEG. These outputs are created when you run the node, based on the chosen or detected grid size. Each run removes the previous cell outputs and creates new ones, so connections made to a cell output may not survive a rerun. This has not been checked.
 
 ## Common issues
 

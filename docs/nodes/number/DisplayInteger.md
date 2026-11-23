@@ -10,11 +10,11 @@ You want to see an integer in your graph, such as a token count. The node does n
 ## Example
 
 1. Add a **Display Integer** node.
-1. Connect the `token_count` output from another node to its input.
-1. The node shows the current token count.
+1. Connect an integer output to its input.
+1. The node shows the current value.
 
 ## Parameters
 
 ### integer
 
-The default is 0. The same value is passed through as the output, also named `integer`.
+The default is 0. The same value is passed through as the output, also named `integer`. The node does not convert or check the value: a value set directly is passed on in whatever type it has, so `2.7` stays `2.7`. A connection must come from an integer output. A float output is not accepted.

@@ -7,7 +7,7 @@ when_to_use: Use it when you want to inspect JSON during a workflow, or turn tex
 
 Display JSON parses its input and shows the result. Use it to inspect JSON while you build a workflow, check a structure, look at an API response or a configuration file, or follow data as it moves between nodes.
 
-A string is parsed as JSON first, with `json-repair` as a fallback for malformed JSON. The fallback returns text, not an object, so repaired JSON is shown as JSON text. Text that is not JSON at all gives an empty string, with no error. If the text is YAML, or JSON or YAML inside a markdown code block such as a model's reply, that is extracted and parsed. The node fails with an error only when the text looks like YAML but cannot be parsed as YAML, such as truncated JSON like `{"name": "John"`. Dictionaries pass through. Other values are converted to text and repaired.
+A string is parsed as JSON first, with `json-repair` as a fallback for malformed JSON. The fallback returns text, not an object, so repaired JSON is shown as JSON text. Text that is not JSON at all gives an empty string, with no error. If the text is YAML, or JSON or YAML inside a markdown code block such as a model's reply, that is extracted and parsed. The node fails with an error only when the text looks like YAML but cannot be parsed as YAML, such as truncated JSON like `{"name": "John"` or valid JSON followed by extra text. The error is raised when you set the value on the node as well as when the node runs. Truncated JSON that is a list, such as `[1,2`, is repaired to the text `[1, 2]`. Dictionaries pass through. Other values are converted to text and repaired, so a list becomes the string `'[1, 2]'`. YAML is parsed to an object, so `a: 1` gives `{"a": 1}`.
 
 ## Examples
 

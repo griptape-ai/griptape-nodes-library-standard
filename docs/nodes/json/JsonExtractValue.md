@@ -46,15 +46,15 @@ The output keeps its type, so a list can go straight into a list node and a numb
 
 ### json
 
-A JSON string must be valid JSON. This node does not repair it, and it fails with an error if the string cannot be parsed. Use [JSON Input](JsonInput.md) or [Display JSON](DisplayJson.md) first if the text may be malformed.
+A JSON string must be valid JSON. This node does not repair it. When the node runs, a string that cannot be parsed (including an empty string) fails with an error. While you edit the value on the node, a string that cannot be parsed yet clears `output` instead of raising. Use [JSON Input](JsonInput.md) or [Display JSON](DisplayJson.md) first if the text may be malformed.
 
 ### path
 
-A JMESPath expression. If it is empty, the whole input is returned. An invalid expression fails with an error.
+A JMESPath expression. If it is empty, the whole input is returned. An invalid expression, or a function given the wrong type (such as `sum()` on a number), fails with an error when the node runs.
 
 ### output
 
-The extracted value as a native type (string, number, list or dict), so there is no JSON text to parse afterwards. If the path does not exist, the output is an empty dict `{}`.
+The extracted value as a native type (string, number, list or dict), so there is no JSON text to parse afterwards. If the path does not exist, or the value at the path is JSON `null`, the output is an empty dict `{}`.
 
 ## Related nodes
 

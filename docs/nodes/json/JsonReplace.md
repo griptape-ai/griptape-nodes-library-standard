@@ -49,14 +49,14 @@ You have JSON data and want to change one value inside it, for example a shot st
 
 ### json
 
-A JSON string must be valid JSON. The node does not repair it and fails with an error if it cannot be parsed. The node deep-copies the input, so the original is never changed.
+A JSON string or a dictionary. A string must be valid JSON. The node does not repair it, and a run with an unparseable string (including an empty string) fails with a `ValueError` that says `Invalid JSON string provided`. While you edit inputs, unparseable JSON clears `output` instead of raising. The node deep-copies the input, so the original is never changed. The default is `{}`.
 
 ### path
 
 Dot notation with list indexes, such as `user.profile.email`, `items[0].title` or `orders[0].items[1].price`.
 
 - A missing key is created, so `a.b.c` on `{}` gives `{"a": {"b": {"c": ...}}}`. A missing list index is not: see the warning below.
-- If the path goes through a value that is not an object or list, the output is an unchanged copy of the input.
+- If the path goes through a value that is not an object or list, the output is an unchanged copy of the input. A path on a top-level list such as `0` or `[0]` also returns the list unchanged.
 - If `path` is empty, the output is the replacement value itself.
 
 > [!WARNING]
@@ -70,7 +70,7 @@ Dot notation with list indexes, such as `user.profile.email`, `items[0].title` o
 
 ### replacement_value
 
-The value is used as it arrives. A string such as `5` stays text unless it comes from a number or JSON connection.
+The value is used as it arrives. A string such as `5` is written as the string `"5"`, and the node does not parse it. A number is written as a number. A dictionary or list is written as it is. The default is an empty string.
 
 ### output
 

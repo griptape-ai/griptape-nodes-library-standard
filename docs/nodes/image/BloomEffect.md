@@ -17,7 +17,7 @@ You want a soft, luminous glow. Typical uses are atmospheric or romantic lightin
 
 ### bloom_amount
 
-0.0 to 2.0, default 0.5. At 0 the image is returned unchanged. The blend weight stops at 1.0, so values above 1.0 only make the blurred layer brighter.
+0.0 to 2.0, default 0.5. At 0 the input image is returned as it is, including any alpha channel. The blend weight stops at 1.0. At 1.0 and above the result is only the blurred copy, so values above 1.0 only make that copy brighter.
 
 ### bloom_radius
 
@@ -25,11 +25,11 @@ You want a soft, luminous glow. Typical uses are atmospheric or romantic lightin
 
 ### output
 
-The image with the bloom applied. The node works in RGB, so any alpha channel is dropped. Re-apply the alpha downstream if you need it.
+The image with the bloom applied. For any `bloom_amount` above 0 the node works in RGB, so the output is RGB, any alpha channel is dropped and grayscale input becomes RGB. Re-apply the alpha downstream if you need it. The output keeps the input's file format unless you change `output_format`.
 
 ## Notes
 
-The glow is built from the whole image, not just the bright areas. The node does this in three steps:
+The glow is built from the whole image, not just the bright areas. Dark and mid areas get lighter too, and small bright details are softened, not intensified (in a test, a white pixel on a gray 60 background dropped from 255 to 173 at amount 0.5 and radius 5). The node does this in three steps:
 
 1. The whole image is brightened by a factor of `1 + bloom_amount`.
 1. The brightened copy is blurred with a Gaussian blur of radius `bloom_radius`.

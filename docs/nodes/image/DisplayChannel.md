@@ -26,7 +26,7 @@ An RGB image has no alpha channel, so selecting `alpha` on it gives an all-white
 
 ### input_image
 
-Supports RGB, RGBA, grayscale (L) and grayscale+alpha (LA) images. A grayscale (L) image is passed through unchanged, whatever channel is selected. Other modes, such as palette (P) or CMYK, are rejected. Convert the image to RGB first.
+Supports RGB, RGBA, grayscale (L) and grayscale+alpha (LA) images. A grayscale (L) image is passed through unchanged, whatever channel is selected. For an LA image, `alpha` gives the alpha and `red`, `green` and `blue` all give the gray value. Other modes, such as palette (P), CMYK or 1-bit, fail with `Unsupported image mode: P` (or the mode name). Convert the image to RGB first.
 
 ### output
 
@@ -34,7 +34,7 @@ The channel as a grayscale image, saved as a PNG in the location set by `output_
 
 ## Common issues
 
-- **No output**: Check that an image is connected to `input_image`.
-- **Solid black mask**: The selected channel has no variation or only low values.
+- **No output**: Check that an image is connected to `input_image`. With no image the node does nothing and `output` stays empty.
+- **Solid black mask**: The selected channel is 0 or very low everywhere.
 - **Solid white mask**: The selected channel has high values throughout. For `alpha` on an RGB image this is expected.
 - **Unsupported mode error**: See `input_image` above.

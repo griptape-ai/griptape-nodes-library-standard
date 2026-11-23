@@ -15,7 +15,7 @@ To count the tasks in a task list, connect the list to `items`. `length` shows t
 
 ### items
 
-If the list is empty or nothing is connected, the length is 0.
+Accepts list connections only. If the list is empty or nothing is connected, the length is 0.
 
 ### length
 

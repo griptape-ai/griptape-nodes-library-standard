@@ -39,7 +39,7 @@ The algorithm. Default is `mkl`. Results differ between methods, so try several.
 - `hm`: Histogram Matching. Matches the histogram of each channel independently.
 - `reinhard`: Classic color transfer based on decorrelated color spaces.
 - `mvgd`: Multi-Variate Gaussian Distribution. Matches the mean and covariance of the color distributions.
-- `hm-mvgd-hm` and `hm-mkl-hm`: Compound methods that chain two of the above.
+- `hm-mvgd-hm` and `hm-mkl-hm`: Compound methods that run `hm`, then `mvgd` or `mkl`, then `hm` again.
 
 ### strength
 
@@ -47,7 +47,7 @@ The algorithm. Default is `mkl`. Results differ between methods, so try several.
 
 ### output
 
-The color-matched image. Images are converted to RGB for processing, so any alpha channel is dropped and the output is a PNG written to the location set by `output_file`. Re-apply the alpha downstream if you need it.
+The color-matched image, a PNG written to the location set by `output_file`. Images are converted to RGB for processing, so when `strength` is above 0 the output is RGB and any alpha channel is dropped. At `strength` 0 the target is passed through before that conversion, so its alpha is kept. Re-apply the alpha downstream if you need it.
 
 ## Notes
 

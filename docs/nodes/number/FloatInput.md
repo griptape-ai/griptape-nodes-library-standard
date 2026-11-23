@@ -12,11 +12,11 @@ You want a decimal value you can set on the node and connect to other nodes, suc
 To set the temperature of an AI model:
 
 1. Add a **Float Input** node and set `float` to 0.7.
-1. Connect its output to the model's temperature parameter.
-1. The model uses 0.7 as its temperature.
+1. Connect its output to a float input on another node, such as a temperature parameter.
+1. The receiving node gets 0.7.
 
 ## Parameters
 
 ### float
 
-The default is 0.0. The value can also be changed through the node's properties. The output, also named `float`, carries this value.
+The default is 0.0. The value can also be changed through the node's properties. The output, also named `float`, carries this value. The node does not convert or range-check the value: a number set directly is passed on as given, including negatives and integers.

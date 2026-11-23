@@ -32,10 +32,14 @@ Create a dictionary for a user profile:
 
 ### keys
 
-Keys are converted to strings, which can give unexpected results if you use complex objects as keys. Empty or `None` keys are skipped, unless it is the only key and it has a value. You can give a single value instead of a list and it becomes a one-item list.
+Each key is converted to a string, so `1` becomes `"1"` and `["x"]` becomes `"['x']"`. A key that is empty or `None` is skipped, unless it is the only key and its value is not empty or `None`. In that case the key is stored as `""`. You can give a single value instead of a list and it becomes a one-item list. If two keys are the same, the later value wins.
 
 ### values
 
 Strings, numbers, booleans and nested lists all work. A single value is converted to a one-item list.
 
-If the lists differ in length, keys with no matching value get `None`, and extra values may be ignored.
+If there are more keys than values, the extra keys get `None`. If there are more values than keys, the extra values are dropped.
+
+### dict
+
+The dictionary built from the lists. With empty or missing lists it is `{}`.

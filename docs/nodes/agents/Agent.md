@@ -22,11 +22,11 @@ Draft a dailies note for a shot, using `additional_context`:
 
 ### agent
 
-Connect an existing Agent to continue its conversation. Leave it empty to create a new one. When you pass an Agent from one node to another, its conversation memory goes with it. The Agent remembers earlier prompts in the flow, those prompts shape how it reads new ones, and you can build multi-turn conversations across several nodes.
+Connect an existing Agent to continue its conversation. Leave it empty to create a new one. When an Agent is connected, the provider, tools and rulesets parameters are hidden. The connected Agent keeps its own tools and rulesets, and any set on this node are added to them. When you pass an Agent from one node to another, its conversation memory goes with it. The Agent remembers earlier prompts in the flow, those prompts shape how it reads new ones, and you can build multi-turn conversations across several nodes.
 
 ### model_provider
 
-Shown as **provider** in the editor. Choose Griptape Cloud, Ollama, LM Studio or a custom endpoint. See [AI Providers](https://docs.griptapenodes.com/en/stable/guides/agent/providers/).
+Shown as **provider** in the editor. Choose from the configured providers. Griptape Cloud is the default and is always listed. Ollama, LM Studio and custom endpoints appear once you have set them up. See [AI Providers](https://docs.griptapenodes.com/en/stable/guides/agent/providers/).
 
 ### model
 
@@ -34,11 +34,15 @@ Shown as **prompt model** in the editor. Pick a model from the selected provider
 
 ### prompt
 
-If you leave it empty, the node creates the Agent without running it and `output` is exactly "Agent created."
+The prompt is stripped of leading and trailing whitespace. If it is empty or only whitespace, the node creates the Agent without running it and `output` is exactly "Agent created." A string or number in `additional_context` is appended to the prompt, so an empty prompt with that context set does run, with the context as the prompt. A dictionary in `additional_context` does not count as a prompt.
 
 ### additional_context
 
-A string, or a dictionary of key-value pairs such as the output of a [Key Value Pair](../dict/KeyValuePair.md) node.
+A string, number or dictionary of key-value pairs such as the output of a [Key Value Pair](../dict/KeyValuePair.md) node.
+
+- A string or number is appended to the prompt on a new line.
+- A dictionary turns the prompt into a Jinja2 template, and the keys fill the `{{name}}` placeholders. The dictionary is not appended to the prompt, so a key that has no placeholder is not seen by the Agent. A placeholder with no matching key becomes empty text.
+- Other values, such as a list, are converted to text and appended on a new line.
 
 ### tools
 
@@ -58,13 +62,13 @@ Rules can be as specific as "Always name shots with the show prefix and a three-
 
 ### output_schema
 
-A JSON schema that sets the exact format of the Agent's response. With a schema connected, `output` is structured JSON instead of plain text. If the Agent cannot produce data in that format, it tries again or returns an error.
+A JSON schema that sets the exact format of the Agent's response. With a schema connected, `output` is JSON text in that format instead of free text. If the response does not match the schema, the run retries up to 3 times and then fails with an error. A schema that cannot be turned into a model fails the node with an error that suggests Create Agent Schema.
 
 To build the schema from an example, connect a [Create Agent Schema](create_agent_schema.md) node. See [Structured output](#structured-output) below.
 
 ### output
 
-The text response, or a JSON object when `output_schema` is connected.
+The response as a string. When `output_schema` is connected, the output type changes to `json` and the value is the JSON text of the structured response. [JSON Extract Value](../json/JsonExtractValue.md) and the other JSON nodes parse that text. Connecting a schema removes any outgoing connection to an input that does not accept `json`.
 
 ## Structured output
 
@@ -86,7 +90,7 @@ A schema lets you ask for specific fields instead of a paragraph. Say you track 
 1. Connect its `schema` output to the Agent's `output_schema` input.
 1. Optionally add rules in `ruleset_example`, such as "status must be one of: pending, in_progress, review, approved". Connect `agent_ruleset` to the Agent's **Behaviors (Rulesets)** input so the Agent follows them.
 1. Set the Agent's prompt to "Extract the shot status from this production note: [note text]".
-1. The Agent responds with structured data containing exactly those fields. The node has one `output` that holds the whole object, not a separate output for each field. To use one field, connect `output` to a [JSON Extract Value](../json/JsonExtractValue.md) node with `path` set to `frames_remaining`, then send the result on, for example to a [Compare Numbers](../execution/CompareNumbers.md) node that flags shots with frames still to do.
+1. The Agent responds with structured data containing exactly those fields. The node has one `output` that holds the whole object, not a separate output for each field. To use one field, connect `output` to a [JSON Extract Value](../json/JsonExtractValue.md) node with `path` set to `frames_remaining`. Its result is typed `json`, so check that a downstream input accepts it. For example, [Compare Numbers](../execution/CompareNumbers.md) takes only `int` or `float` inputs.
 
 The schema types, the `null` rule and the top-level list case are described on the [Create Agent Schema](create_agent_schema.md) page, along with the generated schema for a similar example.
 

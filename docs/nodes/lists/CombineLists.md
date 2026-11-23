@@ -27,12 +27,12 @@ You have two lists and want one list that holds the items of both, in order. The
 
 ### list_a
 
-If the input is not a list, it is treated as an empty list.
+If the input is not a list, it is treated as an empty list. This includes a missing input, `None`, a string and a tuple.
 
 ### list_b
 
-If the input is not a list, it is treated as an empty list.
+If the input is not a list, it is treated as an empty list. This includes a missing input, `None`, a string and a tuple.
 
 ### output
 
-A new list. Nested lists inside either input are not flattened. Use [Flatten List](FlattenList.md) if you need that.
+A new list. If both inputs are missing, it is `[]`. Nested lists inside either input are not flattened. Use [Flatten List](FlattenList.md) if you need that.

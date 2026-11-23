@@ -18,11 +18,11 @@ A well-formed object passes through:
 # Output: {"name": "John", "age": 30}
 ```
 
-Malformed JSON is repaired:
+Malformed JSON is repaired, and the result is text:
 
 ```python
 # Input: '{"name": "John", age: 30}'  # Missing quotes around age
-# Output: {"name": "John", "age": 30}
+# Output: '{"name": "John", "age": 30}'  # a string, not an object
 ```
 
 A dictionary is used as it is:
@@ -36,7 +36,7 @@ A dictionary is used as it is:
 
 ### json
 
-Set on the node only. When the value is a string, the output is the repaired JSON text rather than a parsed object. Pass it through [JSON Extract Value](JsonExtractValue.md) or another JSON node to work with the contents.
+Set on the node only. When the value is a string, the output is always repaired JSON text rather than a parsed object, even if the string was already valid JSON. Truncated JSON is completed (`{"name": "John"` becomes `{"name": "John"}`). Text with no JSON in it, and YAML, gives an empty string with no error. Other values such as a list or number are converted to text first, so `[1, 2]` becomes the string `'[1, 2]'`. Pass it through [JSON Extract Value](JsonExtractValue.md) or another JSON node to work with the contents.
 
 ## Related nodes
 

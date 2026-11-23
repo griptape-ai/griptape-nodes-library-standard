@@ -7,7 +7,7 @@ when_to_use: Use it when you need to look up an item in a list of records by nam
 
 Use it to search a JSON array for items that match a field value. It supports exact, contains and starts-with matching, case-sensitive or not, and returns either the first match or all matches. Typical uses are finding a shot, task or version in a list by name, status or assignee, filtering an API response, or looking up an entry in a configuration.
 
-If the input is an object that contains arrays, the node looks for an array under the field names `data`, `items`, `results` or `list`. For example, with `{"data": [{"name": "Item 1"}, {"name": "Item 2"}]}` it searches the `data` array.
+If the input is an object that contains arrays, the node checks the keys `data`, `items`, `results` and `list`, in that order, and searches the first one that holds an array. If `data` holds an array, `items` is never searched. For example, with `{"data": [{"name": "Item 1"}, {"name": "Item 2"}]}` it searches the `data` array.
 
 ## Examples
 
@@ -94,17 +94,19 @@ Nested search:
 
 ### json
 
-An array, or an object that contains an array under one of the names listed above. A string that cannot be parsed makes the node fail with an error when it runs.
+An array, or an object that contains an array under one of the names listed above. A string that cannot be parsed, including an empty string, makes the node fail with an error when the node runs. While you edit values on the node, the same input clears the outputs instead of raising. JSON `null` or an unset input is treated as no array.
 
 ### search_field
 
-Plain dot notation with optional `[n]` array indexes, such as `attributes.content` or `items[0].title`. It does not support JMESPath features such as wildcards or filters, which [JSON Extract Value](JsonExtractValue.md) does. A path that does not exist in an item means that item does not match.
+Plain dot notation with optional `[n]` array indexes, such as `attributes.content` or `items[0].title`. An index must follow a key, so `[0].title` does not work. A key that contains a dot cannot be matched. It does not support JMESPath features such as wildcards or filters, which [JSON Extract Value](JsonExtractValue.md) does. A path that does not exist in an item means that item does not match.
 
 ### search_value
 
-The field value and `search_value` are both converted to text before they are compared, so `5` matches `"5"`.
+The field value and `search_value` are both converted to text before they are compared, so the number `5` matches `"5"`. A float such as `5.0` becomes `"5.0"` and does not match `"5"`. A JSON `null` field never matches, and `true` becomes `"True"`.
 
 ### search_mode
+
+An unrecognised mode behaves like `exact`.
 
 For a search value of `Design`:
 
@@ -132,7 +134,7 @@ The number of all matches, even when `return_mode` is `first`.
 
 ### found_index
 
-The index of the first match, or -1 if nothing matched.
+The index of the first match in the array, or -1 if nothing matched. It is set in both return modes.
 
 ## No match and empty inputs
 

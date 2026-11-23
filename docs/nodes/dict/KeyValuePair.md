@@ -23,7 +23,7 @@ The output is `{"max_tokens": "1024"}`.
 
 ### key
 
-Always text.
+Text. The node does not convert other types, and the `key` input accepts text only.
 
 ### value
 
@@ -31,4 +31,4 @@ A value typed on the node is text, so `1024` becomes `"1024"`. Connect a number,
 
 ### dictionary
 
-The single-pair dictionary. It is shown as "Key/Value Pair" in the editor.
+The single-pair dictionary `{key: value}`. It updates as soon as `key` or `value` is edited, and again when the node runs. With nothing set it is `{"": ""}`. It is shown as "Key/Value Pair" in the editor.

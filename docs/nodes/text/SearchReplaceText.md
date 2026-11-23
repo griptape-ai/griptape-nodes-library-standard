@@ -90,7 +90,7 @@ You have multiline text and want to replace a word or pattern in it. You can mat
 >
 > | Pattern | Description                | Example                                 |
 > | ------- | -------------------------- | --------------------------------------- |
-> | `\n`    | Match a newline            | `Line 1\nLine 2`                        |
+> | `\n`    | Match a newline (regex mode only) | `Line 1\nLine 2`                 |
 > | `\s`    | Match any whitespace       | `Hello\sWorld`                          |
 > | `\d`    | Match any digit            | `\d+` matches "123"                     |
 > | `[a-z]` | Match any lowercase letter | `[a-z]+` matches "hello"                |
@@ -109,7 +109,7 @@ The text to change. Newlines are preserved in the output. If this or `search_pat
 
 ### search_pattern
 
-Plain text by default. With `use_regex` on, it is a regular expression and special characters are regex syntax, so escape them to match them literally. Without `use_regex`, special characters are escaped for you, which is safer for simple replacements.
+Plain text by default. With `use_regex` on, it is a regular expression and special characters are regex syntax, so escape them to match them literally. Without `use_regex`, special characters are escaped for you, which is safer for simple replacements. In plain-text mode, typing `\n` searches for a backslash followed by an n, not for a newline. Use regex mode to match a newline with `\n`. A pattern that can match nothing, such as `a*`, inserts the replacement at every empty match (`abc` becomes `--b-c-` with replacement `-`).
 
 ### replacement_text
 
@@ -117,7 +117,11 @@ The replacement is passed to Python's `re.sub` in both modes, so backslashes in 
 
 ### case_sensitive
 
-`case_sensitive`, `use_regex` and `replace_all` are in the Options group, which is hidden until you expand it. Case-insensitive search works for both plain text and regular expressions.
+`case_sensitive`, `use_regex` and `replace_all` are in the Options group, which is hidden until you expand it. Case-sensitive is the default. Case-insensitive search works for both plain text and regular expressions.
+
+### replace_all
+
+On by default. Turn it off to replace only the first match.
 
 ### use_regex
 

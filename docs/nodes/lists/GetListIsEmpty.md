@@ -15,7 +15,7 @@ To check whether a task list has pending tasks, connect the list to `items`. `is
 
 ### items
 
-Accepts list connections only. If no list is connected, the list counts as empty.
+Accepts list connections only. Connections of other types, such as a string or a dictionary, are not allowed. If no list is connected, the list counts as empty.
 
 ### is_empty
 

@@ -22,11 +22,11 @@ The image to display. The same image is passed through unchanged on the `image` 
 
 ### width, height
 
-The image size in pixels, as integers. They are hidden by default. Show them in the Properties panel on the right.
+The image size in pixels, as integers. They are output-only and hidden by default. They update as soon as an image is set, not only when the node runs.
 
 For image URL inputs, the node reads the whole image at its location to measure it, so a large remote image can take time to load. For image artifact inputs, the size is read from the artifact's properties. The node cannot measure SVG files and reports 0 for both.
 
 ## Common issues
 
 - **Image not displaying**: Check that the source is connected and produces valid image data.
-- **Dimensions are 0**: No image is connected, the file could not be read, or the image is an SVG.
+- **Dimensions are 0**: No image is connected, the file is missing or is not a readable image, or the image is an SVG.

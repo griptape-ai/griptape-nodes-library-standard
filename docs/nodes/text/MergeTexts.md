@@ -22,13 +22,13 @@ To build a document from three sections:
 
 ### merge_string
 
-The separator placed between inputs. The default is `\n\n`. Type `\n` for a line break. If you clear it, the inputs are joined with nothing between them. The separator is only added between inputs, never at the start or end.
+The separator placed between inputs. The default is `\n\n`. Type `\n` for a line break; each `\n` you type (a backslash and an n) is turned into a real newline, and a real newline typed into the field works too. Other escapes such as `\t` are not converted. If you clear it, the inputs are joined with nothing between them. When an older saved workflow is loaded with this field empty, it is reset to `\n\n` once. The separator is only added between inputs, never at the start or end.
 
 ### whitespace
 
 `keep` (the default) leaves the text as is. `trim` strips whitespace from each input and from the final result.
 
-Empty inputs are skipped, so they do not add an extra separator. In `keep` mode an input that contains only spaces is not empty and is kept. In `trim` mode it is trimmed first and then skipped.
+Empty or unconnected inputs are skipped, so they do not add an extra separator. Inputs that are not text are converted with `str` (`2.5` becomes `2.5`). If every input is empty, `output` is an empty string. In `keep` mode an input that contains only spaces is not empty and is kept. In `trim` mode it is trimmed first and then skipped.
 
 ## Common issues
 

@@ -23,7 +23,7 @@ You want control over shadows, midtones and highlights separately. Typical uses 
 
 ### midtones
 
-0.1 to 10.0, default 1.0, which is no change. The node applies `output = input^(1/midtones)`, which matches Photoshop's gamma. Values above 1.0 brighten the midtones and values below 1.0 darken them.
+0.1 to 10.0 (enforced when you set it), default 1.0, which is no change. The node applies `output = input^(1/midtones)`, which matches Photoshop's gamma. Values above 1.0 brighten the midtones and values below 1.0 darken them.
 
 > [!NOTE]
 > The parameter tooltip says the opposite (below 1.0 lightens, above 1.0 darkens). The tooltip is wrong. See #1078.
@@ -42,7 +42,7 @@ You want control over shadows, midtones and highlights separately. Typical uses 
 
 ### output_format
 
-Defaults to `auto`, which keeps the input image's format.
+`auto` (default), `PNG`, `JPEG` or `WEBP`. `auto` saves in the input image's format, so a JPEG input gives a JPEG output. JPEG has no alpha, so an RGBA image saved as JPEG is flattened onto white. The `quality` parameter is not used by this node.
 
 ### output
 
@@ -50,7 +50,7 @@ The adjusted image.
 
 ## Notes
 
-The node applies three steps: input levels clip and map the range between `shadows` and `highlights`, the gamma from `midtones` is applied, and output levels map the result to the output range. The adjustment is computed once per run as a 256-entry table and applied equally to the red, green and blue channels. Transparency in RGBA images is preserved.
+The node applies three steps: input levels clip and map the range between `shadows` and `highlights`, the gamma from `midtones` is applied, and output levels map the result to the output range. The adjustment is computed once per run as a 256-entry table and applied equally to the red, green and blue channels. Transparency in RGBA images is preserved. Grayscale (L) images are adjusted directly. Other modes are converted to RGB and back, and a grayscale image with alpha (LA) comes out fully opaque.
 
 ## Common issues
 

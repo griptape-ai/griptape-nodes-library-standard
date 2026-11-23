@@ -10,11 +10,11 @@ You want to see a floating-point value in your graph, such as a temperature sett
 ## Example
 
 1. Add a **Display Float** node.
-1. Connect the `temperature` output from another node to its input.
-1. The node shows the current temperature value.
+1. Connect a float output, such as the `float` output of a **Float Input** node, to its input.
+1. The node shows the current value.
 
 ## Parameters
 
 ### float
 
-The default is 0.0. The same value is passed through as the output, also named `float`.
+The default is 0.0. The same value is passed through as the output, also named `float`. The node does not convert or check the value: a value set directly is passed on in whatever type it has. A connection must come from a float output. An integer output is not accepted.
