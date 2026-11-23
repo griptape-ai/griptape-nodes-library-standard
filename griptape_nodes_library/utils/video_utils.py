@@ -17,7 +17,9 @@ from griptape_nodes.files.project_file import ProjectFileDestination
 from griptape_nodes.utils.async_utils import subprocess_run
 
 from griptape_nodes_library.utils.ffmpeg_utils import (
-    RATE_TOLERANCE,
+    NTSC_RATE_30FPS,
+    NTSC_RATE_60FPS,
+    NTSC_RATE_TOLERANCE,
     describe_ffmpeg_failure,
     extract_video_metadata_structured,
     get_ffmpeg_paths,
@@ -41,10 +43,6 @@ NOMINAL_60FPS = 60
 # This ensures timecode matches wall clock time over long durations
 DROP_FRAMES_30FPS = 2  # Frames dropped per minute for 29.97 fps NTSC
 DROP_FRAMES_60FPS = 4  # Frames dropped per minute for 59.94 fps NTSC
-
-# Actual NTSC frame rates (precise values)
-ACTUAL_RATE_30FPS = 30000 / 1001  # ≈ 29.97 fps (NTSC)
-ACTUAL_RATE_60FPS = 60000 / 1001  # ≈ 59.94 fps (NTSC)
 
 
 MIN_VIDEO_FILE_SIZE = 1024  # bytes — smaller output is suspicious for any real video
@@ -283,9 +281,9 @@ def smpte_to_seconds(tc: str, rate: float, *, drop_frame: bool | None = None) ->
     # Drop-frame: only valid for NTSC rates (29.97 and 59.94 fps)
     nominal = (
         NOMINAL_30FPS
-        if abs(rate - 29.97) < RATE_TOLERANCE
+        if abs(rate - NTSC_RATE_30FPS) < NTSC_RATE_TOLERANCE
         else NOMINAL_60FPS
-        if abs(rate - 59.94) < RATE_TOLERANCE
+        if abs(rate - NTSC_RATE_60FPS) < NTSC_RATE_TOLERANCE
         else None
     )
     if nominal is None:
@@ -297,7 +295,7 @@ def smpte_to_seconds(tc: str, rate: float, *, drop_frame: bool | None = None) ->
     # Drop every minute except every 10th minute
     dropped = drop_per_min * (total_minutes - total_minutes // 10)
     frame_number = (hh * 3600 + mm * 60 + ss) * nominal + ff - dropped
-    actual_rate = ACTUAL_RATE_30FPS if nominal == NOMINAL_30FPS else ACTUAL_RATE_60FPS
+    actual_rate = NTSC_RATE_30FPS if nominal == NOMINAL_30FPS else NTSC_RATE_60FPS
     return frame_number / actual_rate
 
 
