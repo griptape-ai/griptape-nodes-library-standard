@@ -214,9 +214,7 @@ def detect_video_properties(
 
 def seconds_to_ts(sec: float) -> str:
     """Return HH:MM:SS.mmm for ffmpeg."""
-    sec = max(sec, 0)
-    whole = int(sec)
-    ms = round((sec - whole) * 1000)
+    whole, ms = divmod(round(max(sec, 0) * 1000), 1000)
     h = whole // 3600
     m = (whole % 3600) // 60
     s = whole % 60
