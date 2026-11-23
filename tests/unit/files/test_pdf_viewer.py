@@ -9,8 +9,8 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-from griptape_nodes_library.files import pdf_viewer
 from griptape_nodes_library.files.pdf_viewer import PdfViewerMixin
+from griptape_nodes_library.media import local_files
 
 
 class ViewerNode(PdfViewerMixin, ControlNode):
@@ -105,8 +105,8 @@ def test_static_url_is_the_engines_url_for_the_file(node: ViewerNode, monkeypatc
         url = "http://static/scan.pdf"
 
     # Serving the file is the engine's job. Stub it so this test does not start static file machinery.
-    monkeypatch.setattr(pdf_viewer, "CreateStaticFileDownloadUrlFromPathResultSuccess", FakeStaticUrl)
-    monkeypatch.setattr(pdf_viewer, "GriptapeNodes", SimpleNamespace(handle_request=lambda _request: FakeStaticUrl()))
+    monkeypatch.setattr(local_files, "CreateStaticFileDownloadUrlFromPathResultSuccess", FakeStaticUrl)
+    monkeypatch.setattr(local_files, "GriptapeNodes", SimpleNamespace(handle_request=lambda _request: FakeStaticUrl()))
 
     assert node._static_url("/some/scan.pdf") == "http://static/scan.pdf"
 
@@ -118,6 +118,6 @@ def test_static_url_is_empty_when_the_engine_cannot_serve_the_file(
         msg = "no static server"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(pdf_viewer, "GriptapeNodes", SimpleNamespace(handle_request=refuse))
+    monkeypatch.setattr(local_files, "GriptapeNodes", SimpleNamespace(handle_request=refuse))
 
     assert node._static_url("/some/scan.pdf") == ""

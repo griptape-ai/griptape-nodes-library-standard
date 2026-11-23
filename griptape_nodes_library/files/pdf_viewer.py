@@ -3,13 +3,9 @@ from typing import Any, ClassVar
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
-from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
 from griptape_nodes.traits.widget import Widget
+
+from griptape_nodes_library.media import browser_url
 
 
 class PdfViewerMixin(BaseNode):
@@ -84,14 +80,4 @@ class PdfViewerMixin(BaseNode):
 
     def _static_url(self, path: str) -> str:
         """Return the static server's URL for a file, or an empty string when there is none."""
-        try:
-            result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=File(path).resolve())
-            )
-        except Exception as e:
-            logger.warning(f"{self.name}: could not build a preview URL for {path!r}: {e}")
-            return ""
-        if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-            return result.url
-        logger.warning(f"{self.name}: the engine would not serve {path!r} to the viewer: {result.result_details}")
-        return ""
+        return browser_url(path, fallback="")

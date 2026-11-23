@@ -8,6 +8,7 @@ from griptape_nodes.exe_types.core_types import NodeError
 
 from griptape_nodes_library.audio import trim_audio
 from griptape_nodes_library.audio.trim_audio import TrimAudio, build_audio_trim_cmd, probe_audio_duration
+from griptape_nodes_library.media import local_files
 
 
 def _node(**values: Any) -> TrimAudio:
@@ -66,8 +67,8 @@ def test_widget_url_passes_http_through() -> None:
 
 
 def test_widget_url_is_empty_when_static_url_lookup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(trim_audio.GriptapeNodes, "handle_request", lambda *_: SimpleNamespace())
-    monkeypatch.setattr(trim_audio.File, "resolve", lambda self: "/abs/a.wav")
+    monkeypatch.setattr(local_files.GriptapeNodes, "handle_request", lambda *_: SimpleNamespace(result_details=""))
+    monkeypatch.setattr(local_files.File, "resolve", lambda self: "/abs/a.wav")
     assert _node()._resolve_audio_url("{outputs}/a.wav") == ""
 
 

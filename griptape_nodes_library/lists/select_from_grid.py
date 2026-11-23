@@ -24,6 +24,8 @@ from griptape_nodes.retained_mode.events.static_file_events import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.widget import Widget
 
+from griptape_nodes_library.media import browser_url
+from griptape_nodes_library.media.local_files import BROWSER_URL_PREFIXES
 from griptape_nodes_library.utils.audio_utils import is_audio_url_artifact
 from griptape_nodes_library.utils.macro_path_utils import resolve_to_macro_path
 from griptape_nodes_library.utils.video_utils import is_video_url_artifact
@@ -541,38 +543,14 @@ class SelectFromGrid(ControlNode):
         """Resolve an image path to a browser URL via the engine's preview generator."""
         if not path:
             return ""
-        if path.startswith(("http://", "https://")):
+        if path.startswith(BROWSER_URL_PREFIXES):
             return path
         url = await self._resolve_preview_url_async(path, "Image")
         if url:
             return url
         # Fallback: serve the original file directly without preview generation
-        try:
-            resolved = File(path).resolve()
-        except Exception:
-            resolved = path
-        try:
-            url_result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-            if isinstance(url_result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return url_result.url
-        except Exception:
-            pass
-        return path
+        return browser_url(path)
 
     def _resolve_url_string(self, path: str) -> str:
         """Resolve a file path or macro:// URL to a browser-accessible HTTP URL."""
-        if not path:
-            return ""
-        if path.startswith(("http://", "https://")):
-            return path
-        try:
-            resolved = File(path).resolve()
-        except Exception:
-            resolved = path
-        try:
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
-        except Exception:
-            pass
-        return path
+        return browser_url(path)

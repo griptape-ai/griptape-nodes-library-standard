@@ -13,9 +13,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.traits.widget import Widget
+
+from griptape_nodes_library.media import browser_url
 
 
 class AdjustMaskSize(DataNode):
@@ -157,9 +158,6 @@ class AdjustMaskSize(DataNode):
     def _resolve_video_url(self, video_artifact: Any) -> str:
         """Resolve a video artifact to a browser-accessible presigned URL.
 
-        Uses the same CreateStaticFileDownloadUrlFromPathRequest that the editor
-        uses to convert file paths and macro paths to presigned HTTP URLs.
-
         Args:
             video_artifact: A VideoUrlArtifact or similar artifact with a .value path/URL
 
@@ -173,28 +171,7 @@ class AdjustMaskSize(DataNode):
         if not value:
             return ""
 
-        # Already a browser-accessible URL — do not re-resolve
-        if isinstance(value, str) and value.startswith(("http://", "https://")):
-            return value
-
-        try:
-            resolved_path = File(value).resolve()
-        except Exception:
-            resolved_path = str(value)
-
-        try:
-            from griptape_nodes.retained_mode.events.static_file_events import (
-                CreateStaticFileDownloadUrlFromPathRequest,
-                CreateStaticFileDownloadUrlFromPathResultSuccess,
-            )
-
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved_path))
-            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
-        except Exception:
-            pass
-
-        return ""
+        return browser_url(str(value), fallback="")
 
     def _update_preview(self) -> None:
         """Update preview widget with current video URLs, preserving widget-owned state.

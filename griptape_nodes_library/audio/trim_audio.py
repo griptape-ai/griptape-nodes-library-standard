@@ -12,17 +12,16 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_audio import ParameterAudio
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
-from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.widget import Widget
 
-from griptape_nodes_library.media import coerce_media_url_or_data_uri, resolve_media_location
+from griptape_nodes_library.media import (
+    browser_url,
+    coerce_media_url_or_data_uri,
+    resolve_media_location,
+    validate_url,
+)
 from griptape_nodes_library.utils.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, run_ffmpeg_cmd
-from griptape_nodes_library.utils.video_utils import validate_url
 
 # The editor widget reads and writes these directly. An end time of 0 means the end of the clip.
 TRIM_PARAMETERS = ["start_time", "end_time"]
@@ -171,16 +170,7 @@ class TrimAudio(SuccessFailureNode):
 
     def _resolve_audio_url(self, raw: str) -> str:
         """Return a URL the browser can play, or "" when there is no playable audio."""
-        if not raw or raw.startswith(("http://", "https://", "data:")):
-            return raw
-        try:
-            result = GriptapeNodes.handle_request(
-                CreateStaticFileDownloadUrlFromPathRequest(file_path=File(raw).resolve())
-            )
-        except Exception as e:
-            logger.warning("%s: could not build a playable URL for the audio: %s", self.name, e)
-            return ""
-        return result.url if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess) else ""
+        return browser_url(raw, fallback="")
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "audio":

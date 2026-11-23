@@ -8,13 +8,10 @@ from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
-from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.widget import Widget
+
+from griptape_nodes_library.media import browser_url
 
 logger = logging.getLogger(__name__)
 
@@ -253,19 +250,7 @@ class Webcam(DataNode):
         return [ImageUrlArtifact(item["_path"]) for item in items if item.get("_path")]
 
     def _resolve_url(self, path: str) -> str:
-        if path.startswith(("http://", "https://")):
-            return path
-        try:
-            resolved = File(path).resolve()
-        except Exception:
-            resolved = path
-        try:
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
-        except Exception:
-            pass
-        return path
+        return browser_url(path)
 
     # ── Run ───────────────────────────────────────────────────────────────────
 

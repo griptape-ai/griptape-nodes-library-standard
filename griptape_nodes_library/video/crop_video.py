@@ -8,14 +8,11 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.events.static_file_events import (
-    CreateStaticFileDownloadUrlFromPathRequest,
-    CreateStaticFileDownloadUrlFromPathResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes, logger
+from griptape_nodes.retained_mode.griptape_nodes import logger
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.widget import Widget
 
+from griptape_nodes_library.media import browser_url
 from griptape_nodes_library.utils.video_utils import to_video_artifact
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
@@ -188,22 +185,7 @@ class CropVideo(BaseVideoProcessor):
     # ── Widget sync ────────────────────────────────────────────────────────────
 
     def _resolve_video_url(self, artifact: Any) -> str:
-        raw = getattr(artifact, "value", "") or ""
-        if not raw:
-            return ""
-        if raw.startswith(("http://", "https://", "data:")):
-            return raw
-        try:
-            resolved = File(raw).resolve()
-        except Exception:
-            return raw
-        try:
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-            if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess):
-                return result.url
-        except Exception:
-            pass
-        return raw
+        return browser_url(getattr(artifact, "value", "") or "")
 
     def _push_video_to_widget(self) -> None:
         """Give the editor widget the video and its size. The crop settings reach it from their own parameters."""
@@ -295,12 +277,7 @@ class CropVideo(BaseVideoProcessor):
             vw = existing.get("video_width") or 0
             vh = existing.get("video_height") or 0
             total_frames = existing.get("total_frames") or 0
-        try:
-            resolved = File(path).resolve()
-            result = GriptapeNodes.handle_request(CreateStaticFileDownloadUrlFromPathRequest(file_path=resolved))
-            url = result.url if isinstance(result, CreateStaticFileDownloadUrlFromPathResultSuccess) else ""
-        except Exception:
-            url = ""
+        url = browser_url(path, fallback="")
         new_dict = {
             **existing,
             "video_url": url,
