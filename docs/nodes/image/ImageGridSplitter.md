@@ -1,73 +1,49 @@
-## What is it?
+---
+description: Splits an image that contains a regular grid of images into separate images, with automatic or manual grid detection.
+when_to_use: Use it when you have a contact sheet, collage or grid render and need each tile as its own image.
+---
 
-The Image Grid Splitter node takes a single image that contains a **regular grid** of images and splits it into individual images.
+## When to use it
 
-It supports:
-
-- **Auto** grid detection (best-effort)
-- **Manual** grid definition (rows/columns)
-- A **preview overlay** showing dotted yellow grid lines
-- Outputs as both a **list** and **per-cell outputs** (`r1c1`, `r1c2`, etc.)
-
-## When would I use it?
-
-Use this node when you have an image that contains multiple images (e.g., a 2×2 or 3×3 collage) and you want to:
-
-- Extract each tile as its own image for downstream processing
-- Feed individual grid cells into other nodes
-- Keep both a list output and named per-cell outputs for easy wiring
-
-## How to use it
-
-### Basic setup
-
-1. Add **Image Grid Splitter** to your workflow
-1. Connect your grid image to **Input Image**
-1. Choose **Grid Detection**:
-    - **auto**: the node estimates rows/columns
-    - **manual**: you specify **Rows** and **Columns**
-1. Review **Preview** to confirm the split boundaries
-1. Run the node to generate split images
-
-> [!NOTE]
-> **Auto detection is best-effort**
->
-> Auto mode assumes a **regular grid** (equal-sized cells) and may be less accurate when adjacent cells are visually similar.
-> If the preview lines don’t match your grid, switch to **manual**.
-
-### Parameters
-
-- **Input Image**: The grid image to split. Accepts `ImageArtifact` or `ImageUrlArtifact`.
-- **Grid Detection** (`grid_detection_mode`):
-    - **auto**: detect a regular grid
-    - **manual**: use explicit Rows/Columns
-- **Rows** (`rows`) / **Columns** (`cols`) (manual only): Sliders from 1–12. Default is 2 each.
-- **Preview** (output): The original image with dotted yellow grid lines. The editor shows these lines live as you change the settings. The output is written when the node runs.
-- **Detections (auto)** (output group): Detected Rows, Detected Columns and Detected Count, filled on each run. The group is hidden when manual mode is selected.
-
-### Outputs
-
-- **Images**: List of `ImageUrlArtifact` in row-major order (left-to-right, top-to-bottom). Cells are saved as JPEG. The node trims uniform gap strips and edge strips between cells, so cells can be a few pixels smaller than an even split.
-- **Grid Cells**: One `ImageUrlArtifact` output per cell, named:
-    - `r1c1`, `r1c2`, ..., `r{row}c{col}`
-
-> [!NOTE]
-> **Per-cell outputs are created on run**
->
-> The `r{row}c{col}` outputs are created/updated when you run the node, based on the chosen (or detected) grid size.
+You have one image that holds a regular grid of images, such as a 2x2 or 3x3 collage or a contact sheet of shot thumbnails. The node gives you each tile as its own image, both as a list and as named per-cell outputs, for wiring into other nodes.
 
 ## Example
 
-If your input is a 2×2 grid:
+1. Add **Image Grid Splitter** and connect the grid image to `input_image`.
+1. Set `grid_detection_mode` to `auto`, or to `manual` and set `rows` and `cols`.
+1. Check the `preview` to confirm the split lines.
+1. Run the node.
 
-- `r1c1` is top-left
-- `r1c2` is top-right
-- `r2c1` is bottom-left
-- `r2c2` is bottom-right
+For a 2x2 grid, `r1c1` is top-left, `r1c2` is top-right, `r2c1` is bottom-left and `r2c2` is bottom-right. `images` contains `[r1c1, r1c2, r2c1, r2c2]`.
 
-And `Images` will contain `[r1c1, r1c2, r2c1, r2c2]`.
+## Parameters
+
+### grid_detection_mode
+
+- `auto`: estimates a regular grid of equal-sized cells. This is best-effort and can be less accurate when neighboring cells look alike.
+- `manual`: uses `rows` and `cols`.
+
+### rows, cols
+
+Manual mode only. Sliders from 1 to 12, default 2 each.
+
+### preview
+
+The original image with dotted yellow grid lines. The editor shows the lines live as you change the settings. The output file is written when the node runs.
+
+### detected_rows, detected_cols, detected_count
+
+The `detections_auto` group. Filled on each run in auto mode and hidden in manual mode.
+
+### images
+
+A list of image URL artifacts in row-major order, left to right and top to bottom. Cells are saved as JPEG. The node trims uniform gap strips and edge strips between cells, so cells can be a few pixels smaller than an even split.
+
+### grid_cells
+
+One image output per cell, named `r1c1`, `r1c2`, up to `r{row}c{col}`. These outputs are created or updated when you run the node, based on the chosen or detected grid size.
 
 ## Common issues
 
-- **Preview grid lines don’t match**: switch to **manual** and set the correct Rows/Columns.
-- **Unexpected auto detection**: some grids have weak visual boundaries; manual mode is the reliable fallback.
+- **Preview lines do not match the grid**: Switch to `manual` and set the correct `rows` and `cols`.
+- **Unexpected auto detection**: Some grids have weak visual boundaries. Manual mode is the reliable fallback.

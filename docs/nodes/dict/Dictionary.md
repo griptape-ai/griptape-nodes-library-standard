@@ -1,68 +1,41 @@
 ---
-title: "Dictionary"
+description: Builds a dictionary from a list of keys and a list of values.
+when_to_use: Use it when you have separate lists of names and values and want one dictionary to pass to other nodes.
 ---
 
-## What is it?
+## When to use it
 
-The Dictionary node lets you create a dictionary (a collection of key-value pairs) by providing separate lists of keys and values. It's a simple way to organize related data with named values that can be used throughout your workflow.
+You have a list of keys and a matching list of values and want them as one dictionary with named values. Use it to build structured data or configuration settings for other nodes, or data that is easy to read by key.
 
-## When would I use it?
-
-Use this node when you want to:
-
-- Organize related data with named values
-- Create structured data to pass to other nodes
-- Build configuration settings for other components
-- Prepare data in a format that's easy to access by key
-- Combine multiple values into a single organized structure
-
-## How to use it
-
-### Basic Setup
-
-1. Add the Dictionary node to your workflow
-1. Set up your lists of keys and values
-1. Connect the dictionary output to other nodes that need structured data
-
-### Parameters
-
-- **keys**: A list of strings that will be used as dictionary keys
-- **values**: A list of values (strings, numbers, booleans, etc.) that correspond to each key
-
-### Outputs
-
-- **dict**: The constructed dictionary containing all key-value pairs
+To build a dictionary from one pair at a time, use [Key Value Pair](KeyValuePair.md) with [Merge Key Value Pairs](MergeKeyValuePairs.md).
 
 ## Example
 
-Imagine you want to create a configuration dictionary for a user profile:
+Create a dictionary for a user profile:
 
-1. Add a Dictionary node to your workflow
-1. Set the "keys" parameter to:
+1. Add a Dictionary node.
+1. Set `keys` to:
     ```
     ["name", "age", "premium_member", "interests"]
     ```
-1. Set the "values" parameter to:
+1. Set `values` to:
     ```
     ["Jane Smith", 32, true, ["hiking", "photography", "coding"]]
     ```
-1. The output dictionary will be:
+1. The `dict` output is:
     ```
     {"name": "Jane Smith", "age": 32, "premium_member": true, "interests": ["hiking", "photography", "coding"]}
     ```
-1. Connect this dictionary to other nodes that need user profile information
+1. Connect it to nodes that need the profile.
 
-## Important Notes
+## Parameters
 
-- Keys are automatically converted to strings
-- If you provide more keys than values, the extra keys will be assigned `None` values
-- Empty or `None` keys are skipped unless it's the only key and has a value
-- You can provide single values instead of lists, and they'll be converted to single-item lists
-- The node works with various value types including strings, numbers, booleans, and nested lists
-- The dictionary format is compatible with nodes that accept dictionary inputs
+### keys
 
-## Common Issues
+Keys are converted to strings, which can give unexpected results if you use complex objects as keys. Empty or `None` keys are skipped, unless it is the only key and it has a value. You can give a single value instead of a list and it becomes a one-item list.
 
-- **Mismatched Lists**: If your keys and values lists have different lengths, some keys may have `None` values or some values may be ignored
-- **Key Conversion**: All keys are converted to strings, which may cause unexpected behavior if you're using complex objects as keys
-- **Empty Keys**: Empty strings or `None` values used as keys may be skipped depending on their values
+### values
+
+Strings, numbers, booleans and nested lists all work. A single value is converted to a one-item list.
+
+If the lists differ in length, keys with no matching value get `None`, and extra values may be ignored.

@@ -1,47 +1,22 @@
-## What is it?
+---
+description: Provides a floating-point number that you set on the node.
+when_to_use: Use it when you need a configurable decimal value, such as a threshold, a rate or a model temperature.
+---
 
-The FloatInput node is a simple way to input floating-point number values.
+## When to use it
 
-## When would I use it?
-
-Use this node when you want to:
-
-- Define a numerical value with decimal precision
-- Create a configurable number parameter for your workflow
-- Set up values for mathematical operations
-- Establish thresholds, rates, or other decimal values
-
-## How to use it
-
-### Basic Setup
-
-1. Add a FloatInput node to your workflow
-1. Set your desired float value
-
-### Parameters
-
-- **float**: A floating-point number value (default is 0.0)
-
-### Outputs
-
-- **float**: The floating-point value that can be used by other nodes
+You want a decimal value you can set on the node and connect to other nodes, such as thresholds, rates, or inputs to mathematical operations. Values like 0.5, 3.14159 and -2.75 are all valid.
 
 ## Example
 
-Imagine you want to set a temperature value for an AI model:
+To set the temperature of an AI model:
 
-1. Add a FloatInput node to your workflow
-1. Set the "float" value to 0.7
-1. Connect the output to a model's temperature parameter
-1. The AI model will now use 0.7 as its temperature setting
+1. Add a **Float Input** node and set `float` to 0.7.
+1. Connect its output to the model's temperature parameter.
+1. The model uses 0.7 as its temperature.
 
-## Important Notes
+## Parameters
 
-- This node creates a single floating-point value
-- The default value is 0.0 if none is specified
-- You can update the value through the node's properties
-- Floating-point numbers can represent decimal values like 0.5, 3.14159, or -2.75
+### float
 
-## Common Issues
-
-- None
+The default is 0.0. The value can also be changed through the node's properties. The output, also named `float`, carries this value.

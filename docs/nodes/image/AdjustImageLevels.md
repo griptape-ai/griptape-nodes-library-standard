@@ -1,97 +1,59 @@
-## What is it?
+---
+description: Adjusts an image's tonal range with input levels, a midtones gamma and output levels, like the Levels tool in Photoshop.
+when_to_use: Use it to fix exposure or contrast, or to bring a render's tonal range closer to a plate or reference.
+---
 
-The AdjustImageLevels node provides professional-level image adjustment capabilities similar to Photoshop's levels tool. It allows you to control input levels (shadows, midtones, highlights) and output levels, giving you precise control over the tonal range and contrast of your images.
+## When to use it
 
-## When would I use it?
-
-Use this node when you want to:
-
-- Fine-tune the tonal range of your images
-- Adjust shadows and highlights independently
-- Control midtone brightness with gamma correction
-- Create high-contrast or low-contrast effects
-- Fix exposure issues in images
-- Match the tonal characteristics of multiple images
-- Prepare images for specific output requirements
-
-## How to use it
-
-### Basic Setup
-
-1. Add the AdjustImageLevels node to your workflow
-1. Connect an image source to the "input_image" input
-1. Adjust the input and output level sliders
-1. The processed image will be available at the "output" parameter
-
-### Parameters
-
-#### Input Levels
-
-- **shadows** (0-255, default: 0): Input shadows level
-
-    - Pixels below this value will be mapped to output shadows
-    - Higher values clip more shadow detail
-
-- **midtones** (0.1-10.0, default: 1.0): Midtones adjustment (gamma)
-
-    - Values > 1.0 brighten midtones
-    - Values < 1.0 darken midtones
-    - 1.0 = no change
-    - The node applies `output = input^(1/midtones)`, so this matches Photoshop's gamma. The parameter tooltip says the opposite.
-
-- **highlights** (0-255, default: 255): Input highlights level
-
-    - Pixels above this value will be mapped to output highlights
-    - Lower values clip more highlight detail
-
-#### Output Levels
-
-- **output_shadows** (0-255, default: 0): Output shadows level
-
-    - Input shadows will be mapped to this value
-    - Higher values brighten the overall image
-
-- **output_highlights** (0-255, default: 255): Output highlights level
-
-    - Input highlights will be mapped to this value
-    - Lower values darken the overall image
-
-### Outputs
-
-- **output**: The adjusted image with your levels settings applied
+You want control over shadows, midtones and highlights separately. Typical uses are fixing exposure, creating high or low contrast looks, matching the tonal range of several images, and preparing an image for a specific output range.
 
 ## Example
 
-A typical levels adjustment workflow:
+1. Load an image with **Load Image** and connect it to `input_image`.
+1. Set `shadows` to 20 and `highlights` to 240 to clip a little of each end of the range.
+1. Set `midtones` to 1.2 to brighten the midtones.
+1. Set `output_shadows` to 10 and `output_highlights` to 245 to slightly lift the blacks and lower the whites.
+1. Connect `output` to [Display Image](DisplayImage.md) to view the result.
 
-1. Load an image using LoadImage
-1. Connect that image to the AdjustImageLevels node's "input_image" parameter
-1. Adjust the levels to improve the image:
-    - Set shadows to 20 to preserve more shadow detail
-    - Set midtones to 1.2 to brighten midtones
-    - Set highlights to 240 to preserve more highlight detail
-    - Set output_shadows to 10 to slightly brighten shadows
-    - Set output_highlights to 245 to slightly darken highlights
-1. Connect the "output" to DisplayImage to view the result
+## Parameters
 
-## Important Notes
+### shadows
 
-- **Live Preview**: Changes are applied in real-time as you move the sliders
-- **RGBA Support**: The node preserves transparency in RGBA images
-- **Lookup table**: The adjustment is computed once per run as a 256-entry table and applied to the red, green and blue channels equally
-- **Shadows and highlights**: If `shadows` is not below `highlights`, the node logs a warning and uses `highlights - 1` for `shadows`
-- **Output format**: `output_format` defaults to `auto`, which keeps the input image's format
+0 to 255, default 0. Pixels below this value are mapped to `output_shadows`. Higher values clip more shadow detail. If `shadows` is not below `highlights`, the node logs a warning and uses `highlights - 1` for `shadows`.
 
-## Common Issues
+### midtones
 
-- **No Changes Visible**: Make sure you're adjusting the sliders away from their default values
-- **Over-processed Look**: Be careful with extreme values - subtle adjustments often work best
-- **Clipping**: Setting shadows too high or highlights too low can cause detail loss
+0.1 to 10.0, default 1.0, which is no change. The node applies `output = input^(1/midtones)`, which matches Photoshop's gamma. Values above 1.0 brighten the midtones and values below 1.0 darken them.
 
-## Technical Details
+> [!NOTE]
+> The parameter tooltip says the opposite (below 1.0 lightens, above 1.0 darkens). The tooltip is wrong. See #1078.
 
-The node applies a three-step process:
+### highlights
 
-1. **Input Levels**: Clips and maps the input range based on shadows and highlights
-1. **Gamma Correction**: Applies midtone adjustment using power-law transformation
-1. **Output Levels**: Maps the processed values to the output range
+0 to 255, default 255. Pixels above this value are mapped to `output_highlights`. Lower values clip more highlight detail.
+
+### output_shadows
+
+0 to 255, default 0. The input shadows level is mapped to this value. Higher values brighten the image overall.
+
+### output_highlights
+
+0 to 255, default 255. The input highlights level is mapped to this value. Lower values darken the image overall.
+
+### output_format
+
+Defaults to `auto`, which keeps the input image's format.
+
+### output
+
+The adjusted image.
+
+## Notes
+
+The node applies three steps: input levels clip and map the range between `shadows` and `highlights`, the gamma from `midtones` is applied, and output levels map the result to the output range. The adjustment is computed once per run as a 256-entry table and applied equally to the red, green and blue channels. Transparency in RGBA images is preserved.
+
+## Common issues
+
+- **No change visible**: The sliders are still at their defaults.
+- **Over-processed look**: Extreme values rarely work well. Subtle adjustments are usually enough.
+- **Lost detail**: Setting `shadows` too high or `highlights` too low clips detail.

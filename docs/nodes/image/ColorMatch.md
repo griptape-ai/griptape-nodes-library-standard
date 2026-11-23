@@ -1,121 +1,60 @@
-## What is it?
+---
+description: Transfers the color characteristics of a reference image onto a target image with a choice of color matching algorithms.
+when_to_use: Use it when you need one image to take on the colors of another, such as matching a CG render to a plate.
+---
 
-The ColorMatch node transfers color characteristics from a reference image to a target image using various color matching algorithms. This is useful for automatic color grading, matching the look and feel between images, correcting lighting inconsistencies, and creating consistent visual styles across multiple images.
+## When to use it
 
-## When would I use it?
-
-Use this node when you want to:
-
-- Match colors between two images for consistency
-- Apply color grading from one image to another
-- Correct lighting inconsistencies between shots, such as matching a CG render to a plate
-- Create a unified color palette across multiple images
-- Transfer the mood or atmosphere of a reference image
-- Color-match stop-motion or video frames
-- Apply a color style from a reference photo
-
-## How to use it
-
-### Basic Setup
-
-1. Add the ColorMatch node to your workflow
-1. Connect the reference image to "reference_image" (the image with the color palette you want to copy)
-1. Connect the target image to "target_image" (the image you want to modify)
-1. Select a color transfer method
-1. Adjust the strength parameter as needed
-1. The color-matched image will be available at the "output" parameter
-
-### Parameters
-
-#### Image Inputs
-
-- **reference_image**: The reference image providing the color palette to transfer
-- **target_image**: The target image to apply color transfer to (will be modified)
-
-#### Color Match Settings
-
-- **method**: The color transfer algorithm to use
-
-    - **mkl**: Monge-Kantorovich Linearization (default)
-    - **hm**: Histogram Matching
-    - **reinhard**: Reinhard et al. color transfer
-    - **mvgd**: Multi-Variate Gaussian Distribution
-    - **hm-mvgd-hm**: Compound method
-    - **hm-mkl-hm**: Alternative compound method
-
-- **strength** (0.0-10.0, default: 1.0): Controls the intensity of the color transfer
-
-    - 0.0 = no change (original image)
-    - 1.0 = full color transfer
-    - Values > 1.0 exaggerate the effect
-
-### Outputs
-
-- **output**: The color-matched image with transferred color characteristics
+You have a target image and a reference with the look you want. Typical uses are matching a CG render to a plate, correcting lighting differences between shots or stop-motion frames, applying one reference's grade across many images, and transferring the mood of a reference photo.
 
 ## Example
 
-A typical color matching workflow:
+1. Load the plate and the render with two **Load Image** nodes.
+1. Connect the render to `target_image` and the plate to `reference_image`.
+1. Set `method` to `mkl` and `strength` to 1.0 for a full transfer.
+1. Connect `output` to [Display Image](DisplayImage.md) to view the result.
+1. Lower `strength` if the effect is too strong, or raise it if too subtle.
 
-1. Load two images using LoadImage nodes
-1. Connect the image you want to modify to "target_image"
-1. Connect the reference image (with the desired colors) to "reference_image"
-1. Select the "mkl" method for a good balance of speed and quality
-1. Set strength to 1.0 for full color transfer
-1. Connect the "output" to DisplayImage to view the result
-1. Adjust strength if the effect is too strong or too subtle
+Other setups:
 
-### Use Cases
+- **Photo grading**: Use a graded photo as the reference and try `reinhard` or `mkl`. Use `strength` below 1.0 for subtle results and above 1.0 for dramatic ones.
+- **Stop-motion correction**: Use a frame with correct lighting as the reference and the frames to fix as targets, with `mkl` and `strength` 1.0.
+- **Batch style transfer**: Run each target through the node with the same style reference. If the simple methods do not match well, try a compound method such as `hm-mvgd-hm`.
 
-#### Photo Color Grading
+## Parameters
 
-Match the color palette of a professionally graded photo to your own images:
+### reference_image
 
-1. Load your photo as the target image
-1. Load the reference photo with the desired color grading
-1. Try "reinhard" or "mkl"
-1. Adjust strength to taste (below 1.0 for subtle, above 1.0 for dramatic)
+The image whose colors are copied. It can be a different size from the target.
 
-#### Stop-Motion Correction
+### target_image
 
-Correct lighting inconsistencies between stop-motion frames:
+The image that is modified. The output keeps its dimensions.
 
-1. Load a frame with correct lighting as the reference
-1. Load frames that need correction as target images
-1. Use the "mkl" method
-1. Set strength to 1.0 for accurate matching
+### method
 
-#### Batch Style Transfer
+The algorithm. Default is `mkl`. Results differ between methods, so try several.
 
-Apply a consistent color style across multiple images:
+- `mkl`: Monge-Kantorovich Linearization. Uses optimal transport to match color distributions.
+- `hm`: Histogram Matching. Matches the histogram of each channel independently.
+- `reinhard`: Classic color transfer based on decorrelated color spaces.
+- `mvgd`: Multi-Variate Gaussian Distribution. Matches the mean and covariance of the color distributions.
+- `hm-mvgd-hm` and `hm-mkl-hm`: Compound methods that chain two of the above.
 
-1. Load your style reference image
-1. Process each target image through the ColorMatch node
-1. Try a compound method such as "hm-mvgd-hm" if the simple ones do not match well
+### strength
 
-## Important Notes
+0.0 to 10.0, default 1.0. The node computes `result = target + strength * (matched - target)`. At 0 the target is returned unchanged, 1.0 is the full transfer and values above 1.0 exaggerate the effect.
 
-- **RGB Processing**: Images are converted to RGB for processing, so any alpha channel is dropped. The output is saved as a PNG to the location set by `output_file`
-- **Preserves Dimensions**: Output image maintains the same dimensions as the target image. The reference can be a different size
-- **Strength 0**: The target image is returned unchanged
-- **Algorithm Differences**: Different methods produce different results - experiment to find the best one for your use case
-- **Validation**: Both images must be connected and `strength` must be between 0 and 10
+### output
 
-## Common Issues
+The color-matched image. Images are converted to RGB for processing, so any alpha channel is dropped and the output is a PNG written to the location set by `output_file`. Re-apply the alpha downstream if you need it.
 
-- **No Change Visible**: Make sure strength is greater than 0
-- **Effect Too Strong**: Reduce the strength value below 1.0
-- **Unexpected Colors**: Try a different method
-- **Transparency Lost**: The node works in RGB. Re-apply the alpha downstream if you need it
+## Notes
 
-## Technical Details
+Both images must be connected and `strength` must be between 0 and 10. The node uses the color-matcher library.
 
-The node uses the color-matcher library to perform color transfer. The available algorithms are:
+## Common issues
 
-- **MKL (Monge-Kantorovich Linearization)**: Uses optimal transport theory to match color distributions
-- **HM (Histogram Matching)**: Matches the histogram of each color channel independently
-- **Reinhard**: Classic color transfer method based on decorrelated color spaces
-- **MVGD (Multi-Variate Gaussian Distribution)**: Matches the mean and covariance of color distributions
-- **Compound Methods**: Chain two of the above, such as `hm-mkl-hm`
-
-The strength parameter uses linear interpolation: `result = target + strength * (matched - target)`
+- **No change visible**: `strength` is 0.
+- **Effect too strong**: Reduce `strength` below 1.0.
+- **Unexpected colors**: Try a different `method`.

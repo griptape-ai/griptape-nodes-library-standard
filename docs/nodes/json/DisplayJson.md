@@ -1,71 +1,46 @@
-Shows JSON data on the node and passes it through. It also reads JSON or YAML from text.
+---
+description: Shows JSON on the node and passes it through, parsing JSON or YAML from text.
+when_to_use: Use it when you want to inspect JSON during a workflow, or turn text such as a model's reply into JSON.
+---
 
-## Description
+## When to use it
 
-The Display JSON node parses its input and shows the result. A string is parsed as JSON first, with `json-repair` as a fallback for malformed JSON. If the text is YAML, or JSON or YAML inside a markdown code block (for example a model's reply), that is extracted and parsed. If the text cannot be parsed as either, the node fails with an error.
+Display JSON parses its input and shows the result. Use it to inspect JSON while you build a workflow, check a structure, look at an API response or a configuration file, or follow data as it moves between nodes.
 
-## Parameters
-
-### Input Parameters
-
-| Parameter | Type            | Description              | Default |
-| --------- | --------------- | ------------------------ | ------- |
-| `json`    | json, str, dict | The JSON data to display (can also be set on the node) | `{}`    |
-
-### Output Parameters
-
-| Parameter | Type | Description             |
-| --------- | ---- | ----------------------- |
-| `json`    | json | The formatted JSON data |
-
-## Features
-
-- **Automatic JSON Repair**: Handles malformed JSON strings using `json-repair`
-- **YAML and Markdown Input**: Parses YAML text and unwraps JSON or YAML fenced code blocks
-- **Multiple Input Types**: Accepts dictionaries and strings. Other values are converted to text and repaired
-- **Real-time Processing**: Updates automatically when input changes
+A string is parsed as JSON first, with `json-repair` as a fallback for malformed JSON. If the text is YAML, or JSON or YAML inside a markdown code block such as a model's reply, that is extracted and parsed. If the text cannot be parsed as either, the node fails with an error. Dictionaries pass through. Other values are converted to text and repaired.
 
 ## Examples
 
-### Basic JSON Display
+A well-formed object is shown as it is:
 
 ```python
 # Input: {"name": "John", "age": 30, "active": true}
 # Output: {"name": "John", "age": 30, "active": true}
 ```
 
-### Malformed JSON Repair and Display
+Malformed JSON is repaired:
 
 ```python
 # Input: '{"name": "John", age: 30, "city": "New York"}'  # Missing quotes around age
-# Output: {"name": "John", "age": 30, "city": "New York"}  # Repaired and formatted
+# Output: {"name": "John", "age": 30, "city": "New York"}
 ```
 
-### Complex JSON Structure
-
-```python
-# Input: {"user": {"name": "Alice", "profile": {"email": "alice@example.com", "preferences": {"theme": "dark"}}}}
-# Output: {"user": {"name": "Alice", "profile": {"email": "alice@example.com", "preferences": {"theme": "dark"}}}}
-```
-
-### String to JSON Conversion and Display
+A JSON string is parsed:
 
 ```python
 # Input: '{"items": [{"title": "Book", "price": 25}, {"title": "Magazine", "price": 10}]}'
 # Output: {"items": [{"title": "Book", "price": 25}, {"title": "Magazine", "price": 10}]}
 ```
 
-## Use Cases
+## Parameters
 
-- **Debugging**: View and inspect JSON data during workflow development
-- **Data Validation**: Verify JSON structure and content
-- **API Response Inspection**: Examine responses from external APIs
-- **Configuration Review**: Check JSON configuration files
-- **Data Flow Monitoring**: Monitor JSON data as it moves through your workflow
+### json
 
-## Related Nodes
+You can set the value on the node or connect it. The output `json` is the parsed result.
 
-- [JSON Input](JsonInput.md) - Create JSON data from inputs
-- [JSON Extract Value](JsonExtractValue.md) - Extract values from JSON
-- [JSON Replace](JsonReplace.md) - Replace values in JSON
-- [To JSON](../convert/ToJson.md) - Convert other data types to JSON
+## Related nodes
+
+- [JSON Input](JsonInput.md) creates JSON data from inputs.
+- [JSON Extract Value](JsonExtractValue.md) extracts values from JSON.
+- [JSON Replace](JsonReplace.md) replaces values in JSON.
+- [To JSON](../convert/ToJson.md) converts other data types to JSON.

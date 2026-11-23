@@ -1,43 +1,22 @@
-## What is it?
+---
+description: Shows text in the workflow and passes the same text on to other nodes.
+when_to_use: Use it when you want to read a text result at a point in the workflow, such as an Agent's reply, or leave a visible note on the canvas.
+---
 
-The DisplayText node simply displays text content in your workflow.
+## When to use it
 
-## When would I use it?
-
-Use the DisplayText node when:
-
-- You need to display results or information in your workflow
-- You want to show text output from previous processing steps
-- You need a placeholder for text content that will be updated during workflow execution
-- You want to create readable labels or descriptions within your workflow
-- You need to visualize string data at specific points in your process
-
-## How to use it
-
-### Basic Setup
-
-1. Add a DisplayText node to your workflow
-1. Set the initial text value if desired
-1. Connect inputs to the text parameter or manually enter text
-1. Connect the text output to other nodes that require text input
-
-### Parameters
-
-- **text**: The text content to display (string input, supports multiline text)
-
-### Outputs
-
-- **text**: The same text content, available as output to connect to other nodes
+DisplayText shows a piece of text on the canvas. Connect the output of an earlier step to see what it produced, or type text into it to use it as a label or description. It does not modify the text. The text passes through exactly as received, with no processing or formatting, and you can connect `text` to any node that takes text.
 
 ## Example
 
-Imagine you're building a workflow that processes and displays information:
+To read an Agent's answer on the canvas:
 
-1. Add a DisplayText node to your workflow
-1. Connect the output from an Agent node to the DisplayText node's text parameter
-1. When the workflow runs, the AI-generated content will replace the initial text
+1. Add a **DisplayText** node.
+1. Connect the output of an [Agent](../agents/Agent.md) node to its `text` parameter.
+1. When the workflow runs, the generated reply replaces the initial text.
 
-## Important Notes
+## Parameters
 
-- The DisplayText node is for visualization and doesn't modify the text content
-- The node passes through text exactly as received, without any processing or formatting
+### text
+
+Accepts multiline text. It is both the input and the output, so the displayed text is the same text that downstream nodes receive.

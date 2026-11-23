@@ -1,64 +1,15 @@
-Replace values in JSON using dot notation paths.
+---
+description: Replaces the value at a dot-notation path in JSON data and outputs the modified copy.
+when_to_use: Use it when you need to change one field in a JSON record, such as a shot's status, without touching the rest.
+---
 
-## Description
+## When to use it
 
-The JSON Replace node allows you to modify JSON data by replacing values at specific paths using dot notation. It creates a deep copy of the original data to avoid modifying the source, and can automatically create missing paths if they don't exist.
+You have JSON data and want to change one value inside it, for example a shot status in a shot record, a field in a request payload, or a setting in a configuration. Give the node a path in dot notation and the new value. It works on a deep copy, so the source data is not modified, and it creates missing paths. Typical uses are updating records, filling in template JSON with dynamic values and adjusting payloads for different systems.
 
-## Parameters
+## Example
 
-### Input Parameters
-
-| Parameter           | Type            | Description                                                        | Default |
-| ------------------- | --------------- | ------------------------------------------------------------------ | ------- |
-| `json`              | json, str, dict | The JSON data to modify                                            | `{}`    |
-| `path`              | str             | Dot notation path to replace (e.g., 'user.name', 'items[0].title') | `""`    |
-| `replacement_value` | json, str, dict, float, int, bool | The new value to put at the specified path       | `""`    |
-
-### Output Parameters
-
-| Parameter | Type | Description                                  |
-| --------- | ---- | -------------------------------------------- |
-| `output`  | json | The modified JSON with the replacement value |
-
-## Features
-
-- **Deep Copy Protection**: Creates a deep copy to avoid modifying the original data
-- **Path Creation**: Automatically creates missing paths if they don't exist
-- **Array Support**: Handles array indexing like `items[0].name`
-- **Real-time Updates**: Updates automatically when any input parameter changes
-- **Safe Operations**: If the path cannot be followed (for example it goes through a value that is not an object or list), the output is an unchanged copy of the input
-- **Strict Input Parsing**: A JSON string must be valid JSON. The node does not repair it, and fails with an error if it cannot be parsed
-- **Replacement As Given**: The replacement value is used as it arrives. A string such as `5` stays text unless it comes from a number or JSON connection
-- **Empty Path**: If `path` is empty, the output is the replacement value itself
-
-## Path Syntax
-
-### Basic Object Replacement
-
-```python
-# Replace nested object properties
-path = "user.name"  # Replace user's name
-path = "user.profile.email"  # Replace nested email
-```
-
-### Array Element Replacement
-
-```python
-# Replace array elements
-path = "items[0].title"  # Replace title of first item
-path = "users[2].name"  # Replace name of third user
-```
-
-### Complex Path Replacement
-
-```python
-# Replace in nested arrays
-path = "orders[0].items[1].price"  # Replace price of second item in first order
-```
-
-## Examples
-
-### Basic Value Replacement
+### Basic value replacement
 
 ```python
 # Original JSON: {"user": {"name": "John", "age": 30}}
@@ -67,7 +18,7 @@ path = "orders[0].items[1].price"  # Replace price of second item in first order
 # Output: {"user": {"name": "Jane", "age": 30}}
 ```
 
-### Array Element Replacement
+### Array element replacement
 
 ```python
 # Original JSON: {"items": [{"title": "Book", "price": 25}, {"title": "Magazine", "price": 10}]}
@@ -76,7 +27,7 @@ path = "orders[0].items[1].price"  # Replace price of second item in first order
 # Output: {"items": [{"title": "Novel", "price": 25}, {"title": "Magazine", "price": 10}]}
 ```
 
-### Creating New Paths
+### Creating new paths
 
 ```python
 # Original JSON: {"user": {"name": "John"}}
@@ -85,7 +36,7 @@ path = "orders[0].items[1].price"  # Replace price of second item in first order
 # Output: {"user": {"name": "John", "email": "john@example.com"}}
 ```
 
-### Nested Array Replacement
+### Nested array replacement
 
 ```python
 # Original JSON: {"orders": [{"items": [{"name": "Product A"}, {"name": "Product B"}]}]}
@@ -94,30 +45,43 @@ path = "orders[0].items[1].price"  # Replace price of second item in first order
 # Output: {"orders": [{"items": [{"name": "Product A"}, {"name": "Product C"}]}]}
 ```
 
-### Paths that end in a list index
+## Parameters
 
-A path that ends in a list index, such as `items[0]` or `items[2]`, does not set the value. This is a known bug (#1081). `items[0]` leaves the list unchanged, and an index past the end pads the list with `null` without writing the value:
+### json
 
-```python
-# Original JSON: {"items": ["a", "b"]}
-# Path: "items[2]"
-# Replacement Value: "X"
-# Output: {"items": ["a", "b", null]}
-```
+A JSON string must be valid JSON. The node does not repair it and fails with an error if it cannot be parsed. The node deep-copies the input, so the original is never changed.
 
-Paths that continue into the item work, for example `items[0].title`. To replace a whole list item for now, change the item with [JSON Extract Value](JsonExtractValue.md) and rebuild the list with the list nodes.
+### path
 
-## Use Cases
+Dot notation with list indexes, such as `user.profile.email`, `items[0].title` or `orders[0].items[1].price`.
 
-- **Data Updates**: Change a field such as a shot status in a JSON record
-- **API Integration**: Update request payloads with new values
-- **Data Transformation**: Modify JSON structure for different systems
-- **Template Processing**: Fill in template JSON with dynamic values
-- **Configuration Management**: Update settings in JSON configuration files
+- A path that does not exist is created.
+- If the path cannot be followed, for example because it goes through a value that is not an object or list, the output is an unchanged copy of the input.
+- If `path` is empty, the output is the replacement value itself.
 
-## Related Nodes
+> [!WARNING]
+> A path that ends in a list index, such as `items[0]` or `items[2]`, does not set the value. This is a known bug (#1081). `items[0]` leaves the list unchanged, and an index past the end pads the list with `null` without writing the value:
+>
+> ```python
+> # Original JSON: {"items": ["a", "b"]}
+> # Path: "items[2]"
+> # Replacement Value: "X"
+> # Output: {"items": ["a", "b", null]}
+> ```
+>
+> Paths that continue into the item work, for example `items[0].title`. To replace a whole list item for now, change the item with [JSON Extract Value](JsonExtractValue.md) and rebuild the list with the list nodes.
 
-- [JSON Input](JsonInput.md) - Create JSON data from inputs
-- [JSON Extract Value](JsonExtractValue.md) - Extract values from JSON
-- [Display JSON](DisplayJson.md) - Display and format JSON data
-- [To JSON](../convert/ToJson.md) - Convert other data types to JSON
+### replacement_value
+
+The value is used as it arrives. A string such as `5` stays text unless it comes from a number or JSON connection.
+
+### output
+
+The modified JSON.
+
+## Related nodes
+
+- [JSON Input](JsonInput.md) creates JSON data from inputs.
+- [JSON Extract Value](JsonExtractValue.md) extracts values from JSON.
+- [Display JSON](DisplayJson.md) displays and formats JSON data.
+- [To JSON](../convert/ToJson.md) converts other data types to JSON.

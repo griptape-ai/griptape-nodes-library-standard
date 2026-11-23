@@ -1,49 +1,22 @@
-## What is it?
+---
+description: Outputs the number of items in a list.
+when_to_use: Use it when you need to know how many items a list holds, to check a size or to drive other logic.
+---
 
-The GetListLength node is a utility node that calculates and outputs the number of items in a list. It provides a simple way to determine the size of any list in your workflow.
+## When to use it
 
-## When would I use it?
-
-Use the GetListLength node when:
-
-- You need to know how many items are in a list
-- You want to check if a list is empty or has a specific number of items
-- You're building workflows that depend on list size
-- You need to validate list lengths before processing
-- You want to monitor the size of dynamic lists
-
-## How to use it
-
-### Basic Setup
-
-1. Add a GetListLength node to your workflow
-1. Connect any list to the "items" input
-1. The node will automatically calculate and output the list's length
-
-### Parameters
-
-- **items**: The list to measure (list input)
-- **length**: The number of items in the list (integer output)
-
-### Outputs
-
-- **length**: An integer representing the number of items in the input list
+You want the size of a list, for example to check that it has a specific number of items or to validate its length before processing. The node works with lists of any item type.
 
 ## Example
 
-Imagine you want to check how many tasks are in a task list:
+To count the tasks in a task list, connect the list to `items`. `length` shows the number of tasks.
 
-1. Add a GetListLength node to your workflow
-1. Connect your task list to the "items" input
-1. The "length" output will show the total number of tasks in the list
+## Parameters
 
-## Important Notes
+### items
 
-- The node automatically updates the length when the input list changes
-- If the input list is empty or not provided, the length will be 0
-- The length is always a non-negative integer
-- The node works with lists of any type of items
+If the list is empty or nothing is connected, the length is 0.
 
-## Common Issues
+### length
 
-- **Empty List**: If no list is connected, the length will be 0
+A non-negative integer.

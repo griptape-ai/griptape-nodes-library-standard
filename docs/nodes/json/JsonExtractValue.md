@@ -1,73 +1,13 @@
-Extract values from JSON using [JMESPath](https://jmespath.org) expressions.
+---
+description: Pulls a value out of JSON with a JMESPath expression.
+when_to_use: Use it when you need one field, a list of fields, or a filtered or computed result from a JSON structure.
+---
 
-## Description
+## When to use it
 
-The JSON Extract Value node allows you to extract specific values from JSON data using JMESPath expressions. It supports nested object access, array indexing, and powerful wildcard operations, making it easy to navigate and extract data from complex JSON structures.
+Use it to read specific values from JSON with [JMESPath](https://jmespath.org) expressions. It supports nested object access, array indexing, wildcards, filters and functions such as `sum()`. For the full syntax, see the [JMESPath tutorial](https://jmespath.org/tutorial.html).
 
-## Parameters
-
-### Input Parameters
-
-| Parameter | Type            | Description                                                                                | Default |
-| --------- | --------------- | ------------------------------------------------------------------------------------------ | ------- |
-| `json`    | json, str, dict | The JSON data to extract from                                                              | `{}`    |
-| `path`    | str             | JMESPath expression to extract data (e.g., 'user.name', 'items[0].title', '[\*].assignee') | `""`    |
-
-### Output Parameters
-
-| Parameter | Type | Description         |
-| --------- | ---- | ------------------- |
-| `output`  | json | The extracted value |
-
-## Features
-
-- **JMESPath Expressions**: Use powerful JMESPath syntax for flexible data extraction
-- **Dot Notation Paths**: Use simple dot notation to navigate JSON structure
-- **Array Indexing**: Access array elements using `[index]` syntax
-- **Wildcard Operations**: Extract all values from arrays using `[*]` syntax
-- **Native Python Types**: Returns raw Python values (strings, dicts, lists, etc.) - no JSON serialization needed
-- **Real-time Updates**: Automatically updates when input changes
-- **Safe Extraction**: Returns empty dict `{}` if path doesn't exist
-- **Empty Path**: If `path` is empty, the whole input is returned
-- **Strict Input Parsing**: A JSON string must be valid JSON. The node does not repair it, and fails with an error if it cannot be parsed or if the JMESPath expression is invalid
-
-## JMESPath Syntax
-
-> **📚 Learn More**: For complete JMESPath syntax and advanced features, see the [JMESPath Documentation](https://jmespath.org/tutorial.html).
-
-### Basic Object Access
-
-```python
-# Access nested object properties
-path = "user.name"  # Gets user's name
-path = "user.profile.email"  # Gets nested email
-```
-
-### Array Indexing
-
-```python
-# Access array elements
-path = "items[0]"  # Gets first item
-path = "items[0].title"  # Gets title of first item
-path = "users[2].name"  # Gets name of third user
-```
-
-### Wildcard Operations
-
-```python
-# Extract all values from arrays
-path = "items[*].title"  # Gets all titles from items array
-path = "users[*].name"  # Gets all names from users array
-path = "[*].assignee"  # Gets all assignees from root array
-```
-
-### Complex Paths
-
-```python
-# Combine object and array access
-path = "orders[0].items[1].price"  # Gets price of second item in first order
-path = "projects[*].tasks[*].assignee"  # Gets all assignees from all project tasks
-```
+Typical sources are shot codes, statuses or assignees from a production tracker export, frame counts or job IDs from a render manager's response, the format or date in a delivery spec, or one field from the structured JSON an [Agent](../agents/Agent.md) returns when you give it an output schema.
 
 ## Examples
 
@@ -98,23 +38,27 @@ The examples below all read from the same shot list, the kind of data a producti
 | `delivery` | A whole object | `{"date": "2026-12-04", "format": "EXR"}` |
 | `delivery.contact` | A key that isn't there | `{}` |
 
-### Feeding the result to other nodes
+Other path forms: `user.profile.email` for nested objects, `users[2].name` for the third user, `[*].assignee` for a root array, and `projects[*].tasks[*].assignee` for all assignees across all tasks.
 
 The output keeps its type, so a list can go straight into a list node and a number into a math node. For example, `shots[?status=='in_progress'].code` gives a list of shot codes. Connect it to [Create Text List](../lists/CreateTextList.md) or an [Agent](../agents/Agent.md) prompt to write a "still open" summary for the daily.
 
-> [!NOTE]
-> The node returns native Python types (string, number, list, dict). There is no JSON text to parse afterwards. An empty `path` returns the whole input.
+## Parameters
 
-## Use Cases
+### json
 
-- **Production tracker data:** pull shot codes, statuses or assignees from a tracker's JSON export.
-- **Render and farm reports:** read frame counts, error counts or job IDs from a render manager's response.
-- **Asset and delivery specs:** extract the format, resolution or date a client asked for.
-- **Agent output:** read one field out of the structured JSON an [Agent](../agents/Agent.md) returns when you give it an output schema.
+A JSON string must be valid JSON. This node does not repair it, and it fails with an error if the string cannot be parsed. Use [JSON Input](JsonInput.md) or [Display JSON](DisplayJson.md) first if the text may be malformed.
 
-## Related Nodes
+### path
 
-- [JSON Input](JsonInput.md) - Create JSON data from inputs
-- [JSON Replace](JsonReplace.md) - Replace values in JSON
-- [Display JSON](DisplayJson.md) - Display and format JSON data
-- [To JSON](../convert/ToJson.md) - Convert other data types to JSON
+A JMESPath expression. If it is empty, the whole input is returned. An invalid expression fails with an error.
+
+### output
+
+The extracted value as a native type (string, number, list or dict), so there is no JSON text to parse afterwards. If the path does not exist, the output is an empty dict `{}`.
+
+## Related nodes
+
+- [JSON Input](JsonInput.md) creates JSON data from inputs.
+- [JSON Replace](JsonReplace.md) replaces values in JSON.
+- [Display JSON](DisplayJson.md) displays and formats JSON data.
+- [To JSON](../convert/ToJson.md) converts other data types to JSON.

@@ -1,54 +1,34 @@
 ---
-title: "KeyValuePair Node"
+description: Makes a dictionary with one key and one value.
+when_to_use: Use it when you need a one-entry dictionary, for example to give an Agent extra context or to build a dictionary piece by piece.
 ---
 
-## What is it?
+## When to use it
 
-The `KeyValuePair` node creates a simple dictionary containing a single key-value pair. It takes a key and a value as inputs and outputs a dictionary with that single mapping.
+You have a key and a value and need them as a dictionary, for nodes that take dictionary inputs. It is also a way to build configuration parameters dynamically or to assemble a larger structure piece by piece.
 
-## When would I use it?
-
-Use the KeyValuePair node when:
-
-- You need to create a simple dictionary with a single key-value association
-- You want to dynamically generate configuration parameters
-- You're building data structures piece by piece
-- You need to transform two separate values into a dictionary format
-- You're preparing data for nodes that require dictionary inputs
-
-## How to use it
-
-### Basic Setup
-
-1. Add the KeyValuePair node to your workflow
-1. Set the "key" parameter to your desired dictionary key
-1. Set the "value" parameter to the value you want associated with that key
-1. Connect the "dictionary" output to other nodes that require dictionary input
-
-### Parameters
-
-- **key**: The string that will be used as the dictionary key (string)
-- **value**: The value for the key. Typed in, it is text. A connected value of any type keeps its type
-
-### Outputs
-
-- **dictionary**: A dictionary containing the single key-value pair (shown as "Key/Value Pair" in the editor)
+To build a dictionary with several pairs, combine several Key Value Pair nodes with [Merge Key Value Pairs](MergeKeyValuePairs.md), or use [Create Dictionary](Dictionary.md) with lists of keys and values.
 
 ## Example
 
-Imagine you're creating a workflow that needs to set configuration options:
+Set a configuration option:
 
-1. Add a KeyValuePair node to your workflow
-1. Set the "key" parameter to "max_tokens"
-1. Set the "value" parameter to "1024"
-1. Connect the "dictionary" output to a node that requires configuration parameters
+1. Add a Key Value Pair node.
+1. Set `key` to `max_tokens` and `value` to `1024`.
+1. Connect the `dictionary` output to a node that takes configuration parameters.
 
-The output will be a dictionary: `{"max_tokens": "1024"}`
+The output is `{"max_tokens": "1024"}`.
 
-This dictionary can then be used by other nodes in your workflow that need this configuration parameter.
+## Parameters
 
-## Important Notes
+### key
 
-- The key is always text
-- A value typed on the node is text. Connect a number, boolean, list or other value to `value` to keep its type
-- To build a dictionary with several pairs, combine several KeyValuePair nodes with [Merge Key Value Pairs](MergeKeyValuePairs.md), or use [Dictionary](Dictionary.md) with lists of keys and values
+Always text.
+
+### value
+
+A value typed on the node is text, so `1024` becomes `"1024"`. Connect a number, boolean, list or other value to keep its type.
+
+### dictionary
+
+The single-pair dictionary. It is shown as "Key/Value Pair" in the editor.

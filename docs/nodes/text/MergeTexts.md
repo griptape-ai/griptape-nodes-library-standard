@@ -1,52 +1,36 @@
-## What is it?
+---
+description: Joins up to four pieces of text into one, with a separator between them.
+when_to_use: Use it when you want to combine text from several nodes into one string, such as a title, body and conclusion, or several shot notes.
+---
 
-The MergeTexts node is a utility node that combines multiple text strings into a single unified text output. It allows you to consolidate separate pieces of text with a configurable separator between them.
+## When to use it
 
-## When would I use it?
+You have separate pieces of text and want one output. The node joins `input_1` to `input_4` in order, with a separator between them. The output updates as soon as an input or option changes, and again when the workflow runs.
 
-Use the MergeTexts node when:
-
-- You need to combine text from multiple sources or nodes
-- You want to join separate pieces of text with consistent formatting
-- You're building a workflow that generates content from multiple components
-- You need to create a comprehensive document from individual sections
-
-## How to use it
-
-### Basic Setup
-
-1. Add a MergeTexts node to your workflow
-1. Connect multiple text outputs from other nodes to this node's inputs
-1. Optionally configure the separator string
-1. Connect the output to nodes that require the combined text
-
-### Parameters
-
-- **input_1 through input_4**: Four text inputs to be combined, in order
-- **merge_string**: The separator to place between text segments. The default is `\n\n`, which is converted to two line breaks
-- **whitespace**: Choose `trim` to strip whitespace from each input and from the final result, or `keep` (the default) to leave the text as is
-
-### Outputs
-
-- **output**: The combined text result as a single string
+The node has exactly four inputs. To merge more, chain a second Merge Texts node, or build a list and use [Join List](../lists/JoinList.md).
 
 ## Example
 
-A workflow to create a complete document from separate sections:
+To build a document from three sections:
 
-1. Add a MergeTexts node to your workflow
-1. Connect outputs from three different text nodes (e.g., title, body, conclusion)
-1. Leave merge_string as `\n\n` for paragraph separation
-1. The output will contain all text segments combined with the specified separator
+1. Add a **Merge Texts** node.
+1. Connect the title, body and conclusion text nodes to `input_1`, `input_2` and `input_3`.
+1. Leave `merge_string` as `\n\n` so the sections are separated by a blank line.
+1. `output` contains the three sections in order.
 
-## Important Notes
+## Parameters
 
-- Empty inputs are skipped, so they do not add an extra separator. In `keep` mode an input that contains only spaces is not empty and is kept. In `trim` mode it is trimmed first and then skipped
-- The separator is only added between inputs, not at the beginning or end
-- Type `\n` in the separator for a line break. If you clear the separator, the inputs are joined with nothing between them
-- The output updates as soon as an input or option changes, and again when the workflow runs
+### merge_string
 
-## Common Issues
+The separator placed between inputs. The default is `\n\n`. Type `\n` for a line break. If you clear it, the inputs are joined with nothing between them. The separator is only added between inputs, never at the start or end.
 
-- **Unexpected formatting**: Check that your merge_string contains appropriate whitespace
-- **Missing content**: Verify all input connections are properly established. The node has exactly four inputs. To merge more, chain a second Merge Texts node or build a list and use [Join List](../lists/JoinList.md)
+### whitespace
+
+`keep` (the default) leaves the text as is. `trim` strips whitespace from each input and from the final result.
+
+Empty inputs are skipped, so they do not add an extra separator. In `keep` mode an input that contains only spaces is not empty and is kept. In `trim` mode it is trimmed first and then skipped.
+
+## Common issues
+
+- **Unexpected formatting.** Check that `merge_string` contains the whitespace you want.
+- **Missing content.** Check that every input is connected, and that you are not using more than four.

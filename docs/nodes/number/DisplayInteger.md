@@ -1,42 +1,20 @@
-## What is it?
+---
+description: Shows an integer value on the node and passes it through unchanged.
+when_to_use: Use it when you want to inspect a whole-number value in your graph, for example while debugging.
+---
 
-The DisplayInteger node simply displays an integer parameter.
+## When to use it
 
-## When would I use it?
-
-Use this node/class when you want to:
-
-- When you want to inspect an integer value in your graph
-
-## How to use it
-
-### Basic Setup
-
-1. Add the DisplayInteger to your workflow
-1. Connect any other node's integer output to this input
-
-### Parameters
-
-- **integer**: A single integer value that is displayed by this node (default is 0)
-
-### Outputs
-
-- **integer**: The same value, passed through, so the node can sit in the middle of a chain
+You want to see an integer in your graph, such as a token count. The node does not modify the value. It shows it and passes it through, so it can sit in the middle of a chain.
 
 ## Example
 
-Imagine you want to visualize the token count used in your workflow:
+1. Add a **Display Integer** node.
+1. Connect the `token_count` output from another node to its input.
+1. The node shows the current token count.
 
-1. Add a DisplayInteger to your workflow
-1. Connect the "token_count" output from another node to the DisplayInteger's input
-1. The DisplayInteger will now show the current token count in your graph
+## Parameters
 
-## Important Notes
+### integer
 
-- This node is for visualization purposes only
-- It doesn't modify the value, just displays it and passes it through
-- Useful for debugging and monitoring your workflow
-
-## Common Issues
-
-- None
+The default is 0. The same value is passed through as the output, also named `integer`.

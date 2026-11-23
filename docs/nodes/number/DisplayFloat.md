@@ -1,40 +1,20 @@
-## What is it?
+---
+description: Shows a float value on the node and passes it through unchanged.
+when_to_use: Use it when you want to inspect a decimal value in your graph, for example while debugging.
+---
 
-The DisplayFloat node simply displays a float parameter.
+## When to use it
 
-## When would I use it?
-
-When you want to inspect a floating-point number value in your graph
-
-## How to use it
-
-### Basic Setup
-
-1. Add the DisplayFloat to your workflow
-1. Connect any other node's float output to this input
-
-### Parameters
-
-- **float**: A single floating-point number that is displayed by this node (default is 0.0)
-
-### Outputs
-
-- **float**: The same value, passed through, so the node can sit in the middle of a chain
+You want to see a floating-point value in your graph, such as a temperature setting. The node does not modify the value. It shows it and passes it through, so it can sit in the middle of a chain.
 
 ## Example
 
-Imagine you want to visualize the temperature setting used in your workflow:
+1. Add a **Display Float** node.
+1. Connect the `temperature` output from another node to its input.
+1. The node shows the current temperature value.
 
-1. Add a DisplayFloat to your workflow
-1. Connect the "temperature" output from another node to the DisplayFloat's input
-1. The DisplayFloat will now show the current temperature value in your graph
+## Parameters
 
-## Important Notes
+### float
 
-- This node is for visualization purposes only
-- It doesn't modify the value, just displays it and passes it through
-- Useful for debugging and monitoring your workflow
-
-## Common Issues
-
-- None
+The default is 0.0. The same value is passed through as the output, also named `float`.

@@ -1,35 +1,26 @@
 ---
 title: "Math Operations"
+description: Does arithmetic on one or two numbers, such as add, divide, round, average or sine.
+when_to_use: Use it when you need a single arithmetic step, such as an average, a rounded value or a remainder, and you would rather pick it from a list than write a formula.
 ---
 
-## What is it?
+## When to use it
 
-The Math node is a versatile mathematical operations node that can perform various arithmetic and mathematical functions on numbers. It supports both unary operations (single input) and binary operations (two inputs).
+Pick an operation from the dropdown, connect numbers to `A` and `B`, and read the answer from `result`. It covers basic arithmetic, powers, modulo, rounding, minimum and maximum, averages, square root, absolute value and sine. For a formula with several steps, use [Math Expression](MathExpression.md) instead.
 
-## When would I use it?
+## Example
 
-Use this node when you need to:
+To average two numbers, such as the frame counts of two shots:
 
-- Perform basic arithmetic operations (addition, subtraction, multiplication, division)
-- Calculate mathematical functions (square root, absolute value, sine)
-- Round numbers (round, ceil, floor)
-- Find minimum/maximum values
-- Calculate averages
-- Perform modulo operations
-- Calculate powers
+1. Add a **Math** node and select `average [avg(A, B)]` in `operation`.
+1. Connect the two numbers to `A` and `B`.
+1. The average is in `result`.
 
-## How to use it
+## Parameters
 
-### Basic Setup
+### operation
 
-1. Add the Math node to your workflow
-1. Select the operation you want to perform from the dropdown menu
-1. Connect input values to parameters A and B (B is only needed for binary operations)
-1. The result will be available in the "result" output
-
-### Available Operations
-
-#### Binary Operations (require both A and B inputs)
+Binary operations use both `A` and `B`:
 
 - Add (A + B)
 - Subtract (A - B)
@@ -41,7 +32,7 @@ Use this node when you need to:
 - Min (min(A, B))
 - Max (max(A, B))
 
-#### Unary Operations (only require A input)
+Unary operations use only `A`:
 
 - Square Root (√A)
 - Round (round(A))
@@ -50,24 +41,10 @@ Use this node when you need to:
 - Absolute Value (|A|)
 - Sine (sin(A))
 
-### Outputs
+### B
 
-- **result**: The calculated result of the mathematical operation
+Hidden when `operation` is unary, since it is not used.
 
-## Example
+### result
 
-Imagine you want to calculate the average of two numbers:
-
-1. Add a Math node to your workflow
-1. Select "average [avg(A, B)]" from the operation dropdown
-1. Connect two number inputs to parameters A and B
-1. The average will be available in the "result" output
-
-## Implementation Details
-
-The Math node automatically handles:
-
-- Type conversion for inputs
-- Division by zero (returns infinity)
-- Modulo by zero (returns infinity)
-- Dynamic parameter visibility (hides B parameter for unary operations)
+The result of the operation. Inputs are converted to numbers first. Divide and Modulo by zero return infinity instead of failing.

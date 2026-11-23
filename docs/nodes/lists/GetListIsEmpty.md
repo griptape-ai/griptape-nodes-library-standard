@@ -1,50 +1,22 @@
-## What is it?
+---
+description: Outputs true if a list has no items and false if it has any.
+when_to_use: Use it when a workflow should branch or wait on whether a list has content, such as checking for pending tasks.
+---
 
-The GetListIsEmpty node is a utility node that checks whether a list is empty or not. It provides a boolean output indicating if the input list contains any items.
+## When to use it
 
-## When would I use it?
-
-Use the GetListIsEmpty node when:
-
-- You need to check if a list has any items
-- You want to validate that a list is not empty before processing
-- You're building conditional workflows based on list content
-- You need to ensure data is available before proceeding
-- You want to monitor the state of dynamic lists
-
-## How to use it
-
-### Basic Setup
-
-1. Add a GetListIsEmpty node to your workflow
-1. Connect any list to the "items" input
-1. The node will automatically check and output whether the list is empty
-
-### Parameters
-
-- **items**: The list to check (list input)
-- **is_empty**: Boolean indicating if the list is empty (true) or not (false)
-
-### Outputs
-
-- **is_empty**: A boolean value (true if the list is empty, false if it contains items)
+You want to know whether a list has any items before you process it, for example to check that data is available or that a task list still has pending tasks. The node works with lists of any item type and outputs a boolean.
 
 ## Example
 
-Imagine you want to check if a task list has any pending tasks:
+To check whether a task list has pending tasks, connect the list to `items`. `is_empty` is true if there are no tasks and false if there are.
 
-1. Add a GetListIsEmpty node to your workflow
-1. Connect your task list to the "items" input
-1. The "is_empty" output will be true if there are no tasks, false if there are tasks
+## Parameters
 
-## Important Notes
+### items
 
-- The node automatically updates when the input list changes
-- If no list is connected, the output will be true (empty)
-- The input only accepts list connections
-- The node works with lists of any type of items
-- The output is always a boolean value
+Accepts list connections only. If no list is connected, the list counts as empty.
 
-## Common Issues
+### is_empty
 
-- **No Input**: If no list is connected, the output will be true (empty)
+True if the list is empty or nothing is connected, false if it contains items.
