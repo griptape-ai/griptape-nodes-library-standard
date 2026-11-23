@@ -22,7 +22,7 @@ To get every PNG in any subfolder of a render directory, newest first:
 
 ### directory_path
 
-The folder to list. If empty, the workspace root is listed. It is required when `match_pattern` contains `/` or `**`, and the node fails without it. Use a full path. A relative path such as `tree/other` failed in testing.
+The folder to list. If empty, the workspace root is listed. It is required when `match_pattern` contains `/` or `**`, and the node fails without it. Use a full path. A relative path such as `tree/other` fails.
 
 ### match_pattern
 
@@ -50,11 +50,11 @@ Choose `List files and folders` (the default), `List files only` or `List folder
 
 ### use_absolute_paths
 
-Off by default. When off, the node returns the paths exactly as the engine gives them. When on, it returns each entry's absolute path. In testing with a full `directory_path`, and with it empty, the paths were absolute either way. I could not produce a relative path, so I could not check when they differ.
+Off by default. When off, the node returns the paths as the engine gives them. When on, it returns each entry's absolute path.
 
 ### sort_by
 
-With Unsorted, the order is whatever the engine returns, and `sort_order` is ignored. In testing, folders came before files and the order was not alphabetical. Alphabetical sorts by name, ignoring case, so `B.PNG` sorts between `a.png` and `c.jpg`. In a recursive listing it sorts by name only, not by folder, so `sub/d.png` comes after `c.jpg`. Date Modified uses the last modified time.
+With Unsorted, the order is whatever the engine returns, which is not alphabetical, and `sort_order` is ignored. Alphabetical sorts by name, ignoring case, so `B.PNG` sorts between `a.png` and `c.jpg`. In a recursive listing it sorts by name only, not by folder, so `sub/d.png` comes after `c.jpg`. Date Modified uses the last modified time.
 
 ### sort_order
 

@@ -7,7 +7,7 @@ when_to_use: Use it when you want one editable integer in a workflow, such as a 
 
 You need a whole number that you can change in one place and feed to other nodes. Typical uses are counters, indices, quantities, limits and thresholds. Integers are values like 1, 42, -7 or 0, and the default is 0.
 
-The `integer` parameter is a property and an output only. You can type a value into it, but you cannot connect another node's output to it. The node does not round or check the value itself. When tested by setting values directly, `3.7` and `abc` were stored and passed on unchanged, so enter whole numbers.
+The `integer` parameter is a property and an output only. You can type a value into it, but you cannot connect another node's output to it. The node does not round or check the value itself: setting `3.7` or `abc` directly stores it and passes it on unchanged, so enter whole numbers.
 
 ## Example
 

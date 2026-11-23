@@ -25,7 +25,7 @@ To get JSON in a specific shape:
 
 1. Add a [Create Agent Schema](../agents/create_agent_schema.md) node and give it an example JSON object of the shape you want back.
 1. Connect its `schema` output to `output_schema` on **Describe Image**.
-1. Run **Describe Image**. `output` is JSON, and the model is asked to follow the schema. The node does not check the result against the schema. In an offline test, output that omitted required fields and had the wrong types was passed through, so validate it downstream if the shape matters.
+1. Run **Describe Image**. `output` is JSON, and the model is asked to follow the schema. The node does not check the result against the schema, so output that omits required fields or has the wrong types is passed through. Validate it downstream if the shape matters.
 
 ## Parameters
 

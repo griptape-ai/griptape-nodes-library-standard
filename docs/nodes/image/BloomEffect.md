@@ -29,7 +29,7 @@ The image with the bloom applied. For any `bloom_amount` above 0 the node works 
 
 ## Notes
 
-The glow is built from the whole image, not just the bright areas. Dark and mid areas get lighter too, and small bright details are softened, not intensified (in a test, a white pixel on a gray 60 background dropped from 255 to 173 at amount 0.5 and radius 5). The node does this in three steps:
+The glow is built from the whole image, not just the bright areas. Dark and mid areas get lighter too, and small bright details are softened, not intensified (a white pixel on a gray 60 background drops from 255 to 173 at amount 0.5 and radius 5). The node does this in three steps:
 
 1. The whole image is brightened by a factor of `1 + bloom_amount`.
 1. The brightened copy is blurred with a Gaussian blur of radius `bloom_radius`.
