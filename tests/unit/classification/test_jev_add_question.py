@@ -30,7 +30,7 @@ from griptape_nodes.retained_mode.events.object_events import RenameObjectReques
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import ButtonDetailsMessagePayload
 
-from griptape_nodes_library.classification.jev_ask import QUESTION_NODE_GAP, JevAsk
+from griptape_nodes_library.classification.jev_ask import QUESTION_NODE_GAP, QUESTION_NODE_WIDTH, JevAsk
 from griptape_nodes_library.classification.jev_common import question_key
 
 CANVAS = "jev_add_question_canvas"
@@ -97,9 +97,21 @@ def test_each_button_adds_a_connected_question_node_left_of_the_questions_node(c
     added = GriptapeNodes.NodeManager().get_node_by_name(source)
     assert type(added).__name__ == node_type
     assert row.startswith("questions_")
-    x, y, width, _ = _box(added)
-    assert x + width + QUESTION_NODE_GAP == 1000
+    x, y, _, _ = _box(added)
+    # A node that was just created has the default width in its metadata, which is narrower than it is drawn.
+    assert x + QUESTION_NODE_WIDTH + QUESTION_NODE_GAP == 1000
     assert y == 200
+
+
+def test_a_node_wider_than_the_assumed_width_keeps_its_own_width(canvas: str) -> None:
+    ask = cast(JevAsk, _create("JevAsk", canvas, {"x": 2000, "y": 0}))
+    created = _create("JevYesNoQuestion", canvas)
+    _resize(created, QUESTION_NODE_WIDTH + 300, 500)
+
+    ask._place_question_node(created.name, [])
+
+    x = created.metadata["position"]["x"]
+    assert x + QUESTION_NODE_WIDTH + 300 + QUESTION_NODE_GAP == 2000
 
 
 def test_new_questions_stack_below_the_measured_height_of_the_ones_already_connected(canvas: str) -> None:

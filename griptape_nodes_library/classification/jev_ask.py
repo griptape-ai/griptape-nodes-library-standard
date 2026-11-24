@@ -55,6 +55,9 @@ __all__ = ["JevAsk"]
 
 # Pixels of clear space between a new question node and its neighbours.
 QUESTION_NODE_GAP = 40
+# A question node is about this wide once the editor draws it. A node that was just created hasn't been drawn,
+# so its metadata still holds the engine's default width of 400, which would leave it overlapping this node.
+QUESTION_NODE_WIDTH = 600
 # What a question node's Name starts as when a button adds it, followed by a number: yes_no_1, yes_no_2.
 QUESTION_KEY_BASES = {"JevYesNoQuestion": "yes_no", "JevPickOneQuestion": "pick_one", "JevRateQuestion": "rate"}
 
@@ -247,7 +250,7 @@ class JevAsk(GriptapeProxyNode):
         here = self._node_box(self.name)
         if mine is None or here is None:
             return
-        x = here[0] - mine[2] - QUESTION_NODE_GAP
+        x = here[0] - max(mine[2], QUESTION_NODE_WIDTH) - QUESTION_NODE_GAP
         boxes = [box for name in existing if (box := self._node_box(name)) is not None]
         y = max(top + height for _, top, _, height in boxes) + QUESTION_NODE_GAP if boxes else here[1]
         GriptapeNodes.handle_request(
