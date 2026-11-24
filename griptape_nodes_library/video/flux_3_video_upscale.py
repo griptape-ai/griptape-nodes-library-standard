@@ -16,8 +16,11 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import has_media_value, probe_video_duration
 from griptape_nodes_library.video.flux_3_common import (
+    BYTES_PER_MB,
+    MAX_INPUT_VIDEO_BYTES,
     SAFETY_TOLERANCE_OPTIONS,
     Flux3SafetyTolerance,
+    find_video_size_problem,
     parse_flux_3_safety_tolerance,
     prepare_mp4_video_data_uri,
 )
@@ -26,6 +29,7 @@ __all__ = ["Flux3VideoUpscale"]
 
 DEFAULT_MODEL = "flux-video-upscale-v1"
 MODEL_OPTIONS = [DEFAULT_MODEL]
+SERVICE_LABEL = "FLUX Video Upscale"
 MAX_INPUT_DURATION_SECONDS = 20.0
 MIN_UPSCALE_FACTOR = 1.5
 MAX_UPSCALE_FACTOR = 3.0
@@ -93,7 +97,8 @@ class Flux3VideoUpscale(GriptapeProxyNode):
             variant="info",
             title="Video requirements",
             message=(
-                f"- .mp4 file\n- {MAX_INPUT_DURATION_SECONDS:g} seconds or less\n- Up to 2560x1440 (3.7 MP per frame)\n\n"
+                f"- .mp4 file\n- {MAX_INPUT_DURATION_SECONDS:g} seconds or less\n"
+                f"- {MAX_INPUT_VIDEO_BYTES // BYTES_PER_MB} MB or less\n- Up to 2560x1440 (3.7 MP per frame)\n\n"
                 "Use a Trim Video or Resize Video node to prepare the clip."
             ),
         )
@@ -189,7 +194,7 @@ class Flux3VideoUpscale(GriptapeProxyNode):
             video_input,
             param_label="Input Video",
             action_verb="upscale",
-            service_label="FLUX Video Upscale",
+            service_label=SERVICE_LABEL,
             max_duration_seconds=MAX_INPUT_DURATION_SECONDS,
             duration_prober=self._probe_duration,
         )
@@ -209,6 +214,10 @@ class Flux3VideoUpscale(GriptapeProxyNode):
         video_value = self.get_parameter_value("input_video")
         if not has_media_value(video_value):
             exceptions.append(NodeError("Connect a video to 'Input Video'."))
+        else:
+            size_problem = find_video_size_problem(video_value, param_label="Input Video", service_label=SERVICE_LABEL)
+            if size_problem:
+                exceptions.append(NodeError(size_problem))
 
         upscale_factor = self.get_parameter_value("upscale_factor")
         if upscale_factor is None or not (MIN_UPSCALE_FACTOR <= float(upscale_factor) <= MAX_UPSCALE_FACTOR):
