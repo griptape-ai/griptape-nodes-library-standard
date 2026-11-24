@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from griptape_nodes.exe_types.core_types import NodeError
 
-from griptape_nodes_library.image.image_bash import ImageBash
+from griptape_nodes_library.image.image_bash import CANVAS_DIMENSIONS, ImageBash
 
 
 @pytest.fixture
@@ -12,11 +13,16 @@ def node() -> ImageBash:
     return ImageBash(name="test_image_bash")
 
 
-@pytest.mark.parametrize("canvas_size", [None, "bogus", "custom"])
-def test_unknown_canvas_size_falls_back_to_hd(node: ImageBash, canvas_size: str | None) -> None:
+@pytest.mark.parametrize("canvas_size", [None, "bogus", "custom", "HD"])
+def test_unknown_canvas_size_raises(node: ImageBash, canvas_size: str | None) -> None:
     node.parameter_values["canvas_size"] = canvas_size
 
-    assert node._get_canvas_dimensions() == (1920, 1080)
+    with pytest.raises(NodeError) as exc_info:
+        node._get_canvas_dimensions()
+
+    message = str(exc_info.value)
+    assert f"It's set to {canvas_size!r}." in message
+    assert ", ".join(CANVAS_DIMENSIONS) in message
 
 
 def test_preset_canvas_size_uses_preset_dimensions(node: ImageBash) -> None:
