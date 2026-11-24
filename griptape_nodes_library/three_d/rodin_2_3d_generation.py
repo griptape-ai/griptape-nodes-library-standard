@@ -33,6 +33,11 @@ __all__ = ["Rodin23DGeneration"]
 # Maximum number of input images supported
 MAX_INPUT_IMAGES = 5
 
+# Hyper3D takes exactly three whole-number bounding-box dimensions, each 1-2048
+BBOX_DIMENSIONS = 3
+BBOX_MIN = 1
+BBOX_MAX = 2048
+
 # Output format options
 GLB_FORMAT = "glb"
 GEOMETRY_FORMAT_OPTIONS = [GLB_FORMAT, "usdz", "fbx", "obj", "stl"]
@@ -235,7 +240,10 @@ class Rodin23DGeneration(GriptapeProxyNode):
             ParameterString(
                 name="bbox_condition",
                 default_value="",
-                tooltip="Bounding box dimensions as comma-separated values: Width(Y), Height(Z), Length(X). Example: 1.0,2.0,3.0",
+                tooltip=(
+                    "Bounding box dimensions as three comma-separated whole numbers from "
+                    f"{BBOX_MIN} to {BBOX_MAX}: Width(Y), Height(Z), Length(X). Example: 100,200,300"
+                ),
                 allow_output=False,
                 hide=True,
                 ui_options={"display_name": "Bounding Box (Y,Z,X)"},
@@ -340,6 +348,21 @@ class Rodin23DGeneration(GriptapeProxyNode):
     def preprocess(self) -> None:
         self._seed_parameter.preprocess()
 
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_node_run() or []
+        params = self._get_parameters()
+
+        image_count = len(params["input_images"])
+        if image_count > MAX_INPUT_IMAGES:
+            exceptions.append(ValueError(self._too_many_images_message(image_count)))
+
+        try:
+            parse_bbox_condition(params["bbox_condition"])
+        except ValueError as e:
+            exceptions.append(e)
+
+        return exceptions or None
+
     async def _process_generation(self) -> None:
         self.preprocess()
         self._log("Generating 3D model with Rodin Gen-2")
@@ -430,18 +453,15 @@ class Rodin23DGeneration(GriptapeProxyNode):
 
     def _add_bbox_condition(self, payload: dict[str, Any], params: dict[str, Any]) -> None:
         """Parse and add bounding box condition to payload."""
-        bbox_condition = params.get("bbox_condition", "").strip()
-        if not bbox_condition:
-            return
+        values = parse_bbox_condition(params.get("bbox_condition", ""))
+        if values is not None:
+            payload["bbox_condition"] = values
 
-        try:
-            # Parse comma-separated values: Width(Y), Height(Z), Length(X)
-            values = [int(float(v.strip())) for v in bbox_condition.split(",")]
-            bbox_dimensions = 3
-            if len(values) == bbox_dimensions:
-                payload["bbox_condition"] = values
-        except ValueError:
-            self._log(f"Invalid bbox_condition format: {bbox_condition}")
+    def _too_many_images_message(self, image_count: int) -> str:
+        return (
+            f"Rodin Gen-2 accepts at most {MAX_INPUT_IMAGES} input images and {image_count} are connected. "
+            "Remove some from 'Input Images'."
+        )
 
     async def _process_images_for_payload(self, params: dict[str, Any]) -> list[str]:
         """Process input images into base64 data URIs for JSON payload."""
@@ -449,11 +469,11 @@ class Rodin23DGeneration(GriptapeProxyNode):
         if not isinstance(input_images_list, list):
             input_images_list = [input_images_list] if input_images_list else []
 
+        if len(input_images_list) > MAX_INPUT_IMAGES:
+            raise ValueError(self._too_many_images_message(len(input_images_list)))
+
         images: list[str] = []
         for image_input in input_images_list:
-            if len(images) >= MAX_INPUT_IMAGES:
-                break
-
             data_uri = await self._prepare_image_data_uri(image_input)
             if data_uri:
                 images.append(data_uri)
@@ -755,3 +775,34 @@ class Rodin23DGeneration(GriptapeProxyNode):
         self._set_safe_defaults()
         self._set_status_results(was_successful=False, result_details=str(e))
         self._handle_failure_exception(e)
+
+
+def parse_bbox_condition(text: str) -> list[int] | None:
+    """Parse a "Width,Height,Length" string into the three integers Hyper3D accepts.
+
+    Returns None for an empty string. Values like "100.0" are accepted as whole
+    numbers; anything fractional, non-numeric, out of range, or not exactly three
+    values raises ValueError rather than being rounded or dropped.
+    """
+    text = text.strip()
+    if not text:
+        return None
+
+    parts = [part.strip() for part in text.split(",")]
+    invalid = ValueError(
+        f"Bounding Box must be {BBOX_DIMENSIONS} comma-separated whole numbers from {BBOX_MIN} to {BBOX_MAX}, "
+        f"such as 100,200,300. Got: {text!r}"
+    )
+    if len(parts) != BBOX_DIMENSIONS:
+        raise invalid
+
+    values: list[int] = []
+    for part in parts:
+        try:
+            number = float(part)
+        except ValueError:
+            raise invalid from None
+        if not number.is_integer() or not BBOX_MIN <= number <= BBOX_MAX:
+            raise invalid
+        values.append(int(number))
+    return values
