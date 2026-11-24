@@ -69,6 +69,7 @@ def test_openai_image_outputs_gpt_image_options() -> None:
     assert config.output_compression == 60
     assert config.background == "opaque"
     assert config.moderation == "low"
+    assert config.style is None
 
 
 def test_openai_image_dall_e_3_omits_gpt_image_options() -> None:
@@ -82,6 +83,25 @@ def test_openai_image_dall_e_3_omits_gpt_image_options() -> None:
     assert config.quality == "hd"
     assert config.background is None
     assert config.output_format is None
+
+
+def _is_hidden(node: BaseImageDriver, name: str) -> bool:
+    parameter = node.get_parameter_by_name(name)
+    assert parameter is not None
+    return bool(parameter.ui_options.get("hide"))
+
+
+def test_openai_image_style_hidden_for_default_model() -> None:
+    assert _is_hidden(_create_node("OpenAiImage"), "style")
+
+
+@pytest.mark.parametrize(("model", "hidden"), [("gpt-image-1", True), ("dall-e-3", False), ("dall-e-2", True)])
+def test_openai_image_style_shown_only_for_dall_e_3(model: str, hidden: bool) -> None:  # noqa: FBT001
+    node = _create_node("OpenAiImage")
+    node.set_parameter_value("model", "dall-e-3")
+    node.set_parameter_value("model", model)
+
+    assert _is_hidden(node, "style") is hidden
 
 
 def test_config_wire_dict_does_not_contain_secret_values() -> None:
