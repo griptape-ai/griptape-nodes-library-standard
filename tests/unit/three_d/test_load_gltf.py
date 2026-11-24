@@ -53,9 +53,18 @@ def test_artifact_with_snapshot_sets_image(node: LoadGLTF) -> None:
     assert image.value == IMAGE_URL
 
 
-def test_clearing_gltf_clears_snapshot(node: LoadGLTF) -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "model.glb",
+        [1],
+        GLTFUrlArtifact("https://example.com/model.glb"),
+    ],
+)
+def test_value_without_snapshot_clears_previous_snapshot(node: LoadGLTF, value: Any) -> None:
     node.set_parameter_value("gltf", {"type": "GLTFUrlArtifact", "value": "x", "metadata": {"imageUrl": IMAGE_URL}})
-    node.set_parameter_value("gltf", None)
+    node.set_parameter_value("gltf", value)
 
     assert node.get_parameter_value("image") is None
     assert node.parameter_output_values["image"] is None

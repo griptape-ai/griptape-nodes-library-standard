@@ -45,7 +45,7 @@ class LoadGLTF(DataNode):
                 image_artifact = ImageUrlArtifact(value=image_url)
                 self.set_parameter_value("image", image_artifact)
                 self.parameter_output_values["image"] = image_artifact
-            elif value is None:
+            else:
                 self.set_parameter_value("image", None)
                 self.parameter_output_values["image"] = None
 
