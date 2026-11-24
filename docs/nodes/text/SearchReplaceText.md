@@ -68,12 +68,11 @@ The text to change. Newlines are preserved. If this or `search_pattern` is empty
 
 Plain text by default, with special characters escaped for you. With `use_regex` on, it is a regular expression, so escape special characters to match them literally. In plain-text mode, `\n` searches for a backslash followed by an n, not a newline. Use regex mode to match a newline.
 
-> [!WARNING]
-> An invalid regular expression raises no error. The node returns the input unchanged, so check the pattern if nothing changes.
+An invalid regular expression fails the node with an error naming the pattern. While you edit, the live output shows the input unchanged until the pattern is valid.
 
 ### replacement_text
 
-Backslashes are interpreted in both modes: `\n` inserts a newline and `\\` inserts one backslash. With `use_regex` on, `\1` inserts the first captured group. In plain-text mode there are no groups, so `\1` or any other bad escape returns the original text.
+In plain-text mode the replacement is inserted exactly as typed, so Windows paths and other backslashes come through unchanged. With `use_regex` on, backslashes are interpreted: `\1` or `\g<name>` inserts a captured group, `\n` inserts a newline and `\\` inserts one backslash. A group reference the pattern doesn't have, such as `\2` with one group, fails the node with an error.
 
 ### case_sensitive
 
