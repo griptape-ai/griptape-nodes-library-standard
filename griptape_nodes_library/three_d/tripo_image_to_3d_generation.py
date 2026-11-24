@@ -97,7 +97,7 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
             ParameterBool(
                 name="pbr",
                 default_value=True,
-                tooltip="Produce a PBR material. When true, texture is also forced on.",
+                tooltip="Produce a PBR material.",
                 allow_output=False,
                 ui_options={"display_name": "PBR"},
             )
@@ -226,6 +226,7 @@ class TripoImageTo3DGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Any, value: Any) -> None:
         if parameter.name == "model_version":
             self._update_parameter_visibility_for_model(value)
+        super().after_value_set(parameter, value)
 
     def _get_api_model_id(self) -> str:
         return TRIPO_MODEL_ID

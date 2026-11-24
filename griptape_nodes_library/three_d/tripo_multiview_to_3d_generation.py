@@ -127,7 +127,7 @@ class TripoMultiviewTo3DGeneration(GriptapeProxyNode):
             ParameterBool(
                 name="pbr",
                 default_value=True,
-                tooltip="Produce a PBR material. When true, texture is also forced on.",
+                tooltip="Produce a PBR material.",
                 allow_output=False,
                 ui_options={"display_name": "PBR"},
             )

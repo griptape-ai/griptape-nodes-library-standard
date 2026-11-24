@@ -73,6 +73,22 @@ def test_every_proxy_node_exposes_shared_byok_ui(class_name: str, module_name: s
     assert api_key_provider_message.button_link == f"#settings-secrets?filter={provider_config.api_key_name}"
 
 
+@pytest.mark.parametrize(("class_name", "module_name"), PROXY_NODE_CLASSES)
+def test_every_proxy_node_warns_when_own_key_is_missing(
+    class_name: str, module_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "griptape_nodes_library.proxy.proxy_auth_provider_parameter.get_secret",
+        lambda _name, *, error_on_missing=True: None,  # noqa: ARG005
+    )
+    node_class = getattr(importlib.import_module(module_name), class_name)
+    node = node_class(name=class_name)
+
+    node.set_parameter_value("api_key_provider", value=True)
+
+    assert node.get_message_by_name_or_element_id("api_key_provider_message").hide is False
+
+
 @pytest.mark.asyncio
 async def test_flux2_submission_keeps_proxy_bearer_auth_with_byok(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_request: dict[str, Any] = {}
