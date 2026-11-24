@@ -320,9 +320,14 @@ class BaseImageProcessor(ImagePreviewMixin, SuccessFailureNode, ABC):
         converted_image = self._create_converted_image_for_format_if_necessary(pil_image, format_extension)
         image_to_save = converted_image if converted_image is not None else pil_image
 
+        output_format = format_extension.upper()
+        save_kwargs = {}
+        if output_format in ["JPEG", "JPG", "WEBP"]:
+            save_kwargs["quality"] = self._get_quality_setting()
+
         # Convert PIL image to bytes
         buffer = io.BytesIO()
-        image_to_save.save(buffer, format=format_extension.upper())
+        image_to_save.save(buffer, format=output_format, **save_kwargs)
         image_bytes = buffer.getvalue()
 
         dest = self._output_file.build_file()

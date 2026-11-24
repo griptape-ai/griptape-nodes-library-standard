@@ -15,7 +15,7 @@ You want a mirrored copy of an image. Connect the image to `input_image` and pic
 
 ### output_format
 
-`auto` saves in the same format as the input. Otherwise `PNG`, `JPEG` or `WEBP`. The `quality` setting is currently not applied when the file is saved.
+`auto` saves in the same format as the input. Otherwise `PNG`, `JPEG` or `WEBP`. `quality` applies to `JPEG` and `WEBP`.
 
 ### was_successful and result_details
 

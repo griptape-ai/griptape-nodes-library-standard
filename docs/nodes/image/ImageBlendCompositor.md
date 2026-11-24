@@ -7,7 +7,7 @@ when_to_use: Use it when you need a quick layer composite, such as laying a grai
 
 You have a base image and a second image to lay on top of it. Connect the base to `input_image` and the layer to `blend_image`. For example, multiply a dirt pass over a background plate, or screen a smoke element over a frame.
 
-The node processes both images as RGBA. The output is always saved as PNG, so the `output_format` and `quality` settings have no effect on this node.
+The node processes both images as RGBA. `output_format` defaults to `auto`, which saves in the base image's format, or PNG when that format can't be written (such as GIF). JPEG has no alpha, so a JPEG output is flattened onto white; pick `PNG` or `WEBP` to keep transparency. `quality` applies to `JPEG` and `WEBP`.
 
 ## Example
 
@@ -23,7 +23,9 @@ The node processes both images as RGBA. The output is always saved as PNG, so th
 
 `normal`, `multiply`, `screen`, `overlay`, `soft_light`, `hard_light`, `darken`, `lighten`, `difference`, `exclusion`, `add`, `subtract`, `logical_and`, `logical_or` or `logical_xor`.
 
-With any mode other than `normal`, the blend image is resized to the base image's size before blending, and `resize_blend_to_fit` has no extra effect. The `exclusion` mode currently produces the same result as `logical_xor`, and `logical_and` returns the blend image unchanged.
+With any mode other than `normal`, the blend image is resized to the base image's size before blending, and `resize_blend_to_fit` has no extra effect.
+
+`exclusion` is base + blend − 2 × base × blend, a softer `difference`. `logical_and`, `logical_or` and `logical_xor` convert both images to black and white at mid-gray and combine them pixel by pixel, so their output is black and white.
 
 ### opacity
 

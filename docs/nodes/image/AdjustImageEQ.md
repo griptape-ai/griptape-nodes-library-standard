@@ -19,7 +19,7 @@ From 0.1 to 10.0, default 1.0. Values above 1.0 brighten the midtones and values
 
 ### output_format
 
-`auto` saves in the same format as the input. Otherwise `PNG`, `JPEG` or `WEBP`. The `quality` setting is currently not applied when the file is saved.
+`auto` saves in the same format as the input. Otherwise `PNG`, `JPEG` or `WEBP`. `quality` applies to `JPEG` and `WEBP`.
 
 ### output
 
