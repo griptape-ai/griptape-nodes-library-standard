@@ -79,3 +79,18 @@ def test_reference_video_inputs_appear_and_hide_with_connections(real_graph: Any
     disconnect("reference_video_1")
     assert _is_hidden(real_graph, "reference_video_2") is True
     assert _is_hidden(real_graph, "reference_video_3") is True
+
+
+def test_disconnecting_a_reference_video_clears_its_value_and_hides_later_slots(real_graph: Any) -> None:
+    connect = _connection_request(CreateConnectionRequest, "reference_video_1")
+    assert GriptapeNodes.handle_request(connect).succeeded()
+    # A run hands the connected video to the slot as its value.
+    real_graph.set_parameter_value("reference_video_1", "https://example.com/reference-1.mp4")
+    assert _is_hidden(real_graph, "reference_video_2") is False
+
+    disconnect = _connection_request(DeleteConnectionRequest, "reference_video_1")
+    assert GriptapeNodes.handle_request(disconnect).succeeded()
+
+    assert not real_graph.get_parameter_value("reference_video_1")
+    assert _is_hidden(real_graph, "reference_video_2") is True
+    assert _is_hidden(real_graph, "reference_video_3") is True
