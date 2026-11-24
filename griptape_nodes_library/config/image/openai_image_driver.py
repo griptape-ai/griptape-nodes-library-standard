@@ -6,7 +6,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.config.image.base_image_driver import BaseImageDriver
-from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, ImageProvider
+from griptape_nodes_library.llm.image_generation import OPENAI_STYLE_MODELS, ImageGenerationConfig, ImageProvider
 
 # --- Constants ---
 
@@ -57,6 +57,7 @@ class OpenAiImage(BaseImageDriver):
                 default_value="vivid",
                 tooltip="Select the style for image generation.",
                 traits={Options(choices=["vivid", "natural"])},
+                ui_options={"hide": DEFAULT_MODEL not in OPENAI_STYLE_MODELS},
             )
         )
 
@@ -148,7 +149,8 @@ class OpenAiImage(BaseImageDriver):
                 self._update_option_choices(param="image_size", choices=GPT_IMAGE_SIZES, default=GPT_IMAGE_SIZES[0])
                 self._update_option_choices(param="quality", choices=GPT_IMAGE_QUALITY, default=GPT_IMAGE_QUALITY[0])
 
-                param_list = ["style", "quality", "background", "moderation", "output_format"]
+                self.hide_parameter_by_name("style")
+                param_list = ["quality", "background", "moderation", "output_format"]
                 self.show_parameter_by_name(param_list)
 
                 if self.get_parameter_value("output_format") == "jpeg":
@@ -160,7 +162,7 @@ class OpenAiImage(BaseImageDriver):
                 self.hide_parameter_by_name(param_list)
 
                 if value == "dall-e-3":
-                    self.show_parameter_by_name("quality")
+                    self.show_parameter_by_name(["style", "quality"])
                     self._update_option_choices(param="image_size", choices=DALL_E_3_SIZES, default=DALL_E_3_SIZES[0])
                     self._update_option_choices(param="quality", choices=DALL_E_3_QUALITY, default=DALL_E_3_QUALITY[0])
 
@@ -182,7 +184,6 @@ class OpenAiImage(BaseImageDriver):
             options["style"] = self.get_parameter_value("style")
             options["quality"] = self.get_parameter_value("quality")
         elif model == "gpt-image-1":
-            options["style"] = self.get_parameter_value("style")
             options["quality"] = self.get_parameter_value("quality")
             options["background"] = self.get_parameter_value("background")
             options["moderation"] = self.get_parameter_value("moderation")

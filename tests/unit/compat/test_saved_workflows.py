@@ -342,7 +342,6 @@ class TestImageGeneration:
                     model="gpt-image-1",
                     image_size="1024x1024",
                     quality="low",
-                    style="vivid",
                     background="transparent",
                     moderation="low",
                     output_format="png",  # main sends compression only for jpeg
