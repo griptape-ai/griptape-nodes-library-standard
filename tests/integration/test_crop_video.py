@@ -118,6 +118,18 @@ with GriptapeNodes.ContextManager().flow(flow_name):
             initial_setup=True,
         )
     )
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(
+                parameter_name="custom_width", node_name=gen_node, value=256, initial_setup=True, is_output=False
+            )
+        )
+    with GriptapeNodes.ContextManager().node(gen_node):
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(
+                parameter_name="custom_height", node_name=gen_node, value=256, initial_setup=True, is_output=False
+            )
+        )
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
             source_node_name=gen_node,

@@ -18,7 +18,7 @@ The size of the crop box in pixels. The presets (480p up to 2160p, Square, Portr
 If the size is larger than the video, it is cut down to the video size. Widths and heights are also rounded down to an even number, with a minimum of 2.
 
 > [!WARNING]
-> With **Custom** and a width or height of 0, no crop is applied and the output is the full frame.
+> With **Custom**, `custom_width` and `custom_height` start at 0, and the node stops before the run until both are above 0. Drag a crop area in the editor, type a width and height, or choose a preset.
 
 ### crop_position
 

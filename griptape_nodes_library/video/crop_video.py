@@ -340,6 +340,21 @@ class CropVideo(BaseVideoProcessor):
         cmd.extend(["-preset", preset, "-pix_fmt", pixel_format, "-crf", str(crf), output_path])
         return cmd
 
+    def _validate_custom_parameters(self) -> list[Exception] | None:
+        if self._get_crop_dimensions() is not None:
+            return None
+        crop_size = self.get_parameter_value("crop_size") or "Custom"
+        if crop_size == "Custom":
+            w = self.get_parameter_value("custom_width") or 0
+            h = self.get_parameter_value("custom_height") or 0
+            msg = (
+                f"{self.name}: crop size is {w}x{h}. Set custom_width and custom_height above 0, "
+                "drag a crop area in the editor, or choose a crop_size preset."
+            )
+        else:
+            msg = f"{self.name}: crop_size {crop_size!r} is not a preset or a WIDTHxHEIGHT size above 0."
+        return [ValueError(msg)]
+
     def _get_custom_parameters(self) -> dict[str, Any]:
         return {}
 

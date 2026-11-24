@@ -263,6 +263,7 @@ ADVANCED_CONFIGS = [
         "video_in": "video",
         "output_param": "output",
         "suffix": "crop_video",
+        "set_params": {"custom_width": 256, "custom_height": 256},
     },
     {
         "template": "video_input",
