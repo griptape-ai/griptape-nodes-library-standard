@@ -1,7 +1,8 @@
-"""Tests for RescaleImage's divisible by mode."""
+"""Tests for RescaleImage."""
 
 from __future__ import annotations
 
+import pytest
 from PIL import Image
 
 from griptape_nodes_library.image.rescale_image import RescaleImage
@@ -67,3 +68,43 @@ def test_anchor_dimension_shown_only_when_preserving_aspect_ratio() -> None:
     node.set_parameter_value("resize_mode", RescaleImage.RESIZE_MODE_PERCENTAGE)
     node.set_parameter_value("resize_mode", RescaleImage.RESIZE_MODE_DIVISIBLE)
     assert _hidden(node, "anchor_dimension")
+
+
+@pytest.mark.parametrize(
+    ("size", "percentage_scale", "expected"),
+    [
+        ((10, 10), 5, (1, 1)),
+        ((30, 200), 2, (1, 4)),
+        ((3, 3), 10, (1, 1)),
+        ((100, 100), 1, (1, 1)),
+    ],
+)
+def test_percentage_keeps_each_side_at_least_one_pixel(
+    size: tuple[int, int], percentage_scale: int, expected: tuple[int, int]
+) -> None:
+    node = RescaleImage(name="test_rescale_image")
+
+    result = node._process_image(
+        Image.new("RGB", size),
+        resize_mode=RescaleImage.RESIZE_MODE_PERCENTAGE,
+        percentage_scale=percentage_scale,
+    )
+
+    assert result.size == expected
+
+
+@pytest.mark.parametrize(
+    ("resize_mode", "size", "expected"),
+    [
+        (RescaleImage.RESIZE_MODE_WIDTH, (200, 10), (1, 1)),
+        (RescaleImage.RESIZE_MODE_HEIGHT, (10, 200), (1, 1)),
+    ],
+)
+def test_width_and_height_keep_derived_side_at_least_one_pixel(
+    resize_mode: str, size: tuple[int, int], expected: tuple[int, int]
+) -> None:
+    node = RescaleImage(name="test_rescale_image")
+
+    result = node._process_image(Image.new("RGB", size), resize_mode=resize_mode, target_size=1)
+
+    assert result.size == expected
