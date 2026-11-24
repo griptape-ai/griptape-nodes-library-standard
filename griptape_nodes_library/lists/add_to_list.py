@@ -72,7 +72,7 @@ class AddToList(ControlNode):
                 name="skip_empty_values",
                 type="bool",
                 default_value=True,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 tooltip="If True, skip adding None values to the list. If False, add None values normally.",
             )
 
@@ -139,6 +139,5 @@ class AddToList(ControlNode):
                 self.name,
             )
 
-        # Single path to success - always set outputs at the bottom
+        # Single path to success - always set output at the bottom
         self.parameter_output_values["output"] = new_list
-        self.parameter_output_values["skip_empty_values"] = skip_empty_values
