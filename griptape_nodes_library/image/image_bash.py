@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from griptape.artifacts import ImageUrlArtifact, JsonArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.files.file import File
@@ -178,22 +178,15 @@ class ImageBash(DataNode):
     def _get_canvas_dimensions(self) -> tuple[int, int]:
         """Get canvas dimensions based on canvas_size parameter."""
         canvas_size = self.get_parameter_value("canvas_size")
-        if canvas_size == "custom":
-            # For custom, use the current width/height parameter values
+        dimensions = CANVAS_DIMENSIONS.get(canvas_size)
+        if dimensions is None:
+            msg = f"'canvas_size' must be one of {', '.join(CANVAS_DIMENSIONS)}. It's set to {canvas_size!r}."
+            raise NodeError(msg)
+        if dimensions["width"] is None or dimensions["height"] is None:
+            # Custom uses the current width/height parameter values
             width = self.get_parameter_value("width") or 1920
             height = self.get_parameter_value("height") or 1080
             return (width, height)
-        if canvas_size in CANVAS_DIMENSIONS:
-            dimensions = CANVAS_DIMENSIONS[canvas_size]
-            # Handle None values (for Custom)
-            if dimensions["width"] is None or dimensions["height"] is None:
-                # Fallback to current parameter values
-                width = self.get_parameter_value("width") or 1920
-                height = self.get_parameter_value("height") or 1080
-                return (width, height)
-            return (dimensions["width"], dimensions["height"])
-        # Fallback to HD
-        dimensions = CANVAS_DIMENSIONS["HD"]
         return (dimensions["width"], dimensions["height"])
 
     def _get_existing_background_color(self, bash_image_value: Any) -> str:  # noqa: ARG002
