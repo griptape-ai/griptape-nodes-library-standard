@@ -3,6 +3,7 @@ from __future__ import annotations
 import json as _json
 import logging
 from contextlib import suppress
+from enum import StrEnum
 from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
@@ -26,30 +27,42 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["SeedanceVideoGeneration"]
 
 
+class SeedanceModel(StrEnum):
+    PRO_1_5 = "seedance-1-5-pro-251215"
+    PRO_1_0 = "seedance-1-0-pro-250528"
+    PRO_FAST_1_0 = "seedance-1-0-pro-fast-251015"
+
+
 class SeedanceVideoGeneration(GriptapeProxyNode):
     """Generate a video using the Seedance model via Griptape Cloud model proxy.
 
     Inputs:
-        - prompt (str): Text prompt for the video (supports provider flags like --resolution)
-        - model_id (str): Provider model id (default: seedance-1-0-pro-250528)
+        - prompt (str): Text prompt for the video
+        - model_id (str): Provider model id (default: seedance-1-5-pro-251215)
         - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p)
-        - ratio (str): Output aspect ratio (default: 16:9, options: auto, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16)
+        - ratio (str): Output aspect ratio (default: adaptive, options: adaptive, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16)
         - duration (int): Video duration in seconds (default: 5, options: 4-12)
         - camerafixed (bool): Camera fixed flag (default: False)
-        - audio (bool): Generate audio with video (default: False, only for seedance-1-5-pro-251215)
+        - generate_audio (bool): Generate audio with video (default: False, only for seedance-1-5-pro-251215)
         - first_frame (ImageArtifact|ImageUrlArtifact|str): Optional first frame image (URL or base64 data URI)
         - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image for 1.5 pro and 1.0 pro models (URL or base64 data URI)
-        (Always polls for result: 5s interval, 10 min timeout)
+        (Polls for the result every 5s until the `timeout` parameter elapses, 10 min by default)
 
-    Model capabilities:
-        - seedance-1-5-pro-251215: 480p/720p, 4-12s duration, first+last frame, audio support
-        - seedance-1-0-pro-250528: 480p/720p/1080p, 5s/10s duration, first+last frame
-        - seedance-1-0-pro-fast-251015: 480p/720p/1080p, 5s/10s duration, first frame only
+    Model capabilities (durations are the dropdown's 4-12s, which every model supports):
+        - seedance-1-5-pro-251215: 480p/720p/1080p, 4-12s duration, first+last frame, audio support
+        - seedance-1-0-pro-250528: 480p/720p/1080p, 4-12s duration, first+last frame
+        - seedance-1-0-pro-fast-251015: 480p/720p/1080p, 4-12s duration, first frame only
+
+    The 1.0 limits come from BytePlus ModelArk "Create a video generation task",
+    https://docs.byteplus.com/en/docs/ModelArk/1520757. The 1.5 Pro limits come from an archived
+    revision of that page, https://web.archive.org/web/20260306062911/https://docs.byteplus.com/en/docs/ModelArk/1520757,
+    because the current page doesn't list 1.5 Pro.
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
         - provider_response (dict): Verbatim response from API (initial POST)
         - video_url (VideoUrlArtifact): Saved static video URL
+        - output_file: Where the generated video is saved in the project
         - was_successful (bool): Whether the generation succeeded
         - result_details (str): Details about the generation result or error
     """
@@ -103,7 +116,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="prompt",
-                tooltip="Text prompt for the video (supports provider flags)",
+                tooltip="Text prompt for the video",
                 multiline=True,
                 placeholder_text="Describe the video...",
                 allow_output=False,
@@ -237,16 +250,13 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         """Show/hide first_frame, last_frame, and generate_audio based on model capabilities."""
         self.show_parameter_by_name("first_frame")
 
-        supports_last_frame = provider_model_id in (
-            "seedance-1-5-pro-251215",
-            "seedance-1-0-pro-250528",
-        )
+        supports_last_frame = provider_model_id in (SeedanceModel.PRO_1_5, SeedanceModel.PRO_1_0)
         if supports_last_frame:
             self.show_parameter_by_name("last_frame")
         else:
             self.hide_parameter_by_name("last_frame")
 
-        if provider_model_id == "seedance-1-5-pro-251215":
+        if provider_model_id == SeedanceModel.PRO_1_5:
             self.show_parameter_by_name("generate_audio")
         else:
             self.hide_parameter_by_name("generate_audio")
@@ -291,18 +301,16 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         # Add config parameters at top level
         if params["resolution"]:
             payload["resolution"] = params["resolution"]
-            prompt_text += f" --resolution {params['resolution']}"
         if params["ratio"]:
             payload["ratio"] = params["ratio"]
-            prompt_text += f" --ratio {params['ratio']}"
         if params["duration"] is not None:
             payload["duration"] = int(params["duration"])
-            prompt_text += f" --duration {int(params['duration'])}"
+        # BytePlus names the field `camera_fixed`: "camera_fixed `boolean` `Default value: false`"
+        # (https://docs.byteplus.com/en/docs/ModelArk/1520757).
         if params["camerafixed"] is not None:
-            payload["camerafixed"] = bool(params["camerafixed"])
-            prompt_text += f" --camerafixed {str(bool(params['camerafixed'])).lower()}"
+            payload["camera_fixed"] = bool(params["camerafixed"])
         # Only add audio flag for 1.5 pro model
-        if params["model_id"] == "seedance-1-5-pro-251215" and params["generate_audio"] is not None:
+        if params["model_id"] == SeedanceModel.PRO_1_5 and params["generate_audio"] is not None:
             payload["generate_audio"] = bool(params["generate_audio"])
 
         content_list = [{"type": "text", "text": prompt_text}]
@@ -327,10 +335,7 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         model_id = params["model_id"]
 
         # Determine which frames this model supports
-        supports_last_frame = model_id in (
-            "seedance-1-5-pro-251215",
-            "seedance-1-0-pro-250528",
-        )
+        supports_last_frame = model_id in (SeedanceModel.PRO_1_5, SeedanceModel.PRO_1_0)
 
         # Add first_frame if provided
         first_frame_url = await self._prepare_frame_url_async(params["first_frame"])
