@@ -129,7 +129,7 @@ In regex mode, patterns are applied without the multiline flag, so `^` and `$` m
 
 ## Common issues
 
-An invalid regular expression raises no error. The node returns the input unchanged, so check the pattern if nothing changes (see #1072).
+An invalid regular expression raises no error. The node returns the input unchanged, so check the pattern if nothing changes.
 
 ## Additional Resources
 

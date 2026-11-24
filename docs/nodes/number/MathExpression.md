@@ -18,7 +18,7 @@ With `expression` set to `(a + b) / 2`, `a` set to 10 and `b` set to 20, `result
 Supports `+ - * / **`, parentheses and these functions: `abs round min max pow sum rand sqrt sin cos tan asin acos atan sinh cosh tanh exp log ceil floor fabs fmod degrees radians`. Constants are `e`, `tau`, `inf` and `nan`.
 
 > [!WARNING]
-> `atan2`, `log10`, `log2` and `pi` are not usable yet. An expression that uses any of them returns 0. This is a known bug (#1080). Use `log(x) / log(10)` for a base-10 logarithm and `3.14159265` for pi until it is fixed.
+> `atan2`, `log10`, `log2` and `pi` are not usable yet. An expression that uses any of them returns 0. This is a known bug. Use `log(x) / log(10)` for a base-10 logarithm and `3.14159265` for pi until it is fixed.
 
 Multiplication can be left out: `2a`, `a(b+c)` and `ab` are read as `2*a`, `a*(b+c)` and `a*b`. Trig functions use radians.
 

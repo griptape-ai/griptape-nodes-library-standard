@@ -5,7 +5,7 @@ when_to_use: Use it when you want Seedance 2.0 output, including 1080p or 4k, or
 
 ## When to use it
 
-You want a clip from a prompt, from start and end frames, or guided by reference images, videos and audio. Pick the work with `input_mode`. For the older models, use [Seedance Video Generation](SeedanceVideoGeneration.md). For editing or extending an existing video, use [Seedance 2.5 Video Generation](Seedance25VideoGeneration.md).
+You want a clip from a prompt, from start and end frames, or guided by reference images, videos and audio. Pick the work with `input_mode`. For editing or extending an existing video, use [Seedance 2.5 Video Generation](Seedance25VideoGeneration.md).
 
 The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own ByteDance Seed key instead. It waits for the result and saves the video. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
 
