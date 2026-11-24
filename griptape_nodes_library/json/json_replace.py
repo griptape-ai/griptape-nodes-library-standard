@@ -1,6 +1,4 @@
-import copy
 import logging
-import re
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import (
@@ -10,6 +8,7 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import ControlNode
 
 from griptape_nodes_library.json.json_utils import parse_json_input
+from griptape_nodes_library.utils.dot_path import set_value_at_path
 
 logger = logging.getLogger("griptape_nodes")
 
@@ -68,115 +67,6 @@ class JsonReplace(ControlNode):
             )
         )
 
-    def _parse_array_index(self, part: str) -> tuple[str | None, int | None]:
-        """Parse array indexing from path part (e.g., 'items[0]' -> ('items', 0))."""
-        match = re.match(r"^(.+)\[(\d+)\]$", part)
-        return (match.group(1), int(match.group(2))) if match else (None, None)
-
-    def _ensure_dict_has_list(self, current: Any, key: str) -> Any:
-        """Ensure a dictionary has a list at the specified key."""
-        if isinstance(current, dict):
-            if key not in current:
-                current[key] = []
-            return current[key]
-        return current
-
-    def _ensure_list_has_index(self, current: Any, index: int) -> Any:
-        """Ensure a list has enough elements to access the specified index."""
-        if isinstance(current, list):
-            while len(current) <= index:
-                current.append({} if index < len(current) else None)
-            return current[index]
-        return None
-
-    def _handle_array_part(self, current: Any, key: str, index: int) -> Any:
-        """Handle array indexing in path traversal."""
-        # Ensure the current container has the required list
-        current = self._ensure_dict_has_list(current, key)
-
-        # Ensure the list has enough elements for the index
-        return self._ensure_list_has_index(current, index)
-
-    def _split_path_into_parts(self, path: str) -> list[str]:
-        """Split a dot notation path into parts, respecting array brackets."""
-        return re.split(r"\.(?![^\[]*\])", path)
-
-    def _is_valid_container(self, obj: Any) -> bool:
-        """Check if an object is a valid container (dict or list) for path traversal."""
-        return isinstance(obj, (dict, list))
-
-    def _handle_path_part(self, current: Any, part: str) -> Any:
-        """Handle a single path part (either array index or dictionary key)."""
-        key, index = self._parse_array_index(part)
-
-        if key and index is not None:
-            # Handle array indexing
-            current = self._handle_array_part(current, key, index)
-            if current is None:
-                return None
-        elif isinstance(current, dict):
-            # Handle dictionary key
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-        else:
-            # Invalid container type
-            return None
-
-        return current
-
-    def _navigate_to_parent_container(self, data: Any, path_parts: list[str]) -> tuple[Any, str]:
-        """Navigate through the path to reach the parent container of the target location."""
-        current = data
-
-        # Navigate through all parts except the last one
-        for part in path_parts[:-1]:
-            if not self._is_valid_container(current):
-                return None, ""
-
-            current = self._handle_path_part(current, part)
-            if current is None:
-                return None, ""
-
-        return current, path_parts[-1]
-
-    def _set_value_in_container(self, container: Any, final_part: str, new_value: Any) -> None:
-        """Set the value in the final container at the specified part."""
-        key, index = self._parse_array_index(final_part)
-
-        if key and index is not None:
-            # Handle array indexing for final part
-            container = self._handle_array_part(container, key, index)
-            if isinstance(container, list):
-                container[index] = new_value
-        elif isinstance(container, dict):
-            # Handle dictionary key for final part
-            container[final_part] = new_value
-
-    def _set_value_at_path(self, data: Any, path: str, new_value: Any) -> Any:
-        """Set a value at a specific path in nested data using dot notation."""
-        # Handle empty path case
-        if not path:
-            return new_value
-
-        # Create a deep copy to avoid modifying the original data
-        result = copy.deepcopy(data)
-
-        # Split the path into manageable parts
-        path_parts = self._split_path_into_parts(path)
-
-        # Navigate to the parent container
-        parent_container, final_part = self._navigate_to_parent_container(result, path_parts)
-
-        # If navigation failed, return the original data
-        if parent_container is None:
-            return result
-
-        # Set the value in the final container
-        self._set_value_in_container(parent_container, final_part, new_value)
-
-        return result
-
     def _get_input_parameters(self) -> tuple[Any, str, Any]:
         """Get the input parameters for the replacement operation."""
         json_data = self.get_parameter_value("json")
@@ -198,15 +88,15 @@ class JsonReplace(ControlNode):
         json_data, path, replacement_value = self._get_input_parameters()
 
         # Perform the replacement operation
-        result = self._set_value_at_path(json_data, path, replacement_value)
+        result = set_value_at_path(json_data, path, replacement_value)
 
         # Update the output parameter
         self._update_output_parameter(result)
 
     def _preview_replacement(self) -> None:
-        """Update the output while the user edits. Input that cannot be parsed yet clears the output.
+        """Update the output while the user edits. Input that cannot be parsed or a path that cannot be followed clears the output.
 
-        Raising here would leave the new input stored on a node that still looks resolved, so parse
+        Raising here would leave the new input stored on a node that still looks resolved, so these
         errors are caught. process() raises the same error on a real run.
         """
         try:

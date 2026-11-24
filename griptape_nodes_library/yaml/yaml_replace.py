@@ -1,5 +1,4 @@
-import copy
-import re
+import logging
 from io import StringIO
 from typing import Any
 
@@ -8,6 +7,10 @@ from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_yaml import ParameterYaml
 from ruamel.yaml import YAML
+
+from griptape_nodes_library.utils.dot_path import set_value_at_path
+
+logger = logging.getLogger("griptape_nodes")
 
 _yaml = YAML()
 _yaml.preserve_quotes = True
@@ -55,80 +58,6 @@ class YamlReplace(ControlNode):
             )
         )
 
-    def _parse_array_index(self, part: str) -> tuple[str | None, int | None]:
-        match = re.match(r"^(.+)\[(\d+)\]$", part)
-        return (match.group(1), int(match.group(2))) if match else (None, None)
-
-    def _ensure_dict_has_list(self, current: Any, key: str) -> Any:
-        if isinstance(current, dict):
-            if key not in current:
-                current[key] = []
-            return current[key]
-        return current
-
-    def _ensure_list_has_index(self, current: Any, index: int) -> Any:
-        if isinstance(current, list):
-            while len(current) <= index:
-                current.append({} if index < len(current) else None)
-            return current[index]
-        return None
-
-    def _handle_array_part(self, current: Any, key: str, index: int) -> Any:
-        current = self._ensure_dict_has_list(current, key)
-        return self._ensure_list_has_index(current, index)
-
-    def _split_path_into_parts(self, path: str) -> list[str]:
-        return re.split(r"\.(?![^\[]*\])", path)
-
-    def _is_valid_container(self, obj: Any) -> bool:
-        return isinstance(obj, (dict, list))
-
-    def _handle_path_part(self, current: Any, part: str) -> Any:
-        key, index = self._parse_array_index(part)
-
-        if key and index is not None:
-            current = self._handle_array_part(current, key, index)
-            if current is None:
-                return None
-        elif isinstance(current, dict):
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-        else:
-            return None
-
-        return current
-
-    def _navigate_to_parent_container(self, data: Any, path_parts: list[str]) -> tuple[Any, str]:
-        current = data
-        for part in path_parts[:-1]:
-            if not self._is_valid_container(current):
-                return None, ""
-            current = self._handle_path_part(current, part)
-            if current is None:
-                return None, ""
-        return current, path_parts[-1]
-
-    def _set_value_in_container(self, container: Any, final_part: str, new_value: Any) -> None:
-        key, index = self._parse_array_index(final_part)
-        if key and index is not None:
-            container = self._handle_array_part(container, key, index)
-            if isinstance(container, list):
-                container[index] = new_value
-        elif isinstance(container, dict):
-            container[final_part] = new_value
-
-    def _set_value_at_path(self, data: Any, path: str, new_value: Any) -> Any:
-        if not path:
-            return new_value
-        result = copy.deepcopy(data)
-        path_parts = self._split_path_into_parts(path)
-        parent_container, final_part = self._navigate_to_parent_container(result, path_parts)
-        if parent_container is None:
-            return result
-        self._set_value_in_container(parent_container, final_part, new_value)
-        return result
-
     def _to_yaml_string(self, data: Any) -> str:
         stream = StringIO()
         _yaml.dump(data, stream)
@@ -142,15 +71,28 @@ class YamlReplace(ControlNode):
         data = _yaml.load(yaml_str) if yaml_str else {}
         replacement = _yaml.load(replacement_str) if replacement_str else None
 
-        result_data = self._set_value_at_path(data, path, replacement)
+        result_data = set_value_at_path(data, path, replacement)
         result_str = self._to_yaml_string(result_data)
 
         self.set_parameter_value("output", result_str)
         self.publish_update_to_parameter("output", result_str)
 
+    def _preview_replacement(self) -> None:
+        """Update the output while the user edits. A path that cannot be followed clears the output.
+
+        Raising here would leave the new input stored on a node that still looks resolved, so the
+        error is caught. process() raises the same error on a real run.
+        """
+        try:
+            self._perform_replacement()
+        except ValueError as e:
+            self.set_parameter_value("output", None)
+            self.publish_update_to_parameter("output", None)
+            logger.debug("%s: skipped preview: %s", self.name, e)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name in ["yaml", "path", "replacement_value"]:
-            self._perform_replacement()
+            self._preview_replacement()
         return super().after_value_set(parameter, value)
 
     def process(self) -> None:
