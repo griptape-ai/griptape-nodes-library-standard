@@ -171,6 +171,8 @@ class Switch(RowOutputsMixin, ControlNode):
             )
         )
 
+        # TODO: declare this list as driven by 'cases' instead of syncing it by hand.
+        # https://github.com/griptape-ai/griptape-nodes-engine/issues/6456
         self.add_parameter(
             ParameterList(
                 name=VALUES_PARAM,
@@ -225,6 +227,9 @@ class Switch(RowOutputsMixin, ControlNode):
             self._sync_row_outputs()
         return super().after_value_set(parameter, value)
 
+    # TODO: drop this sync, and the add and delete controls on 'Optional inputs' that it can't hide, once a list
+    # can be driven by another list: ParameterList(name="values", driven_by="cases").
+    # https://github.com/griptape-ai/griptape-nodes-engine/issues/6456
     def _sync_row_companions(self) -> None:
         """Give every case that has text a row in 'Optional inputs', in the same order, named after its case row's ID.
 
@@ -249,6 +254,8 @@ class Switch(RowOutputsMixin, ControlNode):
         for row in case_rows:
             name = case_data_names[row.name]
             if texts[row.name] and name not in have:
+                # TODO: pass the name to add_child_parameter once it takes one, so the editor never hears the
+                # generated name. https://github.com/griptape-ai/griptape-nodes-engine/issues/6455
                 values.add_child_parameter().name = name
 
         have = {child.name: child for child in values.get_child_parameters()}
