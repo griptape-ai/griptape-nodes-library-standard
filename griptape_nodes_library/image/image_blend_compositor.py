@@ -1,5 +1,7 @@
-from typing import Any, ClassVar
+from enum import StrEnum
+from typing import Any
 
+import numpy as np
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -18,27 +20,26 @@ from griptape_nodes_library.utils.image_utils import (
 )
 
 
+class BlendMode(StrEnum):
+    NORMAL = "normal"
+    MULTIPLY = "multiply"
+    SCREEN = "screen"
+    OVERLAY = "overlay"
+    SOFT_LIGHT = "soft_light"
+    HARD_LIGHT = "hard_light"
+    DARKEN = "darken"
+    LIGHTEN = "lighten"
+    DIFFERENCE = "difference"
+    EXCLUSION = "exclusion"
+    ADD = "add"
+    SUBTRACT = "subtract"
+    LOGICAL_AND = "logical_and"
+    LOGICAL_OR = "logical_or"
+    LOGICAL_XOR = "logical_xor"
+
+
 class ImageBlendCompositor(BaseImageProcessor):
     """Compose two images using various blend modes with positioning and advanced compositing options."""
-
-    # Blend mode options
-    BLEND_MODE_OPTIONS: ClassVar[list[str]] = [
-        "normal",
-        "multiply",
-        "screen",
-        "overlay",
-        "soft_light",
-        "hard_light",
-        "darken",
-        "lighten",
-        "difference",
-        "exclusion",
-        "add",
-        "subtract",
-        "logical_and",
-        "logical_or",
-        "logical_xor",
-    ]
 
     # Opacity constants
     MIN_OPACITY = 0.0
@@ -65,10 +66,10 @@ class ImageBlendCompositor(BaseImageProcessor):
             # Blend mode
             blend_mode_param = ParameterString(
                 name="blend_mode",
-                default_value="normal",
+                default_value=BlendMode.NORMAL.value,
                 tooltip="The blend mode to use for compositing",
             )
-            blend_mode_param.add_trait(Options(choices=self.BLEND_MODE_OPTIONS))
+            blend_mode_param.add_trait(Options(choices=[mode.value for mode in BlendMode]))
             self.add_parameter(blend_mode_param)
 
             # Opacity
@@ -88,7 +89,7 @@ class ImageBlendCompositor(BaseImageProcessor):
             blend_position_x_param = ParameterInt(
                 name="blend_position_x",
                 default_value=self.DEFAULT_POSITION,
-                tooltip="X-coordinate position of the blend image (0 = center, negative = left, positive = right)",
+                tooltip="X pixel of the blend image's left edge on the base image. When X and Y are both 0, the blend image is centered.",
             )
             self.add_parameter(blend_position_x_param)
 
@@ -96,7 +97,7 @@ class ImageBlendCompositor(BaseImageProcessor):
             blend_position_y_param = ParameterInt(
                 name="blend_position_y",
                 default_value=self.DEFAULT_POSITION,
-                tooltip="Y-coordinate position of the blend image (0 = center, negative = up, positive = down)",
+                tooltip="Y pixel of the blend image's top edge on the base image. When X and Y are both 0, the blend image is centered.",
             )
             self.add_parameter(blend_position_y_param)
 
@@ -176,7 +177,8 @@ class ImageBlendCompositor(BaseImageProcessor):
             processed_image = self._process_images(image_pil, blend_pil, **self._get_custom_parameters())
 
             # Save and set output
-            output_artifact = self._save_image_artifact(processed_image, "png")
+            output_format = self._get_output_format(self._auto_output_format(image_pil))
+            output_artifact = self._save_image_artifact(processed_image, output_format)
 
             self.set_parameter_value("output", output_artifact)
             self.publish_update_to_parameter("output", output_artifact)
@@ -184,6 +186,13 @@ class ImageBlendCompositor(BaseImageProcessor):
         except Exception as e:
             # Log error but don't fail the node
             logger.warning(f"{self.name}: Live preview failed: {e}")
+
+    def _auto_output_format(self, image_pil: Image.Image) -> str:
+        """The base image's format if it can be saved, otherwise PNG."""
+        detected_format = self._detect_image_format(image_pil)
+        if detected_format in self.IMAGE_FORMAT_OPTIONS or detected_format in self.EXTENDED_FORMAT_OPTIONS:
+            return detected_format
+        return "PNG"
 
     def _get_processing_description(self) -> str:
         """Get description of what this processor does."""
@@ -197,7 +206,7 @@ class ImageBlendCompositor(BaseImageProcessor):
 
     def _process_images(self, image_pil: Image.Image, blend_pil: Image.Image, **kwargs) -> Image.Image:
         """Process the PIL images by compositing them together."""
-        blend_mode = kwargs.get("blend_mode", "normal")
+        blend_mode = kwargs.get("blend_mode", BlendMode.NORMAL)
         opacity = kwargs.get("opacity", self.DEFAULT_OPACITY)
         blend_position_x = kwargs.get("blend_position_x", self.DEFAULT_POSITION)
         blend_position_y = kwargs.get("blend_position_y", self.DEFAULT_POSITION)
@@ -226,8 +235,9 @@ class ImageBlendCompositor(BaseImageProcessor):
             else:
                 blend_pil = inverted_rgb.convert("RGBA")
 
-        # Resize blend image if requested
-        if resize_blend_to_fit:
+        # Non-normal modes blend pixel by pixel against the whole base, so they need the blend at the
+        # base's size before the position is worked out
+        if resize_blend_to_fit or blend_mode != BlendMode.NORMAL:
             blend_pil = blend_pil.resize(image_pil.size, Image.Resampling.LANCZOS)
 
         # Calculate position (center blend image by default)
@@ -244,7 +254,7 @@ class ImageBlendCompositor(BaseImageProcessor):
         result = image_pil.copy()
 
         # Apply blend mode
-        if blend_mode == "normal":
+        if blend_mode == BlendMode.NORMAL:
             # Simple alpha compositing - multiply existing alpha by opacity
             # to preserve gradient masks (like blurred edges)
             if opacity < 1.0:
@@ -327,33 +337,54 @@ class ImageBlendCompositor(BaseImageProcessor):
 
     def _get_blend_result(self, base_rgb: Image.Image, blend_rgb: Image.Image, mode: str) -> Image.Image:
         """Get the result of applying a specific blend mode."""
-        # Map blend modes to their corresponding ImageChops functions
-        blend_functions = {
-            "multiply": lambda: self._custom_multiply(base_rgb, blend_rgb),
-            "screen": lambda: ImageChops.screen(base_rgb, blend_rgb),
-            "overlay": lambda: ImageChops.overlay(base_rgb, blend_rgb),
-            "soft_light": lambda: ImageChops.soft_light(base_rgb, blend_rgb),
-            "hard_light": lambda: ImageChops.hard_light(base_rgb, blend_rgb),
-            "darken": lambda: ImageChops.darker(base_rgb, blend_rgb),
-            "lighten": lambda: ImageChops.lighter(base_rgb, blend_rgb),
-            "difference": lambda: ImageChops.difference(base_rgb, blend_rgb),
-            "exclusion": lambda: ImageChops.logical_xor(base_rgb, blend_rgb),
-            "add": lambda: ImageChops.add(base_rgb, blend_rgb),
-            "subtract": lambda: ImageChops.subtract(base_rgb, blend_rgb),
-            "logicaland": lambda: ImageChops.logical_and(base_rgb, blend_rgb),
-            "logical_or": lambda: ImageChops.logical_or(base_rgb, blend_rgb),
-            "logical_xor": lambda: ImageChops.logical_xor(base_rgb, blend_rgb),
-        }
+        match mode:
+            case BlendMode.NORMAL:
+                return blend_rgb
+            case BlendMode.MULTIPLY:
+                return self._custom_multiply(base_rgb, blend_rgb)
+            case BlendMode.SCREEN:
+                return ImageChops.screen(base_rgb, blend_rgb)
+            case BlendMode.OVERLAY:
+                return ImageChops.overlay(base_rgb, blend_rgb)
+            case BlendMode.SOFT_LIGHT:
+                return ImageChops.soft_light(base_rgb, blend_rgb)
+            case BlendMode.HARD_LIGHT:
+                return ImageChops.hard_light(base_rgb, blend_rgb)
+            case BlendMode.DARKEN:
+                return ImageChops.darker(base_rgb, blend_rgb)
+            case BlendMode.LIGHTEN:
+                return ImageChops.lighter(base_rgb, blend_rgb)
+            case BlendMode.DIFFERENCE:
+                return ImageChops.difference(base_rgb, blend_rgb)
+            case BlendMode.EXCLUSION:
+                return self._exclusion(base_rgb, blend_rgb)
+            case BlendMode.ADD:
+                return ImageChops.add(base_rgb, blend_rgb)
+            case BlendMode.SUBTRACT:
+                return ImageChops.subtract(base_rgb, blend_rgb)
+            case BlendMode.LOGICAL_AND:
+                return ImageChops.logical_and(self._to_bitmap(base_rgb), self._to_bitmap(blend_rgb)).convert("RGB")
+            case BlendMode.LOGICAL_OR:
+                return ImageChops.logical_or(self._to_bitmap(base_rgb), self._to_bitmap(blend_rgb)).convert("RGB")
+            case BlendMode.LOGICAL_XOR:
+                return ImageChops.logical_xor(self._to_bitmap(base_rgb), self._to_bitmap(blend_rgb)).convert("RGB")
+            case _:
+                msg = f"Unknown blend mode {mode!r}. Pick one of: {', '.join(BlendMode)}."
+                raise ValueError(msg)
 
-        # Get the blend function or default to normal blending
-        blend_func = blend_functions.get(mode, lambda: blend_rgb)
-        return blend_func()
+    def _to_bitmap(self, image: Image.Image) -> Image.Image:
+        """Threshold an image to 1-bit at mid-gray, the mode PIL's logical operations require."""
+        return image.convert("1", dither=Image.Dither.NONE)
+
+    def _exclusion(self, base: Image.Image, blend: Image.Image) -> Image.Image:
+        """Exclusion blend: base + blend - 2 * base * blend, on 0-1 values."""
+        base_norm = np.array(base, dtype=np.float32) / 255.0
+        blend_norm = np.array(blend, dtype=np.float32) / 255.0
+        result_norm = base_norm + blend_norm - 2.0 * base_norm * blend_norm
+        return Image.fromarray(np.clip(result_norm * 255.0 + 0.5, 0, 255).astype(np.uint8))
 
     def _custom_multiply(self, base: Image.Image, blend: Image.Image) -> Image.Image:
         """Custom multiply implementation to ensure correct math."""
-        # Convert images to numpy arrays for pixel-level operations
-        import numpy as np
-
         # Convert PIL images to numpy arrays (0-255 range)
         base_array = np.array(base, dtype=np.float32)
         blend_array = np.array(blend, dtype=np.float32)
@@ -436,7 +467,8 @@ class ImageBlendCompositor(BaseImageProcessor):
             processed_image = self._process_images(image_pil, blend_pil, **self._get_custom_parameters())
 
             # Save and set output
-            output_artifact = self._save_image_artifact(processed_image, "png")
+            output_format = self._get_output_format(self._auto_output_format(image_pil))
+            output_artifact = self._save_image_artifact(processed_image, output_format)
 
             self.set_parameter_value("output", output_artifact)
             self.publish_update_to_parameter("output", output_artifact)
