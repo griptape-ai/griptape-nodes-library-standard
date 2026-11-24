@@ -1,5 +1,6 @@
 from typing import Any
 
+from griptape.artifacts import BaseArtifact
 from griptape_nodes.exe_types.core_types import (
     Parameter,
     ParameterGroup,
@@ -99,12 +100,38 @@ class BaseCreateListNode(ControlNode):
                 list_values = flattened
 
         if remove_duplicates:
-            list_values = list(set(list_values))
+            list_values = self._remove_duplicates(list_values)
 
         if remove_blank:
-            list_values = [item for item in list_values if item is not None and item.strip() != ""]
+            list_values = [item for item in list_values if not self._is_blank(item)]
 
         self.parameter_output_values[self.output.name] = list_values
 
         # Publish update to propagate the output value
         self.publish_update_to_parameter(self.output.name, list_values)
+
+    @staticmethod
+    def _remove_duplicates(list_values: list[Any]) -> list[Any]:
+        """Keep the first occurrence of each item, in order. Works on unhashable items."""
+        unique_values = []
+        seen_hashable = set()
+        seen_unhashable = []
+        for item in list_values:
+            # Artifacts carry a random id, so two artifacts with the same value never compare equal.
+            key = (type(item), item.value) if isinstance(item, BaseArtifact) else item
+            try:
+                if key in seen_hashable:
+                    continue
+                seen_hashable.add(key)
+            except TypeError:
+                if key in seen_unhashable:
+                    continue
+                seen_unhashable.append(key)
+            unique_values.append(item)
+        return unique_values
+
+    @staticmethod
+    def _is_blank(item: Any) -> bool:
+        if item is None:
+            return True
+        return isinstance(item, str) and item.strip() == ""
