@@ -387,12 +387,13 @@ class ExtractFrames(SuccessFailureNode):
 
         cmd = [
             ffmpeg_path,
+            "-hide_banner",
             "-i",
             video_url,
             "-vf",
             f"select='{select_expr}'",
-            "-vsync",
-            "0",
+            "-fps_mode",
+            "passthrough",
             "-y",
             str(tmp_pattern),
         ]
@@ -403,7 +404,8 @@ class ExtractFrames(SuccessFailureNode):
             msg = "Timed out extracting frames. Try fewer frames or a shorter clip."
             raise RuntimeError(msg) from e
         except subprocess.CalledProcessError as e:
-            detail = (e.stderr or str(e)).strip()[:400]
+            # ffmpeg prints the error last, after any per-stream notes.
+            detail = (e.stderr or str(e)).strip()[-400:]
             msg = f"Could not extract frames. {detail}"
             raise RuntimeError(msg) from e
 
