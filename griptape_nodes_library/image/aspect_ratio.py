@@ -63,18 +63,9 @@ ASPECT_RATIO_PRESETS: dict[str, tuple[int | None, int | None, int | None, int | 
     "4:3 landscape": (None, None, 4, 3),
     "5:1 landscape": (None, None, 5, 1),
     "5:4 landscape": (None, None, 5, 4),
-    "5:7 landscape": (None, None, 5, 7),
     "7:5 landscape": (None, None, 7, 5),
-    "10:16 landscape": (None, None, 10, 16),
-    "12:13 landscape": (None, None, 12, 13),
-    "12:16 landscape": (None, None, 12, 16),
-    "13:14 landscape": (None, None, 13, 14),
-    "14:15 landscape": (None, None, 14, 15),
-    "15:16 landscape": (None, None, 15, 16),
     "16:9 landscape": (None, None, 16, 9),
     "16:10 landscape": (None, None, 16, 10),
-    "16:12 landscape": (None, None, 16, 12),
-    "18:9 landscape": (None, None, 18, 9),
     "19:9 landscape": (None, None, 19, 9),
     "20:9 landscape": (None, None, 20, 9),
     "21:9 landscape": (None, None, 21, 9),
@@ -90,13 +81,13 @@ ASPECT_RATIO_PRESETS: dict[str, tuple[int | None, int | None, int | None, int | 
     "3:4 portrait": (None, None, 3, 4),
     "4:5 portrait": (None, None, 4, 5),
     "5:6 portrait": (None, None, 5, 6),
+    "5:7 portrait": (None, None, 5, 7),
     "5:8 portrait": (None, None, 5, 8),
     "6:7 portrait": (None, None, 6, 7),
     "7:8 portrait": (None, None, 7, 8),
     "8:9 portrait": (None, None, 8, 9),
     "9:10 portrait": (None, None, 9, 10),
     "9:16 portrait": (None, None, 9, 16),
-    "9:18 portrait": (None, None, 9, 18),
     "9:19 portrait": (None, None, 9, 19),
     "9:20 portrait": (None, None, 9, 20),
     "9:21 portrait": (None, None, 9, 21),
@@ -105,6 +96,24 @@ ASPECT_RATIO_PRESETS: dict[str, tuple[int | None, int | None, int | None, int | 
     "9:32 portrait": (None, None, 9, 32),
     "10:11 portrait": (None, None, 10, 11),
     "11:12 portrait": (None, None, 11, 12),
+    "12:13 portrait": (None, None, 12, 13),
+    "13:14 portrait": (None, None, 13, 14),
+    "14:15 portrait": (None, None, 14, 15),
+    "15:16 portrait": (None, None, 15, 16),
+}
+
+# Preset names saved by older workflows, mapped to the preset with the same ratio
+LEGACY_PRESET_NAMES: dict[str, str] = {
+    "5:7 landscape": "5:7 portrait",
+    "10:16 landscape": "5:8 portrait",
+    "12:13 landscape": "12:13 portrait",
+    "12:16 landscape": "3:4 portrait",
+    "13:14 landscape": "13:14 portrait",
+    "14:15 landscape": "14:15 portrait",
+    "15:16 landscape": "15:16 portrait",
+    "16:12 landscape": "4:3 landscape",
+    "18:9 landscape": "2:1 landscape",
+    "9:18 portrait": "1:2 portrait",
 }
 
 
@@ -264,6 +273,26 @@ class AspectRatio(SuccessFailureNode):
 
         # Validate presets configuration
         self._validate_presets()
+
+    def set_parameter_value(
+        self,
+        param_name: str,
+        value: Any,
+        *,
+        initial_setup: bool = False,
+        emit_change: bool = True,
+        skip_before_value_set: bool = False,
+    ) -> None:
+        """Map legacy preset names before the Options trait replaces unknown choices with Custom."""
+        if param_name == self._preset_parameter.name and isinstance(value, str):
+            value = LEGACY_PRESET_NAMES.get(value, value)
+        super().set_parameter_value(
+            param_name,
+            value,
+            initial_setup=initial_setup,
+            emit_change=emit_change,
+            skip_before_value_set=skip_before_value_set,
+        )
 
     def _validate_presets(self) -> None:
         """Validate ASPECT_RATIO_PRESETS structure during initialization."""
