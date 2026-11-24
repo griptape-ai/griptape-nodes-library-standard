@@ -22,14 +22,11 @@ Where to move to. Project macro paths are resolved.
 
 ### overwrite
 
-Off by default. When on, anything already at the destination is deleted before the move.
+Off by default. When on, anything already at the destination is replaced. If the move fails, the destination is left as it was.
 
 ### moved_paths
 
 The destination path of each item moved.
-
-> [!NOTE]
-> The node also shows a `copied_paths` output inherited from [CopyFiles](CopyFiles.md). It is never filled. Use `moved_paths`.
 
 ## Results
 

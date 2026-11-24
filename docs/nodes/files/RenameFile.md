@@ -19,7 +19,7 @@ A bare name such as `final.png` renames the item inside its current folder. An a
 
 ### overwrite
 
-Off by default, so the node fails if `new_path` already exists. When on, the existing item at `new_path` is deleted first, then the rename happens. If the rename then fails, the old destination is already gone.
+Off by default, so the node fails if `new_path` already exists. When on, the existing item at `new_path` is replaced. If the rename fails, it is left as it was.
 
 ### old_path_output
 

@@ -8,8 +8,6 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
-    DeleteFileRequest,
-    DeleteFileResultFailure,
     RenameFileRequest,
     RenameFileResultFailure,
     RenameFileResultSuccess,
@@ -213,30 +211,10 @@ class RenameFile(FileOperationBaseNode):
             self._fail(FileExistsError(msg))
             return
 
-        # If overwrite is True and new_path exists, delete it first
-        if new_path_result.exists and overwrite:
-            delete_request = DeleteFileRequest(path=new_path, workspace_only=False)
-            delete_result = GriptapeNodes.handle_request(delete_request)
-
-            if isinstance(delete_result, DeleteFileResultFailure):
-                failure_reason = (
-                    delete_result.failure_reason.value
-                    if hasattr(delete_result.failure_reason, "value")
-                    else "Unknown error"
-                )
-                # Include detailed error message if available
-                error_details = ""
-                if delete_result.result_details:
-                    # ResultDetails.__str__() returns concatenated messages from all ResultDetail objects
-                    error_details = f" - {delete_result.result_details}"
-                msg = f"Could not delete the existing destination before renaming: {failure_reason}{error_details}"
-                self.set_parameter_value(self.old_path_output.name, "")
-                self.set_parameter_value(self.new_path_output.name, "")
-                self._fail(OSError(msg))
-                return
-
         # SUCCESS PATH AT END: Execute rename
-        rename_request = RenameFileRequest(old_path=old_path, new_path=new_path, workspace_only=False)
+        rename_request = RenameFileRequest(
+            old_path=old_path, new_path=new_path, workspace_only=False, overwrite=overwrite
+        )
         rename_result = GriptapeNodes.handle_request(rename_request)
 
         if isinstance(rename_result, RenameFileResultFailure):
