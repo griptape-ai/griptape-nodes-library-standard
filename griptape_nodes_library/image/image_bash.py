@@ -178,22 +178,13 @@ class ImageBash(DataNode):
     def _get_canvas_dimensions(self) -> tuple[int, int]:
         """Get canvas dimensions based on canvas_size parameter."""
         canvas_size = self.get_parameter_value("canvas_size")
-        if canvas_size == "custom":
-            # For custom, use the current width/height parameter values
+        # An unknown value (stale or hand-edited) falls back to HD
+        dimensions = CANVAS_DIMENSIONS.get(canvas_size, CANVAS_DIMENSIONS["HD (16:9)"])
+        if dimensions["width"] is None or dimensions["height"] is None:
+            # Custom uses the current width/height parameter values
             width = self.get_parameter_value("width") or 1920
             height = self.get_parameter_value("height") or 1080
             return (width, height)
-        if canvas_size in CANVAS_DIMENSIONS:
-            dimensions = CANVAS_DIMENSIONS[canvas_size]
-            # Handle None values (for Custom)
-            if dimensions["width"] is None or dimensions["height"] is None:
-                # Fallback to current parameter values
-                width = self.get_parameter_value("width") or 1920
-                height = self.get_parameter_value("height") or 1080
-                return (width, height)
-            return (dimensions["width"], dimensions["height"])
-        # Fallback to HD
-        dimensions = CANVAS_DIMENSIONS["HD"]
         return (dimensions["width"], dimensions["height"])
 
     def _get_existing_background_color(self, bash_image_value: Any) -> str:  # noqa: ARG002
