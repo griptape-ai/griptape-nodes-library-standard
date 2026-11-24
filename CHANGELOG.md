@@ -10,6 +10,50 @@ the `library_version` in `griptape_nodes_library.json`.
 
 <!-- Entries go in changelog.d/, one file each. See changelog.d/README.md. -->
 
+## [0.92.0] - 2026-11-24
+
+### Added
+
+- Extract PDF Images shows the PDF itself, one page at a time, with arrows to step through the
+  pages before you extract. The `rotation` setting turns the page as it will be extracted, and a
+  password-protected PDF asks for `password` in the viewer.
+  [#999](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/999)
+- `OpenAI Image Generation` offers `GPT Image 2.6 Sunburst` and `GPT Image 2.6 Flare`, with a
+  `complexity` setting and `gif` output whose `frame_count` and `frame_duration_ms` you can set.
+  [#912](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/912)
+- Load PDF shows the PDF itself, one page at a time, with arrows to step through the pages. A
+  password-protected PDF asks for `password` in the viewer.
+  [#1020](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/1020)
+- The library now carries its own node docs. Open the **Docs** panel in the editor to read a page
+  for each node in the Standard Library, with notes on how its parameters behave. Engines older
+  than 0.110.0 ignore the pages, so nothing changes for them.
+- `Resize Image` and `Resize Video` have a `divisible by` resize mode that snaps the output width and
+  height to multiples of a `divisor`, shown in the live preview, for models that only accept such
+  sizes. Set `rounding`, `preserve_aspect_ratio`, and `anchor_dimension` to control how; `Resize
+  Video` takes even divisors only.
+  https://github.com/griptape-ai/griptape-nodes-library-standard/issues/987
+- `Switch` sends the flow down one of many exits: add a case per row, and the first case that
+  matches the value sets the exit, with `Default` when none match. `*` and `?` in a case are patterns
+  (`*fx` matches `fx` and `cfx`), a bool adds `true` and `false` cases, and `Path` picks a field out
+  of a dictionary, JSON or YAML value. Each case can have an optional input for data to pass on,
+  and `Result` carries the matching case's data.
+  [#1023](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/1023)
+- `Transcribe Audio` accepts a video on its `audio` input and transcribes the video's audio track,
+  so an `Extract Audio` node is no longer needed in between.
+  https://github.com/griptape-ai/griptape-nodes-library-standard/issues/981
+- `Trim Audio` trims audio to a start and end time. Its waveform player has draggable in and out
+  markers that set `start_time` and `end_time`, a strip along the bottom that shifts the whole range,
+  and plays while you scrub. Mark In and Mark Out buttons (also the I and O keys) set a point at the
+  current time. You can also type the times or wire them in. An `end_time` of 0 keeps everything after
+  the start. For clips over 30 minutes the waveform is not drawn, and a badge on the player says so.
+  https://github.com/griptape-ai/griptape-nodes-library-standard/issues/643
+
+### Changed
+
+- The first `Agent` or tool node added to a workflow now appears right away instead of pausing for
+  a second or more, and up to half a minute right after a library update. The Anthropic, Cohere,
+  Bedrock, web search, web scraping, and calculator packages now load only when a node uses them.
+
 ## [0.91.1] - 2026-11-18
 
 ### Added
@@ -229,7 +273,8 @@ the `library_version` in `griptape_nodes_library.json`.
   old look.
   [#888](https://github.com/griptape-ai/griptape-nodes-library-standard/issues/888)
 
-[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.91.1...HEAD
+[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.92.0...HEAD
+[0.92.0]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.91.1...v0.92.0
 [0.91.1]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.91.0...v0.91.1
 [0.91.0]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.3...v0.91.0
 [0.90.3]: https://github.com/griptape-ai/griptape-nodes-library-standard/compare/v0.90.2...v0.90.3
