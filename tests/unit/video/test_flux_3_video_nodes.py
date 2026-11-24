@@ -7,7 +7,7 @@ from griptape.artifacts import ImageUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import NodeError
 
-from griptape_nodes_library.video.flux_3_common import MAX_INPUT_VIDEO_BYTES
+from griptape_nodes_library.video.flux_3_common import MAX_INPUT_DATA_URI_BYTES, max_file_bytes_for_data_uri
 from griptape_nodes_library.video.flux_3_video_edit import Flux3VideoEdit
 from griptape_nodes_library.video.flux_3_video_generation import Flux3VideoGeneration, Flux3VideoMode
 from griptape_nodes_library.video.flux_3_video_upscale import Flux3VideoUpscale
@@ -184,7 +184,8 @@ def test_flux_3_video_validation_rejects_local_video_over_size_limit(
 ) -> None:
     node = node_class(name="Flux3VideoNode")
     node.set_parameter_value("prompt", "Add snowfall")
-    oversized = _write_sparse_file(tmp_path / "big.mp4", MAX_INPUT_VIDEO_BYTES + 1)
+    max_file_bytes = max_file_bytes_for_data_uri(MAX_INPUT_DATA_URI_BYTES)
+    oversized = _write_sparse_file(tmp_path / "big.mp4", max_file_bytes + 1)
     node.set_parameter_value(param_name, VideoUrlArtifact(str(oversized)))
 
     errors = node.validate_before_node_run() or []
@@ -192,17 +193,20 @@ def test_flux_3_video_validation_rejects_local_video_over_size_limit(
     assert len(size_errors) == 1
     assert f"'{param_label}'" in size_errors[0]
 
-    within_limit = _write_sparse_file(tmp_path / "ok.mp4", MAX_INPUT_VIDEO_BYTES)
+    within_limit = _write_sparse_file(tmp_path / "ok.mp4", max_file_bytes)
     node.set_parameter_value(param_name, VideoUrlArtifact(str(within_limit)))
     assert not any("limit is 50 MiB" in str(e) for e in node.validate_before_node_run() or [])
 
 
 def test_flux_3_video_validation_rejects_data_uri_over_size_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("griptape_nodes_library.video.flux_3_video_edit.MAX_INPUT_VIDEO_BYTES", 3)
+    monkeypatch.setattr("griptape_nodes_library.video.flux_3_video_edit.MAX_INPUT_DATA_URI_BYTES", 30)
 
     node = Flux3VideoEdit(name="Flux3VideoEdit")
     node.set_parameter_value("prompt", "Add snowfall")
-    node.set_parameter_value("video", "data:video/mp4;base64,CLIPCLIP")
+    node.set_parameter_value("video", "data:video/mp4;base64,CLIPCLIP")  # 30 characters
+    assert node.validate_before_node_run() is None
+
+    node.set_parameter_value("video", "data:video/mp4;base64,CLIPCLIPCLIP")
 
     errors = node.validate_before_node_run()
     assert errors is not None
@@ -222,7 +226,7 @@ async def test_flux_3_video_prepare_rejects_downloaded_video_over_size_limit(mon
             return f"data:{fallback_mime};base64,CLIPCLIP"
 
     monkeypatch.setattr("griptape_nodes_library.video.flux_3_common.File", FakeRemoteFile)
-    monkeypatch.setattr("griptape_nodes_library.video.flux_3_video_upscale.MAX_INPUT_VIDEO_BYTES", 3)
+    monkeypatch.setattr("griptape_nodes_library.video.flux_3_video_upscale.MAX_INPUT_DATA_URI_BYTES", 29)
 
     node = Flux3VideoUpscale(name="Flux3VideoUpscale")
     node._probe_duration = lambda _v: 5.0  # type: ignore[method-assign]
@@ -236,7 +240,7 @@ async def test_flux_3_video_generation_start_video_has_no_size_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     node = Flux3VideoGeneration(name="Flux3Video")
-    oversized = _write_sparse_file(tmp_path / "big.mp4", MAX_INPUT_VIDEO_BYTES + 1)
+    oversized = _write_sparse_file(tmp_path / "big.mp4", MAX_INPUT_DATA_URI_BYTES + 1)
 
     async def fake_read_data_uri(_self: object, fallback_mime: str) -> str:
         return f"data:{fallback_mime};base64,CLIP"

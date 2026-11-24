@@ -13,13 +13,30 @@ from griptape_nodes.files.file import File, FileLoadError
 
 from griptape_nodes_library.media import coerce_media_url_or_data_uri
 from griptape_nodes_library.utils.video_utils import find_mp4_video_input_problems
-from griptape_nodes_library.video.public_video_url_mixin import decoded_data_uri_size
 
 SUPPORTED_VIDEO_CONTAINER = "mp4"
-# BFL FLUX Video Edit docs: "up to 15 seconds and 50 MiB". FLUX 3 Video Upscale API reference:
-# "base64-encoded mp4 (max 50MB)". Read as the MP4 file's size, as the node tooltips say.
-MAX_INPUT_VIDEO_BYTES = 50 * 1024 * 1024
+# FLUX 3 Video Upscale API reference: "base64-encoded mp4 (max 50MB)"; FLUX Video Edit docs: "up to
+# 15 seconds and 50 MiB". Both are applied to the data URI the request carries, so the MP4 file itself
+# can be about three quarters of that.
+MAX_INPUT_DATA_URI_BYTES = 50 * 1024 * 1024
 BYTES_PER_MIB = 1024 * 1024
+MP4_DATA_URI_PREFIX = "data:video/mp4;base64,"
+
+
+def max_file_bytes_for_data_uri(max_data_uri_bytes: int) -> int:
+    """Return the largest file whose MP4 data URI fits in ``max_data_uri_bytes``."""
+    return (max_data_uri_bytes - len(MP4_DATA_URI_PREFIX)) // 4 * 3
+
+
+def data_uri_size_for_file(file_bytes: int) -> int:
+    """Return the length of the MP4 data URI a file of ``file_bytes`` encodes to."""
+    return len(MP4_DATA_URI_PREFIX) + -(-file_bytes // 3) * 4
+
+
+INPUT_VIDEO_SIZE_LIMIT_TEXT = (
+    f"{MAX_INPUT_DATA_URI_BYTES // BYTES_PER_MIB} MiB once base64-encoded, "
+    f"about {max_file_bytes_for_data_uri(MAX_INPUT_DATA_URI_BYTES) / BYTES_PER_MIB:.1f} MiB of MP4"
+)
 
 
 class Flux3SafetyTolerance(StrEnum):
@@ -53,39 +70,39 @@ def parse_flux_3_safety_tolerance(value: str | None) -> int:
             raise NodeError(msg)
 
 
-def input_video_size_bytes(video_value: str) -> int | None:
-    """Return the video's size in bytes without reading it, or None when it can't be measured.
+def input_video_data_uri_size(video_value: str) -> int | None:
+    """Return the length of the data URI the video is sent as, or None when it can't be measured.
 
-    A data URI is measured from its base64 length and a local file from its metadata. A remote URL
-    has no local size to read, so it returns None.
+    A data URI is measured directly. A local file's encoded length is computed from its metadata
+    without reading it. A remote URL has no local size to read, so it returns None.
     """
     if video_value.startswith("data:"):
-        try:
-            return decoded_data_uri_size(video_value)
-        except ValueError:
-            return None
+        return len(video_value)
     try:
         location = File(video_value).resolve()
     except FileLoadError:
         return None
     try:
         # A remote URL comes back from resolve() unchanged and fails the stat.
-        return Path(location).stat().st_size
+        return data_uri_size_for_file(Path(location).stat().st_size)
     except OSError:
         return None
 
 
-def find_video_size_problem(video_input: Any, *, param_label: str, service_label: str, max_bytes: int) -> str | None:
-    """Return an error message when the video is larger than ``max_bytes``, else None."""
+def find_video_size_problem(
+    video_input: Any, *, param_label: str, service_label: str, max_data_uri_bytes: int
+) -> str | None:
+    """Return an error message when the video's data URI is longer than ``max_data_uri_bytes``, else None."""
     video_value = coerce_media_url_or_data_uri(video_input, kind="video")
     if not video_value:
         return None
-    size_bytes = input_video_size_bytes(video_value)
-    if size_bytes is None or size_bytes <= max_bytes:
+    size_bytes = input_video_data_uri_size(video_value)
+    if size_bytes is None or size_bytes <= max_data_uri_bytes:
         return None
     return (
-        f"The video connected to '{param_label}' is {size_bytes / BYTES_PER_MIB:.1f} MiB. "
-        f"{service_label}'s limit is {max_bytes / BYTES_PER_MIB:g} MiB. "
+        f"The video connected to '{param_label}' is {size_bytes / BYTES_PER_MIB:.1f} MiB once base64-encoded. "
+        f"{service_label}'s limit is {max_data_uri_bytes / BYTES_PER_MIB:g} MiB encoded, "
+        f"about {max_file_bytes_for_data_uri(max_data_uri_bytes) / BYTES_PER_MIB:.1f} MiB of MP4. "
         "Use a Trim Video or Resize Video node to make it smaller."
     )
 
@@ -98,11 +115,11 @@ async def prepare_mp4_video_data_uri(
     service_label: str,
     max_duration_seconds: float,
     duration_prober: Callable[[str], float | None],
-    max_bytes: int | None = None,
+    max_data_uri_bytes: int | None = None,
 ) -> str:
     """Validate an MP4 input against container, duration, and size limits and return its data URI.
 
-    The size is only checked when ``max_bytes`` is given.
+    The data URI's length is only checked when ``max_data_uri_bytes`` is given.
     """
     video_value = coerce_media_url_or_data_uri(video_input, kind="video")
     if not video_value:
@@ -124,13 +141,13 @@ async def prepare_mp4_video_data_uri(
         )
         raise NodeError(msg)
 
-    if max_bytes is not None:
+    if max_data_uri_bytes is not None:
         size_problem = await asyncio.to_thread(
             find_video_size_problem,
             video_value,
             param_label=param_label,
             service_label=service_label,
-            max_bytes=max_bytes,
+            max_data_uri_bytes=max_data_uri_bytes,
         )
         if size_problem:
             raise NodeError(size_problem)
@@ -144,10 +161,11 @@ async def prepare_mp4_video_data_uri(
         msg = f"Could not load video from '{video_value}': {e}"
         raise NodeError(msg) from e
 
-    # A remote URL's size is only known once it is downloaded.
-    if max_bytes is not None:
+    # A remote URL's size is only known once it is downloaded, and a file's MIME type can make its
+    # data URI a few bytes longer than the estimate, so the encoded result is checked as well.
+    if max_data_uri_bytes is not None:
         size_problem = find_video_size_problem(
-            data_uri, param_label=param_label, service_label=service_label, max_bytes=max_bytes
+            data_uri, param_label=param_label, service_label=service_label, max_data_uri_bytes=max_data_uri_bytes
         )
         if size_problem:
             raise NodeError(size_problem)
