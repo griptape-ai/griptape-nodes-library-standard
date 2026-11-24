@@ -11,7 +11,7 @@ You have a clip of up to 20 seconds and want it larger. Connect it to `input_vid
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Black Forest Labs key (`BFL_API_KEY`) instead, set **API Key Provider** to **Customer**.
 - The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
-- The input must be an MP4 of 20 seconds or less, no larger than 2560 x 1440, and no more than 50 MB. A clip that is not an MP4, or is too long, stops the run with a message. The clip is sent inline with the request.
+- The input must be an MP4 of 20 seconds or less, no larger than 2560 x 1440, and no more than 50 MiB. A clip that is not an MP4, is too long, or is too large stops the run with a message. The clip is sent inline with the request.
 
 ## Parameters
 

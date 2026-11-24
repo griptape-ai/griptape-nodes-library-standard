@@ -17,9 +17,9 @@ from griptape_nodes_library.video.public_video_url_mixin import decoded_data_uri
 
 SUPPORTED_VIDEO_CONTAINER = "mp4"
 # BFL FLUX Video Edit docs: "up to 15 seconds and 50 MiB". FLUX 3 Video Upscale API reference:
-# "base64-encoded mp4 (max 50MB)". Read as the MP4 file's size, as the node tooltips say ("max 50MB").
+# "base64-encoded mp4 (max 50MB)". Read as the MP4 file's size, as the node tooltips say.
 MAX_INPUT_VIDEO_BYTES = 50 * 1024 * 1024
-BYTES_PER_MB = 1024 * 1024
+BYTES_PER_MIB = 1024 * 1024
 
 
 class Flux3SafetyTolerance(StrEnum):
@@ -75,17 +75,17 @@ def input_video_size_bytes(video_value: str) -> int | None:
         return None
 
 
-def find_video_size_problem(video_input: Any, *, param_label: str, service_label: str) -> str | None:
-    """Return an error message when the video is over the FLUX input size limit, else None."""
+def find_video_size_problem(video_input: Any, *, param_label: str, service_label: str, max_bytes: int) -> str | None:
+    """Return an error message when the video is larger than ``max_bytes``, else None."""
     video_value = coerce_media_url_or_data_uri(video_input, kind="video")
     if not video_value:
         return None
     size_bytes = input_video_size_bytes(video_value)
-    if size_bytes is None or size_bytes <= MAX_INPUT_VIDEO_BYTES:
+    if size_bytes is None or size_bytes <= max_bytes:
         return None
     return (
-        f"The video connected to '{param_label}' is {size_bytes / BYTES_PER_MB:.1f} MB. "
-        f"{service_label}'s limit is {MAX_INPUT_VIDEO_BYTES // BYTES_PER_MB} MB. "
+        f"The video connected to '{param_label}' is {size_bytes / BYTES_PER_MIB:.1f} MiB. "
+        f"{service_label}'s limit is {max_bytes / BYTES_PER_MIB:g} MiB. "
         "Use a Trim Video or Resize Video node to make it smaller."
     )
 
@@ -98,8 +98,12 @@ async def prepare_mp4_video_data_uri(
     service_label: str,
     max_duration_seconds: float,
     duration_prober: Callable[[str], float | None],
+    max_bytes: int | None = None,
 ) -> str:
-    """Validate an MP4 input against container, duration, and size limits and return its data URI."""
+    """Validate an MP4 input against container, duration, and size limits and return its data URI.
+
+    The size is only checked when ``max_bytes`` is given.
+    """
     video_value = coerce_media_url_or_data_uri(video_input, kind="video")
     if not video_value:
         msg = f"Connect a video to '{param_label}'."
@@ -120,11 +124,16 @@ async def prepare_mp4_video_data_uri(
         )
         raise NodeError(msg)
 
-    size_problem = await asyncio.to_thread(
-        find_video_size_problem, video_value, param_label=param_label, service_label=service_label
-    )
-    if size_problem:
-        raise NodeError(size_problem)
+    if max_bytes is not None:
+        size_problem = await asyncio.to_thread(
+            find_video_size_problem,
+            video_value,
+            param_label=param_label,
+            service_label=service_label,
+            max_bytes=max_bytes,
+        )
+        if size_problem:
+            raise NodeError(size_problem)
 
     if video_value.startswith("data:"):
         return video_value
@@ -136,7 +145,10 @@ async def prepare_mp4_video_data_uri(
         raise NodeError(msg) from e
 
     # A remote URL's size is only known once it is downloaded.
-    size_problem = find_video_size_problem(data_uri, param_label=param_label, service_label=service_label)
-    if size_problem:
-        raise NodeError(size_problem)
+    if max_bytes is not None:
+        size_problem = find_video_size_problem(
+            data_uri, param_label=param_label, service_label=service_label, max_bytes=max_bytes
+        )
+        if size_problem:
+            raise NodeError(size_problem)
     return data_uri

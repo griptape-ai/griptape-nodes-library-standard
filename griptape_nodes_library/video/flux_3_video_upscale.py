@@ -16,7 +16,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes_library.proxy import ArtifactKind, GriptapeProxyNode
 from griptape_nodes_library.utils.video_utils import has_media_value, probe_video_duration
 from griptape_nodes_library.video.flux_3_common import (
-    BYTES_PER_MB,
+    BYTES_PER_MIB,
     MAX_INPUT_VIDEO_BYTES,
     SAFETY_TOLERANCE_OPTIONS,
     Flux3SafetyTolerance,
@@ -88,7 +88,7 @@ class Flux3VideoUpscale(GriptapeProxyNode):
         video_param = ParameterVideo(
             name="input_video",
             default_value="",
-            tooltip="Source MP4 video clip to upscale (up to 20 seconds, max 2560x1440, max 50MB)",
+            tooltip="Source MP4 video clip to upscale (up to 20 seconds, max 2560x1440, max 50 MiB)",
             allowed_modes={ParameterMode.INPUT},
             hide_property=True,
             ui_options={"display_name": "Input Video"},
@@ -98,7 +98,7 @@ class Flux3VideoUpscale(GriptapeProxyNode):
             title="Video requirements",
             message=(
                 f"- .mp4 file\n- {MAX_INPUT_DURATION_SECONDS:g} seconds or less\n"
-                f"- {MAX_INPUT_VIDEO_BYTES // BYTES_PER_MB} MB or less\n- Up to 2560x1440 (3.7 MP per frame)\n\n"
+                f"- {MAX_INPUT_VIDEO_BYTES // BYTES_PER_MIB} MiB or less\n- Up to 2560x1440 (3.7 MP per frame)\n\n"
                 "Use a Trim Video or Resize Video node to prepare the clip."
             ),
         )
@@ -197,6 +197,7 @@ class Flux3VideoUpscale(GriptapeProxyNode):
             service_label=SERVICE_LABEL,
             max_duration_seconds=MAX_INPUT_DURATION_SECONDS,
             duration_prober=self._probe_duration,
+            max_bytes=MAX_INPUT_VIDEO_BYTES,
         )
 
     @staticmethod
@@ -215,7 +216,9 @@ class Flux3VideoUpscale(GriptapeProxyNode):
         if not has_media_value(video_value):
             exceptions.append(NodeError("Connect a video to 'Input Video'."))
         else:
-            size_problem = find_video_size_problem(video_value, param_label="Input Video", service_label=SERVICE_LABEL)
+            size_problem = find_video_size_problem(
+                video_value, param_label="Input Video", service_label=SERVICE_LABEL, max_bytes=MAX_INPUT_VIDEO_BYTES
+            )
             if size_problem:
                 exceptions.append(NodeError(size_problem))
 
