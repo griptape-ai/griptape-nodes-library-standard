@@ -15,8 +15,10 @@ For several paths at once, use [ResolveMacroPaths](ResolveMacroPaths.md).
 
 The macro path to resolve, for example `{inputs}/my_file.png`. It accepts a text path or a file artifact such as an image or video. An empty path gives an empty result.
 
-If the macro can't be resolved, the node fails and the reason is shown in the status details.
+A plain path with no macro is anchored to the workspace folder, and a URL comes back unchanged. Braces that don't name a project variable, as in `notes {draft}.txt`, are treated as part of the filename and the path comes back unchanged.
+
+If a project macro can't be resolved, the node fails and the reason is shown in the status details.
 
 ### resolved_path
 
-The full absolute path. The node does not check that the file exists.
+The full absolute path, or the input unchanged for a URL or a filename with braces. The node does not check that the file exists.

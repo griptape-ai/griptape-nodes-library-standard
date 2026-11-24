@@ -1,15 +1,12 @@
 from typing import Any
 
 from griptape.artifacts import UrlArtifact
-from griptape_nodes.common.macro_parser import ParsedMacro
+from griptape_nodes.common.macro_parser import MacroSyntaxError, ParsedMacro
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.files.file import File
 from griptape_nodes.files.path_utils import sanitize_path_string
-from griptape_nodes.retained_mode.events.project_events import (
-    GetPathForMacroRequest,
-    GetPathForMacroResultFailure,
-    GetPathForMacroResultSuccess,
-)
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+from griptape_nodes_library.utils.macro_path_utils import resolve_macro_path
 
 
 class BaseResolveMacroPath(SuccessFailureNode):
@@ -31,12 +28,19 @@ class BaseResolveMacroPath(SuccessFailureNode):
         return cleaned if cleaned else None
 
     def _resolve_one(self, path_str: str) -> str:
-        """Resolve a single macro path to an absolute path. Raises on malformed or unresolvable macros."""
-        result = GriptapeNodes.handle_request(GetPathForMacroRequest(parsed_macro=ParsedMacro(path_str), variables={}))
-        if isinstance(result, GetPathForMacroResultSuccess):
-            return str(result.absolute_path)
-        if isinstance(result, GetPathForMacroResultFailure):
-            msg = f"Could not resolve macro path '{path_str}': {result.failure_reason.value}"
-            raise ValueError(msg)
-        msg = f"Unexpected result resolving macro path '{path_str}'"
-        raise ValueError(msg)
+        """Resolve a macro or plain path to an absolute path.
+
+        Plain paths are anchored to the workspace directory and remote URLs come back
+        unchanged. A string with braces the project can't fill, such as "notes {draft}.txt",
+        is a filename rather than a macro and also comes back unchanged.
+
+        Raises:
+            FileLoadError: If a path naming project variables fails to resolve.
+        """
+        try:
+            has_variables = bool(ParsedMacro(path_str).get_variables())
+        except MacroSyntaxError:
+            has_variables = False
+        if has_variables:
+            return resolve_macro_path(path_str)
+        return File(path_str).resolve()
