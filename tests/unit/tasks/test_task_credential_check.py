@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.node_library.library_registry import LibraryRegistry
+from griptape_nodes.retained_mode.events.connection_events import CreateConnectionRequest
+from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest, CreateFlowResultSuccess
+from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 LIBRARY_NAME = "Griptape Nodes Library"
 _LICENSE = "header.payload.signature"
@@ -82,6 +87,7 @@ def test_random_text_fails_validation_without_a_credential_when_it_generates(
     node.parameter_values["input_text"] = input_text
     node.parameter_values["selection_type"] = selection_type
 
+    _assert_names_both_credentials(node.validate_before_workflow_run())
     _assert_names_both_credentials(node.validate_before_node_run())
 
 
@@ -97,6 +103,7 @@ def test_random_text_needs_no_credential_when_it_does_not_generate(
     node.parameter_values["input_text"] = input_text
     node.parameter_values["selection_type"] = selection_type
 
+    assert node.validate_before_workflow_run() is None
     assert node.validate_before_node_run() is None
 
 
@@ -106,4 +113,51 @@ def test_random_text_passes_validation_with_a_license_when_it_generates(monkeypa
     node.parameter_values["input_text"] = ""
     node.parameter_values["selection_type"] = "sentence"
 
+    assert node.validate_before_workflow_run() is None
     assert node.validate_before_node_run() is None
+
+
+def _create_connected_random_text() -> BaseNode:
+    """Create a Random Text node whose `input_text` is connected to a Text Input node."""
+    flow_result = GriptapeNodes.handle_request(
+        CreateFlowRequest(parent_flow_name=None, flow_name="flow", set_as_new_context=False, metadata={})
+    )
+    assert isinstance(flow_result, CreateFlowResultSuccess)
+    flow_name = flow_result.flow_name
+    with GriptapeNodes.ContextManager().flow(flow_name):
+        for node_type in ("TextInput", "RandomText"):
+            GriptapeNodes.handle_request(
+                CreateNodeRequest(node_type=node_type, specific_library_name=LIBRARY_NAME, node_name=node_type)
+            )
+        GriptapeNodes.handle_request(
+            CreateConnectionRequest(
+                source_node_name="TextInput",
+                source_parameter_name="text",
+                target_node_name="RandomText",
+                target_parameter_name="input_text",
+            )
+        )
+    node = GriptapeNodes.ObjectManager().attempt_get_object_by_name_as_type("RandomText", BaseNode)
+    assert node is not None
+    return node
+
+
+@pytest.mark.usefixtures("open_workflow")
+def test_random_text_leaves_a_connected_input_to_the_node_run_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_secrets(monkeypatch, {})
+    node = _create_connected_random_text()
+    node.parameter_values["selection_type"] = "sentence"
+
+    assert node.validate_before_workflow_run() is None
+    _assert_names_both_credentials(node.validate_before_node_run())
+
+
+@pytest.mark.usefixtures("open_workflow")
+def test_random_text_does_not_generate_when_a_connected_input_arrives(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_secrets(monkeypatch, {})
+    node = _create_connected_random_text()
+    node.set_parameter_value("selection_type", "sentence")
+
+    node.set_parameter_value("input_text", "")
+
+    _assert_names_both_credentials(node.validate_before_node_run())

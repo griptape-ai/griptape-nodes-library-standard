@@ -7,6 +7,10 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.retained_mode.events.execution_events import ResolveNodeRequest
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -282,12 +286,31 @@ class RandomText(DataNode):
 
     def _generates_with_model(self) -> bool:
         """Whether the run writes a sentence or paragraph with the model instead of picking one."""
-        input_text = self.parameter_values.get("input_text", "")
+        # A connected input_text is None until its upstream node sets a value
+        input_text = self.parameter_values.get("input_text") or ""
         selection_type = self.parameter_values.get("selection_type", "word")
         return selection_type in ["sentence", "paragraph"] and not self._split_input(input_text, selection_type)
 
+    def _input_text_is_connected(self) -> bool:
+        result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(parameter_name="input_text", node_name=self.name, broadcast_result=False)
+        )
+        return isinstance(result, GetConnectionsForParameterResultSuccess) and result.has_incoming_connections()
+
+    def validate_before_workflow_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_workflow_run()
+        # A connected input_text has no value until its upstream node runs, so
+        # validate_before_node_run checks it instead
+        if self._input_text_is_connected():
+            return exceptions
+        return self._with_credential_check(exceptions)
+
     def validate_before_node_run(self) -> list[Exception] | None:
-        exceptions = list(super().validate_before_node_run() or [])
+        return self._with_credential_check(super().validate_before_node_run())
+
+    def _with_credential_check(self, exceptions: list[Exception] | None) -> list[Exception] | None:
+        """Add a missing Griptape Cloud credential to `exceptions` when the run would call the model."""
+        exceptions = list(exceptions or [])
         if self._generates_with_model() and not resolve_cloud_api_key():
             exceptions.append(
                 missing_credential_error(f"generate a random {self.parameter_values.get('selection_type')}")
@@ -305,7 +328,8 @@ class RandomText(DataNode):
         # Handle seed parameter component
         self._seed_parameter.after_value_set(parameter, value)
 
-        if parameter.name != "output":
+        # A connected input_text is only known once the run reaches this node, so process() picks then
+        if parameter.name != "output" and not self._input_text_is_connected():
             # Only trigger node execution if we need to generate content with the agent
             if self._generates_with_model() and parameter.name in ["selection_type", "seed", "randomize_seed"]:
                 # Trigger node execution
