@@ -212,10 +212,10 @@ class ListToDictKeys(SuccessFailureNode):
             logger.debug(f"{self.name}: No values provided or values is not a list")
 
         # Generate fresh key-value pairs from the validated key list with provided values
-        key_value_pairs = self._generate_key_value_pairs(key_list, provided_values)
+        key_value_pairs, provided_keys = self._generate_key_value_pairs(key_list, provided_values)
 
         # Preserve user values ONLY for keys that exist in the new key list and don't have provided values
-        key_value_pairs = self._preserve_user_values_for_new_keys(key_value_pairs, provided_values)
+        key_value_pairs = self._preserve_user_values_for_new_keys(key_value_pairs, provided_keys)
 
         # Only delete excess parameters if explicitly requested (e.g., during process())
         if delete_excess_parameters:
@@ -254,8 +254,11 @@ class ListToDictKeys(SuccessFailureNode):
 
     def _generate_key_value_pairs(
         self, key_list: list, provided_values: dict[int, str] | None = None
-    ) -> dict[str, str]:
-        """Generate key-value pairs from the key list with optional provided values."""
+    ) -> tuple[dict[str, str], set[str]]:
+        """Generate key-value pairs from the key list with optional provided values.
+
+        Returns the key-value pairs and the names of the keys that received a provided value.
+        """
         logger.debug(f"{self.name}: Processing {len(key_list)} keys: {key_list}")
 
         # Get the maintain_duplicates setting
@@ -269,9 +272,10 @@ class ListToDictKeys(SuccessFailureNode):
 
     def _generate_with_duplicates(
         self, key_list: list, provided_values: dict[int, str] | None = None
-    ) -> dict[str, str]:
+    ) -> tuple[dict[str, str], set[str]]:
         """Generate key-value pairs with duplicate numbering."""
         key_value_dict = {}
+        provided_keys = set()
         key_counts = {}
 
         for i, key in enumerate(key_list):
@@ -293,17 +297,22 @@ class ListToDictKeys(SuccessFailureNode):
             # Use provided value by index position if available, otherwise use empty string
             if provided_values and i in provided_values:
                 key_value_dict[unique_key] = provided_values[i]
+                provided_keys.add(unique_key)
             else:
                 key_value_dict[unique_key] = ""
 
         logger.debug(f"{self.name}: Generated {len(key_value_dict)} key-value pairs with duplicates")
-        return key_value_dict
+        return key_value_dict, provided_keys
 
     def _generate_without_duplicates(
         self, key_list: list, provided_values: dict[int, str] | None = None
-    ) -> dict[str, str]:
-        """Generate key-value pairs without duplicates (merge mode)."""
+    ) -> tuple[dict[str, str], set[str]]:
+        """Generate key-value pairs without duplicates (merge mode).
+
+        A repeated key keeps the last value provided for any of its occurrences.
+        """
         key_value_dict = {}
+        provided_keys = set()
 
         for i, key in enumerate(key_list):
             key_str = str(key).strip()
@@ -313,14 +322,15 @@ class ListToDictKeys(SuccessFailureNode):
             # Use provided value by index position if available, otherwise use empty string
             if provided_values and i in provided_values:
                 key_value_dict[key_str] = provided_values[i]
+                provided_keys.add(key_str)
             else:
-                key_value_dict[key_str] = ""
+                key_value_dict.setdefault(key_str, "")
 
         logger.debug(f"{self.name}: Generated {len(key_value_dict)} key-value pairs without duplicates")
-        return key_value_dict
+        return key_value_dict, provided_keys
 
     def _preserve_user_values_for_new_keys(
-        self, key_value_dict: dict[str, str], provided_values: dict[int, str]
+        self, key_value_dict: dict[str, str], provided_keys: set[str]
     ) -> dict[str, str]:
         """Preserve user values only for keys that exist in the new key list and don't have provided values."""
         # FAILURE CASES FIRST
@@ -336,9 +346,9 @@ class ListToDictKeys(SuccessFailureNode):
 
         # SUCCESS PATH AT END - Only preserve values for keys that exist in the new key list and don't have provided values
         preserved_count = 0
-        for i, (key_name, current_value) in enumerate(key_value_dict.items()):
+        for key_name, current_value in key_value_dict.items():
             # Skip if this key has a provided value (provided values take precedence)
-            if i in provided_values:
+            if key_name in provided_keys:
                 logger.debug(f"{self.name}: Skipping preservation for '{key_name}' - has provided value")
                 continue
 
