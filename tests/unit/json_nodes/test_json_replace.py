@@ -55,3 +55,29 @@ def test_unparseable_edit_clears_previous_output() -> None:
     node.set_parameter_value("json", '{"a": 1')
 
     assert node.get_parameter_value("output") is None
+
+
+def test_final_list_index_is_replaced() -> None:
+    assert _run({"items": ["a", "b"]}, "items[0]", "X") == {"items": ["X", "b"]}
+
+
+def test_list_index_past_end_pads_and_sets() -> None:
+    assert _run({"items": [{"title": "Book"}]}, "items[2].title", "X") == {
+        "items": [{"title": "Book"}, None, {"title": "X"}]
+    }
+
+
+def test_path_into_scalar_raises_on_process() -> None:
+    with pytest.raises(ValueError, match="Cannot follow path 'a.b'"):
+        _run({"a": 1}, "a.b", "X")
+
+
+def test_path_into_scalar_clears_output_while_editing() -> None:
+    node = JsonReplace("json_replace")
+    node.set_parameter_value("json", {"a": 1})
+    node.set_parameter_value("path", "a")
+    assert node.get_parameter_value("output") == {"a": ""}
+
+    node.set_parameter_value("path", "a.b")
+
+    assert node.get_parameter_value("output") is None
