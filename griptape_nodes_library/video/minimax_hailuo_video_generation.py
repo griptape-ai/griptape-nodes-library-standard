@@ -276,6 +276,25 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
             else:
                 self.hide_parameter_by_name("fast_pretreatment")
 
+            self._reset_unsupported_resolution(capabilities)
+
+    def _reset_unsupported_resolution(self, capabilities: dict[str, Any]) -> None:
+        """Select the model's default resolution when the current one isn't offered for this duration.
+
+        The dropdowns keep every choice, so a duration or resolution the model doesn't offer stays
+        as set and is reported by validate_before_node_run instead of being swapped silently. For a
+        duration the model doesn't offer, the resolution follows the model's first duration, the one
+        the user will have to pick.
+        """
+        duration = self.get_parameter_value("duration")
+        durations = capabilities.get("durations", [])
+        duration_key = str(duration if duration in durations or not durations else durations[0])
+        resolutions = capabilities.get("resolutions", {}).get(duration_key)
+        if not resolutions or self.get_parameter_value("resolution") in resolutions:
+            return
+        default = capabilities.get("default_resolution", {}).get(duration_key, resolutions[0])
+        self.set_parameter_value("resolution", default)
+
     async def _process_generation(self) -> None:
         await super()._process_generation()
 
@@ -296,27 +315,55 @@ class MinimaxHailuoVideoGeneration(GriptapeProxyNode):
     def _get_api_model_id(self) -> str:
         return self.get_parameter_value("model_id") or "MiniMax-Hailuo-2.3"
 
-    async def _build_payload(self) -> dict[str, Any]:  # noqa: C901
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_node_run() or []
+        exceptions.extend(self._input_errors(self._get_parameters()))
+        return exceptions or None
+
+    def _input_errors(self, params: dict[str, Any]) -> list[ValueError]:
+        """Check the inputs against what the selected model offers."""
+        errors: list[ValueError] = []
+
+        if not params["prompt"].strip():
+            errors.append(ValueError("'prompt' is empty. Describe the video you want."))
+
+        if params["model_id"] == "MiniMax-Hailuo-2.3-Fast" and not params["first_frame_image"]:
+            errors.append(
+                ValueError("Hailuo 2.3 Fast only makes video from an image. Connect one to 'First Frame Image'.")
+            )
+
+        capabilities = self.MODEL_CAPABILITIES.get(params["model_id"], {})
+        valid_durations = capabilities.get("durations", [])
+        duration = params["duration"]
+        if duration is not None and valid_durations and duration not in valid_durations:
+            errors.append(
+                ValueError(
+                    f"Model {params['model_id']} does not support a duration of {duration}s. "
+                    f"Valid durations: {', '.join(f'{d}s' for d in valid_durations)}."
+                )
+            )
+            return errors
+
+        valid_resolutions = capabilities.get("resolutions", {}).get(str(duration), [])
+        if valid_resolutions and params["resolution"] not in valid_resolutions:
+            errors.append(
+                ValueError(
+                    f"Model {params['model_id']} does not support the combination of "
+                    f"duration {duration}s and resolution {params['resolution']}. "
+                    f"Valid resolutions for {duration}s: {', '.join(valid_resolutions)}."
+                )
+            )
+
+        return errors
+
+    async def _build_payload(self) -> dict[str, Any]:
         """Build the request payload for MiniMax Hailuo API."""
         params = self._get_parameters()
 
-        if not params["prompt"].strip():
-            msg = "'prompt' is empty. Describe the video you want."
-            raise ValueError(msg)
-
-        if params["model_id"] == "MiniMax-Hailuo-2.3-Fast" and not params["first_frame_image"]:
-            msg = "Hailuo 2.3 Fast only makes video from an image. Connect one to 'First Frame Image'."
-            raise ValueError(msg)
-
-        capabilities = self.MODEL_CAPABILITIES.get(params["model_id"], {})
-        valid_resolutions = capabilities.get("resolutions", {}).get(str(params["duration"]), [])
-        if valid_resolutions and params["resolution"] not in valid_resolutions:
-            msg = (
-                f"Model {params['model_id']} does not support the combination of "
-                f"duration {params['duration']}s and resolution {params['resolution']}. "
-                f"Valid resolutions for {params['duration']}s: {', '.join(valid_resolutions)}."
-            )
-            raise ValueError(msg)
+        # Execution paths that skip validate_before_node_run still must not send a request MiniMax rejects.
+        errors = self._input_errors(params)
+        if errors:
+            raise errors[0]
 
         model_id = params["model_id"]
         payload: dict[str, Any] = {
