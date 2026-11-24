@@ -7,7 +7,7 @@ when_to_use: Use it when you need to know how long a clip is or how it was encod
 
 Connect audio to read its properties. The values update as soon as audio is set. You can feed them to other nodes, for example to check a clip's length.
 
-The node needs `ffprobe`, which comes with FFmpeg. If it can't be found or can't read the audio, every output falls back to its default (0, or `UNKNOWN` for text) and the node reports no error. Check the engine log for the reason.
+If the audio can't be read, the node fails with the reason when it runs.
 
 ## Parameters
 
