@@ -30,6 +30,10 @@ from griptape_nodes.retained_mode.events.node_events import (
     GetNodeMetadataResultSuccess,
     SetNodeMetadataRequest,
 )
+from griptape_nodes.retained_mode.events.parameter_events import (
+    SetParameterValueRequest,
+    SetParameterValueResultSuccess,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
@@ -39,6 +43,7 @@ from griptape_nodes_library.classification.jev_common import (
     add_model_group,
     build_batch_payload,
     build_state_and_assets,
+    question_key,
 )
 from griptape_nodes_library.classification.jev_questions import QUESTION_TYPE, read_answer
 from griptape_nodes_library.proxy import GriptapeProxyNode
@@ -50,6 +55,8 @@ __all__ = ["JevAsk"]
 
 # Pixels of clear space between a new question node and its neighbours.
 QUESTION_NODE_GAP = 40
+# What a question node's Name starts as when a button adds it, followed by a number: yes_no_1, yes_no_2.
+QUESTION_KEY_BASES = {"JevYesNoQuestion": "yes_no", "JevPickOneQuestion": "pick_one", "JevRateQuestion": "rate"}
 
 
 class JevAsk(GriptapeProxyNode):
@@ -169,6 +176,20 @@ class JevAsk(GriptapeProxyNode):
             )
 
         self._place_question_node(created.node_name, existing)
+        # A Name left empty falls back to the node's name, so renaming the node would change its key in
+        # 'answers' and break whatever reads it. A button-added node gets a Name of its own.
+        key = self._unused_question_key(QUESTION_KEY_BASES[node_type], existing)
+        named = GriptapeNodes.handle_request(
+            SetParameterValueRequest(node_name=created.node_name, parameter_name="key", value=key)
+        )
+        if not isinstance(named, SetParameterValueResultSuccess):
+            GriptapeNodes.handle_request(DeleteNodeRequest(node_name=created.node_name))
+            return NodeMessageResult(
+                success=False,
+                details=f"Couldn't name the question node: {named.result_details}",
+                response=button_details,
+            )
+
         row = questions.add_child_parameter()
         connected = GriptapeNodes.handle_request(
             CreateConnectionRequest(
@@ -180,6 +201,7 @@ class JevAsk(GriptapeProxyNode):
         )
         if not isinstance(connected, CreateConnectionResultSuccess):
             GriptapeNodes.handle_request(DeleteNodeRequest(node_name=created.node_name))
+            questions.remove_child(row)
             return NodeMessageResult(
                 success=False,
                 details=f"Couldn't connect the question node: {connected.result_details}",
@@ -192,6 +214,15 @@ class JevAsk(GriptapeProxyNode):
             response=button_details,
             altered_workflow_state=True,
         )
+
+    @staticmethod
+    def _unused_question_key(base: str, existing: list[str]) -> str:
+        """The first of base_1, base_2, ... that no connected question node already answers under."""
+        used = {question_key(GriptapeNodes.NodeManager().get_node_by_name(name)) for name in existing}
+        number = 1
+        while f"{base}_{number}" in used:
+            number += 1
+        return f"{base}_{number}"
 
     @staticmethod
     def _node_box(node_name: str) -> tuple[float, float, float, float] | None:

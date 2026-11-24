@@ -23,7 +23,7 @@ from griptape_nodes_library.classification.jev_common import (
     build_payload,
     build_state_and_assets,
 )
-from griptape_nodes_library.classification.jev_questions import yes_no_question
+from griptape_nodes_library.classification.jev_questions import read_yes_no, yes_no_question
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
 
@@ -164,8 +164,8 @@ class JevAskYesNo(GriptapeProxyNode):
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
-        noul_value = answer_data.get("noul")
-        if noul_value is None:
+        details = read_yes_no(answer_data, self.get_parameter_value("threshold"))
+        if details is None:
             self._set_safe_defaults()
             raise NodeError(
                 "JEV's response didn't include an answer. Run the node again.",
@@ -173,12 +173,8 @@ class JevAskYesNo(GriptapeProxyNode):
                 response=error_response(result_json),
             )
 
-        probability = float(noul_value)
-        threshold = self.get_parameter_value("threshold")
-        if threshold is None:
-            threshold = 0.5
-        self.parameter_output_values["probability"] = probability
-        self.parameter_output_values["answer"] = probability >= threshold
+        self.parameter_output_values["probability"] = details["probability"]
+        self.parameter_output_values["answer"] = details["answer"]
         self._set_status_results(was_successful=True, result_details="JEV answered.")
 
     def _set_safe_defaults(self) -> None:

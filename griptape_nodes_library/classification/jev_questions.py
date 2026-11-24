@@ -1,24 +1,35 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from griptape_nodes_library.classification.row_outputs import parse_row
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 __all__ = [
+    "DEFAULT_THRESHOLD",
     "MAX_LEVELS",
     "QUESTION_TYPE",
     "QuestionKind",
     "choice_question",
+    "level_description",
+    "level_label",
     "make_spec",
     "parse_levels",
     "parse_options",
     "read_answer",
+    "read_choice",
+    "read_score",
+    "read_yes_no",
     "score_question",
     "yes_no_question",
 ]
 
 MAX_LEVELS = 10
+# The probability at or above which a yes/no question answers Yes, when no threshold is set.
+DEFAULT_THRESHOLD = 0.5
 # The wire type the question builder nodes output and the Questions node accepts.
 QUESTION_TYPE = "JevQuestion"
 
@@ -82,12 +93,21 @@ def parse_options(rows: list[str]) -> dict[str, str | None]:
     return criteria
 
 
+def level_label(index: int, text: str) -> str:
+    """The label of a rating level: the text before the colon, or 'Level N' (from 1) for a level with none."""
+    label, description = parse_row(text)
+    return label if description else f"Level {index + 1}"
+
+
+def level_description(text: str) -> str:
+    """The description of a rating level: the text after the colon, or the whole row if there is no label."""
+    return parse_row(text)[1] or text
+
+
 def parse_levels(rows: list[str]) -> tuple[list[str], list[str]]:
-    """Turn level rows into (descriptions, labels). A row with no label is named 'Level N'."""
+    """Turn level rows into (descriptions, labels), skipping empty rows."""
     rows = [row for row in rows if (row or "").strip()]
-    descriptions = [parse_row(row)[1] or row for row in rows]
-    labels = [parse_row(row)[0] if parse_row(row)[1] else f"Level {index + 1}" for index, row in enumerate(rows)]
-    return descriptions, labels
+    return [level_description(row) for row in rows], [level_label(index, row) for index, row in enumerate(rows)]
 
 
 def make_spec(kind: QuestionKind, key: str, question: dict[str, Any], **extra: Any) -> dict[str, Any]:
@@ -95,41 +115,73 @@ def make_spec(kind: QuestionKind, key: str, question: dict[str, Any], **extra: A
     return {"key": key, "kind": str(kind), "question": question, **extra}
 
 
+def read_yes_no(answer_data: dict[str, Any], threshold: float | None) -> dict[str, Any] | None:
+    """Read JEV's answer to a yes/no question, or None if JEV left it out. No threshold means the default."""
+    raw = answer_data.get("noul")
+    if raw is None:
+        return None
+    probability = float(raw)
+    limit = DEFAULT_THRESHOLD if threshold is None else threshold
+    return {"answer": probability >= limit, "probability": probability}
+
+
+def read_choice(
+    answer_data: dict[str, Any], descriptions: Callable[[], dict[str, str | None]]
+) -> dict[str, Any] | None:
+    """Read JEV's answer to a pick-one question, or None if JEV left it out.
+
+    `descriptions` maps each label to its description. It is a function so it is only called once JEV has
+    picked something, as the single-question node reads its options only then.
+    """
+    picked = answer_data.get("choice")
+    if picked is None:
+        return None
+    return {
+        "label": picked,
+        "description": descriptions().get(picked) or "",
+        "confidence": float(answer_data.get("confidence", 0.0)),
+        "probabilities": dict(answer_data.get("probabilities") or {}),
+    }
+
+
+def read_score(answer_data: dict[str, Any], labels: list[str], descriptions: list[str]) -> dict[str, Any] | None:
+    """Read JEV's answer to a rating question, or None if JEV left it out.
+
+    JEV numbers levels from 0 and the score is a weighted average, so it is rounded half-up to the nearest
+    level. Levels are shown from 1, so the score, the level and the probability keys all shift by one.
+    """
+    raw = answer_data.get("score")
+    if raw is None:
+        return None
+    score = float(raw)
+    index = min(int(score + 0.5), len(labels) - 1)
+    probabilities = answer_data.get("probabilities") or {}
+    return {
+        "level": index + 1,
+        "score": score + 1,
+        "label": labels[index],
+        "description": descriptions[index],
+        "confidence": float(answer_data.get("confidence", 0.0)),
+        "probabilities": {str(int(key) + 1): value for key, value in probabilities.items()},
+    }
+
+
 def read_answer(spec: dict[str, Any], answer_data: dict[str, Any]) -> tuple[Any, dict[str, Any]] | None:
     """Read JEV's answer to one question as (simple value, details), or None if JEV left it out.
 
-    The simple value is a bool for yes/no and the label for pick one and rating.
+    The simple value is a bool for yes/no and the label for pick one and rating. The details are what the
+    single-question nodes put on their outputs, read by the same functions.
     """
-    confidence = float(answer_data.get("confidence", 0.0))
-    probabilities = dict(answer_data.get("probabilities") or {})
     match spec["kind"]:
         case QuestionKind.YES_NO:
-            raw = answer_data.get("noul")
-            if raw is None:
-                return None
-            probability = float(raw)
-            answer = probability >= spec["threshold"]
-            return answer, {"answer": answer, "probability": probability}
+            details = read_yes_no(answer_data, spec["threshold"])
+            return None if details is None else (details["answer"], details)
         case QuestionKind.CHOICE:
-            picked = answer_data.get("choice")
-            if picked is None:
-                return None
-            return picked, {"label": picked, "confidence": confidence, "probabilities": probabilities}
+            details = read_choice(answer_data, lambda: spec["descriptions"])
+            return None if details is None else (details["label"], details)
         case QuestionKind.SCORE:
-            raw = answer_data.get("score")
-            if raw is None:
-                return None
-            labels = spec["labels"]
-            # Round half-up; JEV numbers from 0, display from 1.
-            index = min(int(float(raw) + 0.5), len(labels) - 1)
-            details = {
-                "level": index + 1,
-                "score": float(raw) + 1,
-                "label": labels[index],
-                "confidence": confidence,
-                "probabilities": {str(int(k) + 1): v for k, v in probabilities.items()},
-            }
-            return labels[index], details
+            details = read_score(answer_data, spec["labels"], spec["descriptions"])
+            return None if details is None else (details["label"], details)
         case _:
             msg = f"Unknown question kind: {spec['kind']!r}"
             raise ValueError(msg)

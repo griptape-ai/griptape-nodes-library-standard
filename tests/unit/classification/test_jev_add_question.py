@@ -6,22 +6,32 @@ from collections.abc import Generator
 from typing import Any, cast
 
 import pytest
+from griptape_nodes.exe_types.core_types import ParameterList
 from griptape_nodes.exe_types.node_types import NODE_DEFAULT_SIZE
 from griptape_nodes.retained_mode.events.connection_events import (
+    CreateConnectionRequest,
+    CreateConnectionResultFailure,
     ListConnectionsForNodeRequest,
     ListConnectionsForNodeResultSuccess,
 )
-from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest, CreateFlowResultSuccess
+from griptape_nodes.retained_mode.events.flow_events import (
+    CreateFlowRequest,
+    CreateFlowResultSuccess,
+    ListNodesInFlowRequest,
+    ListNodesInFlowResultSuccess,
+)
 from griptape_nodes.retained_mode.events.node_events import (
     CreateNodeRequest,
     CreateNodeResultSuccess,
     SetNodeMetadataRequest,
     SetNodeMetadataResultSuccess,
 )
+from griptape_nodes.retained_mode.events.object_events import RenameObjectRequest, RenameObjectResultSuccess
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import ButtonDetailsMessagePayload
 
 from griptape_nodes_library.classification.jev_ask import QUESTION_NODE_GAP, JevAsk
+from griptape_nodes_library.classification.jev_common import question_key
 
 CANVAS = "jev_add_question_canvas"
 
@@ -44,6 +54,12 @@ def _create(node_type: str, flow: str, position: dict[str, float] | None = None)
     )
     assert isinstance(result, CreateNodeResultSuccess), result.result_details
     return GriptapeNodes.NodeManager().get_node_by_name(result.node_name)
+
+
+def _node_names(flow: str) -> set[str]:
+    result = GriptapeNodes.handle_request(ListNodesInFlowRequest(flow_name=flow))
+    assert isinstance(result, ListNodesInFlowResultSuccess)
+    return set(result.node_names)
 
 
 def _details() -> ButtonDetailsMessagePayload:
@@ -99,3 +115,52 @@ def test_new_questions_stack_below_the_measured_height_of_the_ones_already_conne
     assert len({row for _, row in incoming}) == 2
     second = GriptapeNodes.NodeManager().get_node_by_name(incoming[1][0])
     assert _box(second)[1] == 200 + 900 + QUESTION_NODE_GAP
+
+
+def test_a_button_added_node_gets_its_own_name_so_renaming_the_node_keeps_the_key(canvas: str) -> None:
+    ask = cast(JevAsk, _create("JevAsk", canvas))
+
+    for node_type in ("JevYesNoQuestion", "JevYesNoQuestion", "JevPickOneQuestion", "JevRateQuestion"):
+        assert ask._add_question(node_type, _details()).success
+
+    nodes = [GriptapeNodes.NodeManager().get_node_by_name(source) for source, _ in _incoming(ask)]
+    assert [question_key(node) for node in nodes] == ["yes_no_1", "yes_no_2", "pick_one_1", "rate_1"]
+
+    renamed = GriptapeNodes.handle_request(RenameObjectRequest(object_name=nodes[0].name, requested_name="tidy"))
+    assert isinstance(renamed, RenameObjectResultSuccess), renamed.result_details
+    assert question_key(nodes[0]) == "yes_no_1"
+
+
+def test_a_name_that_is_in_use_is_skipped(canvas: str) -> None:
+    ask = cast(JevAsk, _create("JevAsk", canvas))
+    assert ask._add_question("JevYesNoQuestion", _details()).success
+    ((source, _),) = _incoming(ask)
+    first = GriptapeNodes.NodeManager().get_node_by_name(source)
+    first.set_parameter_value("key", "yes_no_2")
+
+    assert ask._add_question("JevYesNoQuestion", _details()).success
+
+    keys = [question_key(GriptapeNodes.NodeManager().get_node_by_name(node)) for node, _ in _incoming(ask)]
+    assert sorted(keys) == ["yes_no_1", "yes_no_2"]
+
+
+def test_a_failed_connection_leaves_no_node_and_no_empty_row(canvas: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    ask = cast(JevAsk, _create("JevAsk", canvas))
+    questions = ask.get_parameter_by_name("questions")
+    assert isinstance(questions, ParameterList)
+    nodes_before = _node_names(canvas)
+    original = GriptapeNodes.handle_request
+
+    def refuse_connections(request: Any, **kwargs: Any) -> Any:
+        if isinstance(request, CreateConnectionRequest):
+            return CreateConnectionResultFailure(result_details="refused")
+        return original(request, **kwargs)
+
+    monkeypatch.setattr(GriptapeNodes, "handle_request", staticmethod(refuse_connections))
+
+    result = ask._add_question("JevYesNoQuestion", _details())
+
+    assert not result.success
+    assert "refused" in result.details
+    assert questions.get_child_parameters() == []
+    assert _node_names(canvas) == nodes_before

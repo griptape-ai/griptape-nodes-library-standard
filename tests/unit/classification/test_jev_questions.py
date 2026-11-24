@@ -2,13 +2,18 @@ import pytest
 
 from griptape_nodes_library.classification.jev_common import QUESTION_KEY, build_batch_payload, build_payload
 from griptape_nodes_library.classification.jev_questions import (
+    DEFAULT_THRESHOLD,
     MAX_LEVELS,
     QuestionKind,
     choice_question,
+    level_description,
+    level_label,
     make_spec,
     parse_levels,
     parse_options,
     read_answer,
+    read_choice,
+    read_yes_no,
     score_question,
     yes_no_question,
 )
@@ -132,22 +137,33 @@ def test_read_yes_no_applies_the_threshold() -> None:
 
 
 def test_read_choice_returns_the_label() -> None:
-    spec = make_spec(QuestionKind.CHOICE, "dept", {})
+    spec = make_spec(QuestionKind.CHOICE, "dept", {}, descriptions={"Lighting": "rim and shadow", "Layout": None})
     answer = {"choice": "Lighting", "confidence": 0.9, "probabilities": {"Lighting": 0.9, "Layout": 0.1}}
     assert read_answer(spec, answer) == (
         "Lighting",
-        {"label": "Lighting", "confidence": 0.9, "probabilities": {"Lighting": 0.9, "Layout": 0.1}},
+        {
+            "label": "Lighting",
+            "description": "rim and shadow",
+            "confidence": 0.9,
+            "probabilities": {"Lighting": 0.9, "Layout": 0.1},
+        },
     )
+    layout = read_answer(spec, {"choice": "Layout"})
+    assert layout is not None
+    assert layout[1]["description"] == ""
 
 
 def test_read_score_rounds_half_up_and_numbers_levels_from_one() -> None:
-    spec = make_spec(QuestionKind.SCORE, "sharp", {}, labels=["Soft", "OK", "Sharp"])
+    spec = make_spec(
+        QuestionKind.SCORE, "sharp", {}, labels=["Soft", "OK", "Sharp"], descriptions=["blurry", "fine", "crisp"]
+    )
     answer = read_answer(spec, {"score": 1.5, "probabilities": {"0": 0.1, "1": 0.4, "2": 0.5}})
     assert answer is not None
     value, details = answer
     assert value == "Sharp"
     assert details["level"] == 3
     assert details["label"] == "Sharp"
+    assert details["description"] == "crisp"
     assert details["score"] == 2.5
     assert details["probabilities"] == {"1": 0.1, "2": 0.4, "3": 0.5}
     clamped = read_answer(spec, {"score": 9})
@@ -157,7 +173,33 @@ def test_read_score_rounds_half_up_and_numbers_levels_from_one() -> None:
 
 @pytest.mark.parametrize("kind", list(QuestionKind))
 def test_read_answer_is_none_when_jev_left_the_answer_out(kind: QuestionKind) -> None:
-    assert read_answer(make_spec(kind, "q", {}, threshold=0.5, labels=["a", "b"]), {}) is None
+    spec = make_spec(
+        kind, "q", {}, threshold=0.5, labels=["a", "b"], descriptions={} if kind == QuestionKind.CHOICE else []
+    )
+    assert read_answer(spec, {}) is None
+
+
+def test_read_yes_no_without_a_threshold_uses_the_default() -> None:
+    at_default = read_yes_no({"noul": DEFAULT_THRESHOLD}, None)
+    below_default = read_yes_no({"noul": DEFAULT_THRESHOLD - 0.01}, None)
+    assert at_default is not None
+    assert below_default is not None
+    assert at_default["answer"] is True
+    assert below_default["answer"] is False
+
+
+def test_read_choice_only_looks_up_descriptions_when_jev_picked_something() -> None:
+    def descriptions() -> dict[str, str | None]:
+        raise AssertionError("looked up descriptions with nothing picked")
+
+    assert read_choice({}, descriptions) is None
+
+
+def test_level_labels_and_descriptions() -> None:
+    assert level_label(1, "Minor: a workaround exists") == "Minor"
+    assert level_label(1, "a workaround exists") == "Level 2"
+    assert level_description("Minor: a workaround exists") == "a workaround exists"
+    assert level_description("a workaround exists") == "a workaround exists"
 
 
 def test_read_answer_rejects_an_unknown_kind() -> None:

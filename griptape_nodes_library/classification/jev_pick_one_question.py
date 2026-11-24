@@ -65,4 +65,6 @@ class JevPickOneQuestion(DataNode):
     def process(self) -> None:
         criteria = parse_options(self.get_parameter_value("options") or [])
         question = choice_question(self.get_parameter_value("question_text"), criteria)
-        self.parameter_output_values["question"] = make_spec(QuestionKind.CHOICE, question_key(self), question)
+        self.parameter_output_values["question"] = make_spec(
+            QuestionKind.CHOICE, question_key(self), question, descriptions=criteria
+        )

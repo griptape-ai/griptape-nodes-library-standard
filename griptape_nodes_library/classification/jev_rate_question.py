@@ -70,5 +70,5 @@ class JevRateQuestion(DataNode):
         descriptions, labels = parse_levels(self.get_parameter_value("levels") or [])
         question = score_question(self.get_parameter_value("question_text"), descriptions)
         self.parameter_output_values["question"] = make_spec(
-            QuestionKind.SCORE, question_key(self), question, labels=labels
+            QuestionKind.SCORE, question_key(self), question, labels=labels, descriptions=descriptions
         )
