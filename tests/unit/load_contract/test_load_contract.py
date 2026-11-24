@@ -245,7 +245,7 @@ class TestDescribeImage:
 
 
 class TestRowOutputs:
-    @pytest.mark.parametrize("node_type", ["JevPickOne", "JevRate"])
+    @pytest.mark.parametrize("node_type", ["JevPickOne", "JevRate", "Switch"])
     def test_loading_keeps_row_outputs_without_graph_requests(
         self, node_type: str, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -261,6 +261,55 @@ class TestRowOutputs:
 
         assert recorder.forbidden() == []
         assert [p.name for p in cast(RowOutputsMixin, copy)._row_output_params()] == outputs
+
+
+class TestSwitchValues:
+    def test_loading_keeps_the_data_rows_and_what_was_typed_in_them(
+        self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        node = cast(RowOutputsMixin, _create("Switch", canvas))
+        rows = node.get_parameter_by_name(node.ROWS_PARAM)
+        assert isinstance(rows, ParameterList)
+        for text in ("Lighting", "Layout"):
+            node.set_parameter_value(rows.add_child_parameter().name, text)
+        values = node.get_parameter_by_name("values")
+        assert isinstance(values, ParameterList)
+        for row, data in zip(values.get_child_parameters(), ("Sam", "Priya"), strict=True):
+            node.set_parameter_value(row.name, data)
+        expected = [
+            (row.name, row.display_name, node.get_parameter_value(row.name)) for row in values.get_child_parameters()
+        ]
+        assert len(expected) == 2
+
+        copy, recorder = load_copy(node.name, scratch, monkeypatch)
+
+        assert recorder.forbidden() == []
+        loaded = copy.get_parameter_by_name("values")
+        assert isinstance(loaded, ParameterList)
+        assert [
+            (row.name, row.display_name, copy.get_parameter_value(row.name)) for row in loaded.get_child_parameters()
+        ] == expected
+
+
+class TestSwitchBoolReload:
+    def test_reloading_a_bool_switch_does_not_add_cases_again(
+        self, canvas: str, scratch: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        source = _create("ToBool", canvas)
+        node = cast(RowOutputsMixin, _create("Switch", canvas))
+        _connect(source, "output", node, "value")
+        assert [label for _, label in node._rows()] == ["true", "false"]
+
+        loaded_source = _create("ToBool", scratch)
+
+        def restore_the_connection(copy_name: str) -> None:
+            copy = GriptapeNodes.NodeManager().get_node_by_name(copy_name)
+            _connect(loaded_source, "output", copy, "value", initial_setup=True)
+
+        copy, _ = load_copy(node.name, scratch, monkeypatch, before_values=restore_the_connection)
+
+        assert [label for _, label in cast(RowOutputsMixin, copy)._rows()] == ["true", "false"]
+        assert len(cast(RowOutputsMixin, copy)._row_output_params()) == 2
 
 
 class TestDisplayList:

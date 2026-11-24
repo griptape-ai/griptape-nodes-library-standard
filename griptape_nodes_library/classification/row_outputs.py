@@ -30,6 +30,8 @@ class RowOutputsMixin(BaseNode):
 
     ROWS_PARAM: ClassVar[str]
     OUTPUT_PREFIX: ClassVar[str]
+    # Outputs kept below the row outputs, in order.
+    TRAILING_OUTPUTS: ClassVar[tuple[str, ...]] = ("failure",)
     # Guards against re-entering the row sync from its own edits; nothing that runs the node reads it.
     attributes_outside_parameters = frozenset({"_syncing"})
     _syncing = False
@@ -68,11 +70,13 @@ class RowOutputsMixin(BaseNode):
             self._keep_failure_last()
 
     def _keep_failure_last(self) -> None:
-        # Row outputs are appended, including when a saved workflow loads, so move Failed back below them.
-        failure = self.get_parameter_by_name("failure")
-        if failure is not None and self.root_ui_element.children[-1] is not failure:
-            self.root_ui_element.remove_child(failure)
-            self.root_ui_element.add_child(failure)
+        # Row outputs are appended, including when a saved workflow loads, so move the trailing
+        # outputs (Failed, or Default) back below them.
+        for name in self.TRAILING_OUTPUTS:
+            trailing = self.get_parameter_by_name(name)
+            if trailing is not None and self.root_ui_element.children[-1] is not trailing:
+                self.root_ui_element.remove_child(trailing)
+                self.root_ui_element.add_child(trailing)
 
     def _row_output_params(self) -> list[Parameter]:
         return [p for p in self.parameters if p.name.startswith(self.OUTPUT_PREFIX)]
@@ -137,8 +141,28 @@ class RowOutputsMixin(BaseNode):
                         self.root_ui_element.add_child(param)
 
             self._keep_failure_last()
+            self._sync_row_companions()
         finally:
             self._syncing = False
+
+    def _sync_row_companions(self) -> None:
+        """Keep anything else that follows the rows in step with them. Runs inside the row sync."""
+
+    def _delete_input_connections(self, parameter_name: str) -> None:
+        """Delete the wires entering an input before removing it."""
+        result = self.engine.handle_request(ListConnectionsForNodeRequest(node_name=self.name, broadcast_result=False))
+        if not isinstance(result, ListConnectionsForNodeResultSuccess):
+            return
+        for connection in result.incoming_connections:
+            if connection.target_parameter_name == parameter_name:
+                self.engine.handle_request(
+                    DeleteConnectionRequest(
+                        source_node_name=connection.source_node_name,
+                        source_parameter_name=connection.source_parameter_name,
+                        target_node_name=self.name,
+                        target_parameter_name=parameter_name,
+                    )
+                )
 
     def _delete_output_connections(self, parameter_name: str) -> None:
         """Delete the wires leaving an output before removing it."""

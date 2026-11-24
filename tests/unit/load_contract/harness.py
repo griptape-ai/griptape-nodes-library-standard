@@ -8,7 +8,7 @@ contents and variables of its flow (strict-mode rule ``graph-access-while-loadin
 """
 
 import sys
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -147,9 +147,16 @@ def create_scratch_flow(flow_name: str) -> str:
 
 
 def load_copy(
-    source_node_name: str, flow_name: str, monkeypatch: pytest.MonkeyPatch
+    source_node_name: str,
+    flow_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    before_values: Callable[[str], None] | None = None,
 ) -> tuple[BaseNode, RequestRecorder]:
     """Serialize ``source_node_name`` and load it into ``flow_name`` as a saved workflow would.
+
+    ``before_values`` is called with the copy's name after its elements exist and before its values
+    are set, which is where a saved workflow restores connections.
 
     Returns the loaded copy and every request dispatched while it loaded.
     """
@@ -173,6 +180,8 @@ def load_copy(
                 element_command.node_name = copy_name
             result = GriptapeNodes.handle_request(element_command)
             assert result.succeeded(), result.result_details
+        if before_values is not None:
+            before_values(copy_name)
         for indirect in serialized.set_parameter_value_commands:
             set_request = indirect.set_parameter_value_command
             assert set_request.initial_setup
