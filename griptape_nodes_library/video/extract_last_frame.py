@@ -79,6 +79,8 @@ class ExtractLastFrame(BaseVideoProcessor):
 
     def process(self) -> AsyncResult[None]:
         """Extract the last frame from the input video and save as ImageUrlArtifact."""
+        self._clear_execution_status()
+
         # Get video input data from base class
         input_url, detected_format = self._get_video_input_data()
         self._log_format_detection(detected_format)
@@ -91,10 +93,15 @@ class ExtractLastFrame(BaseVideoProcessor):
             self.append_value_to_parameter("logs", "[Started extracting last frame..]\n")
             yield lambda: self._process_extract_frame(input_url)
             self.append_value_to_parameter("logs", "[Finished extracting last frame.]\n")
+            self._set_status_results(was_successful=True, result_details="Successfully extracted last frame from video")
 
         except Exception as e:
-            self.append_value_to_parameter("logs", f"ERROR: Error extracting last frame: {e!s}\n")
-            raise
+            error_message = str(e)
+            self.append_value_to_parameter("logs", f"ERROR: Error extracting last frame: {error_message}\n")
+            self._set_status_results(
+                was_successful=False, result_details=f"Last frame extraction failed: {error_message}"
+            )
+            self._handle_failure_exception(e)
 
     def _process_extract_frame(self, input_url: str) -> None:
         """Extract the last frame and save as ImageUrlArtifact."""
