@@ -144,3 +144,13 @@ def test_auto_output_format_falls_back_to_png_for_unwritable_formats(
     data = saved_bytes(node, monkeypatch, "GIF")
 
     assert Image.open(io.BytesIO(data)).format == "PNG"
+
+
+def test_non_normal_modes_cover_the_whole_base_when_centered(node: ImageBlendCompositor) -> None:
+    base = Image.new("RGB", (100, 100), BLACK)
+    layer = Image.new("RGB", (20, 20), WHITE)
+
+    result = node._process_images(base, layer, blend_mode=BlendMode.SCREEN, opacity=1.0)
+
+    assert result.convert("RGB").getpixel((0, 0)) == WHITE
+    assert result.convert("RGB").getpixel((99, 99)) == WHITE

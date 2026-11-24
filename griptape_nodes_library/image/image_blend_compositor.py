@@ -235,8 +235,9 @@ class ImageBlendCompositor(BaseImageProcessor):
             else:
                 blend_pil = inverted_rgb.convert("RGBA")
 
-        # Resize blend image if requested
-        if resize_blend_to_fit:
+        # Non-normal modes blend pixel by pixel against the whole base, so they need the blend at the
+        # base's size before the position is worked out
+        if resize_blend_to_fit or blend_mode != BlendMode.NORMAL:
             blend_pil = blend_pil.resize(image_pil.size, Image.Resampling.LANCZOS)
 
         # Calculate position (center blend image by default)
