@@ -16,7 +16,7 @@ You want text-to-image results from Wan, with up to 4K output on the Pro model. 
 
 ### size
 
-`1K` is 1024x1024, `2K` is 2048x2048 and `4K` is 4096x4096. `4K` is for the Pro model only. On the other model the provider may reject it.
+`1K` is 1024x1024, `2K` is 2048x2048 and `4K` is 4096x4096. `4K` is for the Pro model only.
 
 ### n
 

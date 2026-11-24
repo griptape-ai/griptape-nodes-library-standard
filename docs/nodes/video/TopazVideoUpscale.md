@@ -14,7 +14,7 @@ You want a bigger, cleaner version of an existing video. The Topaz models add ne
 - The video is uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run.
 - The source must be mp4, mov or mkv. Other types such as webm or avi are rejected. A file with no extension is treated as mp4.
 - The node stops before upload if the clip is too long. Starlight allows up to 9000 frames. Astra 2 allows 9000, or 450 (about 15 seconds at 30 fps) if you set a `prompt`. To shorten a clip first, use [Trim Video](TrimVideo.md) or [Split Video](SplitVideo.md).
-- Starlight output cannot exceed 8,294,400 pixels in total (the area of 3840 x 2160). The node stops with an error instead of submitting a larger size. In width and height mode a badge warns you as soon as the pair is too big. The other modes are checked when the node runs. Astra 2 has no limit in the node.
+- Starlight output can be at most 8,294,400 pixels in total (the area of 3840 x 2160). A larger size stops the run with an error. In width and height mode a badge warns you as soon as the pair is too big. Astra 2 has no size limit.
 
 ## Parameters
 

@@ -32,7 +32,7 @@ Images for `i2v`. One image sets the first frame. Two set the first and last fra
 
 ### start_video
 
-The clip to continue in `v2v`. It must be an MP4 of 15 seconds or less. If it is not, the node stops with a message before submitting.
+The clip to continue in `v2v`. It must be an MP4 of 15 seconds or less. If it is not, the run stops with a message.
 
 ### duration
 

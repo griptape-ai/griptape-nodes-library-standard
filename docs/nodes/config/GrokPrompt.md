@@ -44,7 +44,7 @@ On by default. Agents that use tools fail when this is off, because the node doe
 
 ### max_tokens
 
-The maximum tokens to generate. A value of 0 or less, the default of -1, leaves the limit to the provider.
+The maximum tokens to generate. A value of 0 or less, the default of -1, uses the model's own limit.
 
 ### prompt_model_config
 

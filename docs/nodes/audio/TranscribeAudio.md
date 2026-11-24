@@ -11,7 +11,7 @@ You have a recording, or a video with someone talking, and want the words as tex
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own OpenAI key (`OPENAI_API_KEY`) instead, set **API Key Provider** to **Customer**.
 - The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
-- Audio in mp3, mp4, mpeg, mpga, m4a, wav, webm or flac, up to 25 MB. A larger file fails at the provider.
+- Audio in mp3, mp4, mpeg, mpga, m4a, wav, webm or flac, up to 25 MB.
 - Or a video. Its first audio track is transcribed, up to about 1 hour 45 minutes of audio. A video with no audio track, or one that is too long, stops the node with a message.
 
 ## Example

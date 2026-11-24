@@ -11,7 +11,7 @@ You have a clip and want a changed version. Connect the clip to `video`, describ
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own xAI key (`GROK_API_KEY`) instead, set **API Key Provider** to **Customer**.
 - The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
-- The input must be an MP4 of 8.7 seconds or less. The node checks the file type and length before it submits, because xAI accepts a request that breaks these limits and then fails the job without a reason. The duration of a video passed as an inline data link is not checked here, so xAI enforces it.
+- The input must be an MP4 of 8.7 seconds or less. The run stops with a message if it isn't.
 
 ## Parameters
 

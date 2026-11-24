@@ -14,7 +14,7 @@ You want one node for Seedance 2.5: text-to-video, first and last frames, refere
 - Seedance does not accept video as base64. Local reference videos are uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run.
 - Human likeness or voice references must go through [Seedance Human Reference Asset](SeedanceHumanReferenceAsset.md). That needs a Griptape Nodes license or Griptape Cloud API key and does not work with your own key.
 - Each Draft and Final step is billed separately.
-- Reference limits: up to 30 images, 10 videos and 10 audio clips. The node enforces these counts. The provider limits videos and audio to 2 to 30 seconds each and 30 seconds in total.
+- Reference limits: up to 30 images, 10 videos and 10 audio clips. Each video and audio clip must be 2 to 30 seconds, and 30 seconds in total. The run stops with a message if you connect more than the counts.
 
 ## Tasks
 

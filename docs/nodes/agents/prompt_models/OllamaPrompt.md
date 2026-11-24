@@ -24,4 +24,4 @@ Lists the models installed on the server, sorted by name. The list is read when 
 Leave it on if the agent uses tools. Tool use through prompting is not supported, so an agent with tools fails when this is off.
 ### max_tokens
 
-Zero or less leaves the limit to the provider default.
+Zero or less uses the model's own limit.

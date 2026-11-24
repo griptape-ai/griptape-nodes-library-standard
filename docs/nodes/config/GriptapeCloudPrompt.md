@@ -45,7 +45,7 @@ On by default. Agents that use tools fail when this is off, because the node doe
 
 ### max_tokens
 
-The maximum tokens to generate. A value of 0 or less, the default of -1, leaves the limit to the provider. Some models have their own limit that replaces your value. Claude models use 64000.
+The maximum tokens to generate. A value of 0 or less, the default of -1, uses the model's own limit. Some models have their own limit that replaces your value. Claude models use 64000.
 
 ### prompt_model_config
 

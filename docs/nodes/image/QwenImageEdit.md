@@ -11,7 +11,7 @@ Connect up to six images and describe the change. When you use more than one, re
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
 - The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
-- One to six input images, sent to the service inline. The node checks only the count. The service expects JPG, PNG, BMP, TIFF or WEBP, 384 to 3072 pixels on each side and under 10 MB.
+- One to six input images, each JPG, PNG, BMP, TIFF or WEBP, 384 to 3072 pixels on each side and under 10 MB. The run stops with a message if you connect more than six.
 - Workflows saved with the older Qwen Image Edit models are migrated to `qwen-image-3.0`.
 
 ## Parameters

@@ -12,7 +12,7 @@ You have an SDR clip and want HDR frames for grading or compositing in a linear 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
 - The node waits for the result. `timeout` sets how long, 900 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - A local video is uploaded to Griptape Cloud as a short-lived public link, which is deleted after the run. A video that is already a public https link is sent as is. If the upload is not possible, the video is embedded in the request instead. That only works for files up to about 11 MB.
-- The input can be up to 4K. The node checks the frame limit before it submits.
+- The input can be up to 4K. A video over the frame limit stops the run with a message.
 
 | Input size | Maximum frames |
 | --- | --- |

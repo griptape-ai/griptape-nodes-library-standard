@@ -35,7 +35,7 @@ Optional images that connect as inputs. See **What it needs** for format limits.
 
 ### duration / resolution
 
-The dropdowns list every value, not only the ones your model supports. The node checks the pair before it submits and tells you which resolutions work for that duration. The default resolution is 768p, so switch to 720p or 1080p when you select Hailuo 2.3 Fast.
+The dropdowns list every value, not only the ones your model supports. If you pick a pair the model does not support, the node tells you which resolutions work for that duration. The default resolution is 768p, so switch to 720p or 1080p when you select Hailuo 2.3 Fast.
 
 ### prompt_optimizer
 

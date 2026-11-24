@@ -35,7 +35,7 @@ Connecting reference images forces `duration_seconds` to 8. A run with reference
 
 ### resolution
 
-1080p only supports 8 seconds. The node only logs a warning when you pick 1080p with another duration, and the provider decides the outcome.
+1080p only supports 8 seconds, so pick 8 seconds with it. The node only logs a warning if you pick another duration.
 
 ### person_generation
 

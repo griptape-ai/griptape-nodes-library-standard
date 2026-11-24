@@ -12,7 +12,7 @@ You have a clip in one shape and need another, such as 16:9 to 9:16 or square, w
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
 - The node waits for the result. `timeout` sets how long, 1200 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - A local file is uploaded to Griptape Cloud as a short-lived public link, which is deleted after the run. A public link to another website is sent as it is. If the upload is not possible, the video is embedded in the request instead. That only works for files up to about 11 MB.
-- The input can be up to 60 seconds and 1800 frames, with each side between 64 and 4096 pixels. The node checks this before it submits, when it can read the video.
+- The input can be up to 60 seconds and 1800 frames, with each side between 64 and 4096 pixels.
 - Billing is per second of input video, at the 720p or 1080p tier of the output.
 
 ## Parameters

@@ -37,7 +37,7 @@ Both are optional and connect as inputs only. A first frame starts the clip from
 
 ### duration
 
-Choose 4 to 12 seconds. The node does not check the value against the model, so a length the model does not support is rejected by the provider.
+Choose 4 to 12 seconds.
 
 ### camerafixed
 
