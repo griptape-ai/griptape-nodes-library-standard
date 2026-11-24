@@ -6,7 +6,7 @@ import pytest
 
 from griptape_nodes_library.json.json_extract_value import JsonExtractValue
 from griptape_nodes_library.json.json_find import JsonFind
-from griptape_nodes_library.json.json_utils import parse_json_input
+from griptape_nodes_library.json.json_utils import parse_json_input, parse_or_repair_json, to_json_value
 
 
 def test_parses_json_string() -> None:
@@ -44,3 +44,32 @@ def test_find_raises_on_invalid_string_with_node_name() -> None:
 
     with pytest.raises(ValueError, match="finder: Invalid JSON string"):
         node.process()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"a": 1}', {"a": 1}),
+        ("[3,1,2,", [3, 1, 2]),
+        ('""', ""),
+        ("null", None),
+        ("  ", None),
+    ],
+)
+def test_parse_or_repair_json_returns_objects(text: str, expected: object) -> None:
+    assert parse_or_repair_json("node", text) == expected
+
+
+@pytest.mark.parametrize("text", ["hello world", "abc"])
+def test_parse_or_repair_json_raises_on_text_that_is_not_json(text: str) -> None:
+    with pytest.raises(ValueError, match="node: Could not read the input as JSON"):
+        parse_or_repair_json("node", text)
+
+
+@pytest.mark.parametrize("value", [{"a": None}, [1, None], 3, 2.5, True, None])
+def test_to_json_value_passes_json_values_through(value: object) -> None:
+    assert to_json_value("node", value) is value
+
+
+def test_to_json_value_parses_text() -> None:
+    assert to_json_value("node", "[1, 2,") == [1, 2]
