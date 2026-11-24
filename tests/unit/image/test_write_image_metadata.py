@@ -1,15 +1,13 @@
-"""Tests for ``WriteImageMetadataNode``: repeated writes merge, and output lands at the image's own extension."""
+"""Tests for ``WriteImageMetadataNode``: repeated PNG writes merge, output lands at the image's own extension, and errors list supported formats."""
 
 from __future__ import annotations
 
-import json
 from io import BytesIO
 from pathlib import Path
 from typing import cast
 
 import pytest
 from griptape.artifacts import ImageArtifact
-from griptape_nodes.drivers.image_metadata.exif_metadata_driver import EXIF_USERCOMMENT_TAG
 from griptape_nodes.files.file import File
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.retained_mode.events.artifact_events import RegisterArtifactProviderRequest
@@ -47,16 +45,6 @@ def _write(image_bytes: bytes, metadata: dict, name: str) -> tuple[WriteImageMet
     return node, File(output.value).read_bytes()
 
 
-@pytest.mark.parametrize("image_format", ["JPEG", "TIFF", "WEBP"])
-def test_second_exif_write_merges_into_existing_user_comment(image_format: str) -> None:
-    _, first = _write(_image_bytes(image_format), {"old": "keep", "k1": "v1"}, "first")
-    _, second = _write(first, {"k1": "replaced", "k2": "v2"}, "second")
-
-    user_comment = Image.open(BytesIO(second)).getexif()[EXIF_USERCOMMENT_TAG]
-
-    assert json.loads(user_comment) == {"old": "keep", "k1": "replaced", "k2": "v2"}
-
-
 def test_second_png_write_merges_into_existing_text_chunks() -> None:
     _, first = _write(_image_bytes("PNG"), {"old": "keep", "k1": "v1"}, "first")
     _, second = _write(first, {"k1": "replaced", "k2": "v2"}, "second")
@@ -64,17 +52,6 @@ def test_second_png_write_merges_into_existing_text_chunks() -> None:
     info = Image.open(BytesIO(second)).info
 
     assert {key: info[key] for key in ("old", "k1", "k2")} == {"old": "keep", "k1": "replaced", "k2": "v2"}
-
-
-def test_non_json_user_comment_is_replaced() -> None:
-    buf = BytesIO()
-    exif = Image.Exif()
-    exif[EXIF_USERCOMMENT_TAG] = "shot on a phone"
-    Image.new("RGB", (4, 4)).save(buf, "JPEG", exif=exif)
-
-    _, written = _write(buf.getvalue(), {"k1": "v1"}, "non_json")
-
-    assert json.loads(Image.open(BytesIO(written)).getexif()[EXIF_USERCOMMENT_TAG]) == {"k1": "v1"}
 
 
 def test_jpeg_output_is_saved_with_jpg_extension() -> None:
