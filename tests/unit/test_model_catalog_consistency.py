@@ -242,7 +242,7 @@ def test_ollama_provider_usage_resolves_to_no_catalog_models() -> None:
     """Resolving `OllamaPrompt`'s declared usage against the catalog yields nothing.
 
     `OllamaPrompt` builds its own model dropdown by querying the local Ollama
-    server (`_get_available_models`) rather than reading the catalog.
+    server (`_fetch_models`) rather than reading the catalog.
     Declaring `model_provider_usage` against a provider with no enumerated
     models is how that split is represented: `resolve_node_models` -- the same
     function the engine calls to build a node's model list from the catalog --

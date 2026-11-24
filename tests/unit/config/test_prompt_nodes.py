@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 import pytest
 from griptape_nodes.node_library.library_registry import LibraryRegistry
+from griptape_nodes.traits.options import Options
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.models.cohere import CohereModel
@@ -276,6 +277,15 @@ def _tags_response(models: list[str]) -> httpx.Response:
     return httpx.Response(200, json={"models": [{"name": m, "model": m} for m in models]}, request=request)
 
 
+def _refuse(url: str, **_: Any) -> httpx.Response:
+    msg = "Connection refused"
+    raise httpx.ConnectError(msg)
+
+
+def _model_choices(node: Any) -> list[str]:
+    return node.get_parameter_by_name("model").find_elements_by_type(Options)[0].choices
+
+
 class TestOllama:
     def test_lists_models_from_tags_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         urls: list[str] = []
@@ -291,18 +301,69 @@ class TestOllama:
         assert urls[0] == "http://127.0.0.1:11434/api/tags"
         assert node.get_parameter_value("model") == "llama3.2:latest"
 
-    def test_connection_failure_raises_connection_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def get(url: str, **_: Any) -> httpx.Response:
-            msg = "refused"
-            raise httpx.ConnectError(msg)
+    def test_unreachable_server_keeps_a_model_name_and_fails_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(httpx, "get", _refuse)
+        node = cast("Any", _create_node("OllamaPrompt"))
 
-        monkeypatch.setattr(httpx, "get", get)
-        node = _create_node("OllamaPrompt")
+        assert node.get_parameter_value("model") == "llama3.2:latest"
+        assert _model_choices(node) == ["llama3.2:latest"]
 
-        # The library loads node modules dynamically, so the exception class can't be imported here.
-        with pytest.raises(Exception, match="Unable to get available models from Ollama"):
-            cast("Any", node)._get_models()
-        assert "Ollama connection error" in node.get_parameter_value("model")
+        exceptions = node.validate_before_node_run()
+
+        assert exceptions is not None
+        assert len(exceptions) == 1
+        assert "Can't reach the Ollama server at http://127.0.0.1:11434" in str(exceptions[0])
+
+    def test_port_change_while_unreachable_keeps_selected_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(httpx, "get", lambda url, **_: _tags_response(["mistral:latest"]))
+        node = cast("Any", _create_node("OllamaPrompt"))
+        monkeypatch.setattr(httpx, "get", _refuse)
+
+        node.set_parameter_value("port", "9999")
+
+        assert node.get_parameter_value("model") == "mistral:latest"
+        assert _model_choices(node) == ["mistral:latest"]
+
+    def test_refresh_button_and_port_change_offer_the_same_choices(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(httpx, "get", lambda url, **_: _tags_response(["mistral:latest", "llama3.2:latest"]))
+        node = cast("Any", _create_node("OllamaPrompt"))
+
+        node._on_refresh_clicked(None, None)
+        from_button = _model_choices(node)
+        node.set_parameter_value("port", "9999")
+
+        assert from_button == ["llama3.2:latest", "mistral:latest"]
+        assert _model_choices(node) == from_button
+
+    def test_refresh_replaces_a_saved_status_message_with_a_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(httpx, "get", lambda url, **_: _tags_response(["mistral:latest"]))
+        node = cast("Any", _create_node("OllamaPrompt"))
+        legacy = "⚠️ Ollama connection error\nUnable to get available models"
+        node._update_option_choices(param="model", choices=[legacy], default=legacy)
+
+        node._on_refresh_clicked(None, None)
+
+        assert node.get_parameter_value("model") == "mistral:latest"
+
+    def test_server_without_models_fails_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(httpx, "get", lambda url, **_: _tags_response([]))
+        node = cast("Any", _create_node("OllamaPrompt"))
+
+        exceptions = node.validate_before_node_run()
+
+        assert exceptions is not None
+        assert "ollama pull" in str(exceptions[0])
+
+    def test_uninstalled_model_fails_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(httpx, "get", lambda url, **_: _tags_response(["llama3.2:latest"]))
+        node = cast("Any", _create_node("OllamaPrompt"))
+        assert node.validate_before_node_run() is None
+
+        monkeypatch.setattr(httpx, "get", lambda url, **_: _tags_response(["mistral:latest"]))
+        exceptions = node.validate_before_node_run()
+
+        assert exceptions is not None
+        assert "'llama3.2:latest' is not installed" in str(exceptions[0])
 
     def test_process_builds_openai_compatible_endpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(httpx, "get", lambda url, **_: _tags_response(["llama3.2:latest"]))
