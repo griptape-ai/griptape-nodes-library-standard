@@ -12,7 +12,7 @@ The node asks a model to call a scraper on the URL, then returns the scraped pag
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`).
-- The model call runs on Griptape Cloud. The node does not check for a key before the run, so a missing key shows up as an error when the node runs.
+- The model call runs on Griptape Cloud. Without either credential the run stops before it starts.
 
 ## Example
 

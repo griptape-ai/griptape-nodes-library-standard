@@ -15,7 +15,7 @@ Without `summarize`, `output` holds up to five results, one per line, each as JS
 
 - A search engine. DuckDuckGo needs no key. Google and Exa need keys in Settings under API Keys & Secrets (see `search_engine`).
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`), with or without `summarize`. The model call runs through Griptape Cloud, and a model your license does not allow stops the run with an error.
-- The node's own validation checks only the search engine keys.
+- The node checks for the credential and the search engine keys before the run.
 
 ## Example
 
