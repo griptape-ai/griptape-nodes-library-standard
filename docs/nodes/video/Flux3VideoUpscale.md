@@ -5,11 +5,13 @@ when_to_use: Use it when you want a higher-resolution version of a short clip an
 
 ## When to use it
 
-You have a clip of up to 20 seconds and want it larger. Connect it to `input_video`, set `upscale_factor`, and run the node.
+You have a clip of up to 20 seconds and want it larger. Connect it to `input_video`, set `upscale_factor`, and run the node. To prepare a clip, use [Resize Video](ResizeVideo.md) or a trim node.
 
-The input must be an MP4 of 20 seconds or less and no larger than 2560 x 1440. The node checks the format and length before it submits. To prepare a clip, use [Resize Video](ResizeVideo.md) or a trim node.
+## What it needs
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own Black Forest Labs key instead, stored in the `BFL_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Black Forest Labs key (`BFL_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The input must be an MP4 of 20 seconds or less, no larger than 2560 x 1440, and no more than 50 MB. The node checks the file type and length before it submits and stops with a message if the clip does not qualify. It does not check the pixel size or file size, and it skips the length check for a video passed as an inline data link. The clip is sent inline with the request.
 
 ## Parameters
 

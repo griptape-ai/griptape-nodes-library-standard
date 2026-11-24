@@ -5,9 +5,14 @@ when_to_use: Use it when you have long text, such as a set of review notes or a 
 
 ## When to use it
 
-You have text and want a shorter summary of it with no extra instructions. The model call runs through Griptape Cloud and uses your Griptape key. For a custom summary, such as one grouped by shot or limited to action items, use an [Agent](../agents/Agent.md) with your own prompt.
+You have text and want a shorter summary of it with no extra instructions. For a custom summary, such as one grouped by shot or limited to action items, use an [Agent](../agents/Agent.md) with your own prompt.
 
-An empty or whitespace-only `prompt` does nothing. Text longer than about 100,000 tokens is summarized in chunks, and the chunk summaries are then summarized together.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`).
+- The model call runs through Griptape Cloud.
+- Non-empty text in `prompt`. An empty or whitespace-only `prompt` does nothing.
+- Text longer than about 100,000 tokens is summarized in chunks, and the chunk summaries are then summarized together.
 
 ## Example
 

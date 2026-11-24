@@ -5,9 +5,13 @@ when_to_use: Use it when you need to improve a photo or generated image, such as
 
 ## When to use it
 
-Pick an operation, then a model for that operation, and connect an image. The settings shown change with the operation and model.
+You have a photo or generated image that needs work: upscaling, blur or noise, scratches, lighting or a background cutout. Pick an operation, then a model for it, and connect the image. The settings shown change with the operation and model.
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own Topaz Labs key (`TOPAZ_API_KEY` in Settings, Secrets). The run waits up to `timeout` seconds, 600 by default. Topaz charges credits by output size.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Topaz Labs key (`TOPAZ_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Topaz charges credits by output size. See the note under `resize_mode`.
 
 ## Parameters
 
@@ -29,7 +33,11 @@ Changing it resets `model` to the first model for that operation.
 
 ### model
 
-Only the settings the chosen model supports are shown. For example, `prompt`, `autoprompt`, `creativity` and `texture` belong to Redefine. `grain` and its settings belong to Dust-Scratch V2. `mode` (`alpha` or `segmentation`) belongs to the matting model. Standard MAX, Wonder, Dust-Scratch and Transparency Upscale have no extra settings.
+Only the settings the chosen model supports are shown.
+
+- `prompt`, `autoprompt`, `creativity` and `texture` belong to Redefine.
+- `grain` and its settings belong to Dust-Scratch V2.
+- `mode` (`alpha` or `segmentation`) belongs to the matting model.
 
 ### face_enhancement
 
@@ -41,7 +49,7 @@ Redefine only. When on, Topaz writes the prompt and your `prompt` is ignored.
 
 ### resize_mode
 
-Shown only for `enhance`, `enhance-generative` and `tool`. The other operations always return the input resolution.
+Shown only for `enhance`, `enhance-generative` and `tool`. Other operations keep the input resolution.
 
 | Mode | What you set |
 | --- | --- |
@@ -51,11 +59,11 @@ Shown only for `enhance`, `enhance-generative` and `tool`. The other operations 
 | `width and height` | Both. `crop_to_fill` crops to fill instead of letterboxing when the ratio differs. |
 | `percentage` | `percentage` of the source size, from 1 to 500. |
 
-Sizes can be 1 to 32,000 pixels. The node always sends both dimensions so the cost is exact before the job runs.
+Sizes can be 1 to 32,000 pixels.
 
 > [!NOTE]
 > For `enhance` and `tool`, Topaz bills 1 credit per 24 megapixels of output. For `enhance-generative` it is 1 credit per 4 megapixels. Each run costs at least 1 credit. A badge on `resize_mode` shows the cost when the size is known up front.
 
 ### output_format
 
-`jpeg`, `png` or `webp`. The default is `jpeg`.
+`jpeg` (default), `png` or `webp`.

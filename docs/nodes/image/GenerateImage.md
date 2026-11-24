@@ -5,9 +5,14 @@ when_to_use: Use it when you want a quick image from a description, such as a co
 
 ## When to use it
 
-You have a prompt and want an image. The node runs through Griptape Cloud and uses your Griptape credential (`GT_CLOUD_API_KEY` or a Griptape Nodes license). It does not offer an API Key Provider option.
+Use it when you have a prompt and want an image, such as a concept frame or a placeholder plate.
 
-Connect an [Agent](../agents/Agent.md) to `agent` to give the image model the agent's conversation as context. The image model has no memory of its own, so the node prefixes your prompt with that history. After the run, the exchange is added to the agent's conversation as a short note that an image was created, not the image itself.
+Connect an [Agent](../agents/Agent.md) to `agent` to give the image model the agent's conversation as context. The image model has no memory of its own, so the node prefixes your prompt with that history. After the run, a short note that an image was created is added to the agent's conversation. The image itself is not added.
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). The node runs through Griptape Cloud and has no **API Key Provider** option.
+- The check is skipped when an `agent` is connected. A missing credential is then reported on the agent instead.
 
 ## Example
 

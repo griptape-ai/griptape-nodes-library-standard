@@ -5,7 +5,7 @@ when_to_use: Use it when a workflow needs to clean up files it created, such as 
 
 ## When to use it
 
-You want a workflow to remove files or folders when it finishes with them. Items go to the trash or recycle bin when the system has one, and are deleted permanently only when that fails. Don't count on getting them back. The warning on the node says deletes are permanent, which isn't accurate when the trash is available.
+You want a workflow to remove files or folders when it finishes with them. Items go to the trash or recycle bin when the system has one, and are deleted permanently only when that fails. Don't count on getting them back. The node's own warning says deletes are always permanent, which is not accurate when the trash is available.
 
 > [!WARNING]
 > Deleting a folder deletes everything inside it. Check the preview on the node before you run it.

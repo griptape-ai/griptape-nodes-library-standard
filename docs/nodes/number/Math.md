@@ -41,17 +41,19 @@ Unary operations use only `A`:
 - `abs [|A|]`
 - `sin [sin(A)]`
 
-`sin` works in radians. `round` follows Python's `round`, so halves go to the nearest even number (2.5 gives 2, 3.5 gives 4). `modulo` follows Python's `%`, so the result has the sign of `B`.
+`sin` works in radians. `round` follows Python's `round`, so halves go to the nearest even number (2.5 gives 2, 3.5 gives 4). `modulo` follows Python's `%`, so the result has the sign of `B`. `round`, `ceil` and `floor` return whole numbers. The other operations return floats.
 
 ### B
 
-Hidden when you pick a unary operation (`sqrt`, `round`, `ceil`, `floor`, `abs`, `sin`) and shown again for any other operation. The node sets this when `operation` changes. Any value already in `B` is kept and ignored.
+Hidden for unary operations. A value already in `B` is kept and ignored.
 
 ### result
 
-The result of the operation. It is recalculated as soon as `operation`, `A` or `B` changes, and again when the node runs.
+The result of the operation. It is recalculated as soon as `operation`, `A` or `B` changes.
 
-- `A` and `B` are float parameters. An empty (None) value counts as 0. Text that is not a number, such as `x`, is rejected with a `ValueError` when you set it.
+## Edge cases
+
+- An empty `A` or `B` counts as 0. Text that is not a number is rejected with a `ValueError` when you set it.
 - `divide` and `modulo` by zero return infinity (`inf`) instead of failing.
-- `round`, `ceil` and `floor` return whole numbers (`2.5` gives `2`). The other operations return floats.
-- Some inputs raise an error instead of returning a result: `sqrt` of a negative number and `sin` of infinity raise `ValueError`, and `power` of 0 to a negative exponent raises `ZeroDivisionError`. `power` of a negative number to a fractional exponent returns a complex number (`-8 ^ 0.5`), not a float.
+- `sqrt` of a negative number and `sin` of infinity raise `ValueError`. `power` of 0 to a negative exponent raises `ZeroDivisionError`.
+- `power` of a negative number to a fractional exponent returns a complex number, such as `-8 ^ 0.5`.

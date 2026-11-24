@@ -5,9 +5,13 @@ when_to_use: Use it when you want high-resolution images from Seedream, includin
 
 ## When to use it
 
-Seedream generates images from text and can take reference images to guide the result. The node offers Seedream 5.0 Pro, Seedream 5.0 Lite and Seedream 4.5. The default is Seedream 4.5.
+You want high-resolution images from text, optionally guided by reference images, or a related set of images from one prompt. The node offers Seedream 5.0 Pro, Seedream 5.0 Lite and Seedream 4.5. The default is Seedream 4.5.
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own ByteDance Seed key (`SEED_API_KEY` in Settings, Secrets). Generations are billed. The run waits up to `timeout` seconds, 600 by default.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ByteDance Seed key (`SEED_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Generations are billed.
 
 ## Parameters
 

@@ -7,7 +7,10 @@ when_to_use: Use it for quick arithmetic written as a sentence, such as frame co
 
 You have a calculation described in words and want a number back, plus an explanation of how it was reached. For exact expressions with known inputs, use [Math](Math.md) or [Math Expression](MathExpression.md) instead.
 
-The node runs through Griptape Cloud and uses your Griptape key (`GT_CLOUD_API_KEY`).
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`).
+- Model access: a model your license does not allow stops the run with an error.
 
 ## Example
 
@@ -23,7 +26,7 @@ The question, in plain language. If it is empty, the node does nothing.
 
 ### model
 
-One of `gpt-4.1`, `gpt-4.1-mini` (the default), `gpt-4.1-nano` or `gpt-5`. The list is filtered by what your license allows, and a model you are not allowed to use stops the run with an error. Older saved display names such as `GPT-4.1 mini` load as the matching id.
+Hidden by default. One of `gpt-4.1`, `gpt-4.1-mini` (the default), `gpt-4.1-nano` or `gpt-5`. The list marks models your license does not allow. Older saved display names such as `GPT-4.1 mini` load as the matching id.
 
 ### result
 
@@ -31,7 +34,7 @@ The final answer, as short text. It is a number with a unit where one applies.
 
 ### output
 
-The model's reasoning, with a line `Using a <tool name>` for each tool call. Both outputs fill in as the answer streams, and are replaced by the final validated answer when the run finishes.
+The model's reasoning, with a line `Using a <tool name>` for each tool call. Both outputs fill in as the answer streams. The final validated answer replaces them when the run finishes.
 
 ## Important notes
 

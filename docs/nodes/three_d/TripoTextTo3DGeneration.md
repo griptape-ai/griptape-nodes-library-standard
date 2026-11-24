@@ -5,17 +5,22 @@ when_to_use: Use it when you want a 3D model from a description alone.
 
 ## When to use it
 
-Describe the object and Tripo builds a model. The node runs through the Griptape model proxy and needs a Griptape Cloud API key (`GT_CLOUD_API_KEY`). It polls until the job finishes. The default timeout is 10 minutes. If a run times out, the Refresh button in the Status group retrieves the result. Texturing and detailed quality settings cost more, and the status message reports the credits Tripo charged.
+Describe the object and Tripo builds a model. To start from a picture, use [Tripo Image to 3D](TripoImageTo3DGeneration.md). For several views, use [Tripo Multiview to 3D](TripoMultiviewTo3DGeneration.md).
 
 The model is saved as GLB, or as FBX when `quad` is on. A preview image is saved next to it when Tripo provides one.
 
-To start from a picture, use [Tripo Image to 3D](TripoImageTo3DGeneration.md). For several views, use [Tripo Multiview to 3D](TripoMultiviewTo3DGeneration.md).
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Tripo 3D key (`TRIPO_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Texturing and detailed quality settings can use more credits. The status message reports the credits Tripo charged when Tripo returns them.
+- A prompt. The node tooltip gives a limit of 1024 characters. The node does not check this.
 
 ## Parameters
 
 ### prompt
 
-Required, up to 1024 characters.
+Required.
 
 ### model_version
 

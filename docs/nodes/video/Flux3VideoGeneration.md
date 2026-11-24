@@ -7,7 +7,10 @@ when_to_use: Use it when you want a 5 to 20 second clip with sound from a prompt
 
 You want a generated clip that includes audio. Pick a `mode`, write a `prompt` that describes the scene, motion and sound, and run the node.
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own Black Forest Labs key instead, stored in the `BFL_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Black Forest Labs key (`BFL_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 
 ## Parameters
 

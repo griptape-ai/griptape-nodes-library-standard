@@ -5,9 +5,14 @@ when_to_use: Use it when you want FLUX 3 for text-to-image, editing, or combinin
 
 ## When to use it
 
-Write a prompt to generate an image. Add reference images to edit one or to compose a result from several. Two models are offered: `flux-3-image` (the default) and `flux-3-image-klein`. Some settings only apply to one of them.
+Write a prompt to generate an image. Add reference images to edit one or to compose a result from several.
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own Black Forest Labs key (`BFL_API_KEY` in Settings, Secrets). The run waits up to `timeout` seconds, 600 by default.
+Two models are offered: `flux-3-image` (the default) and `flux-3-image-klein`. Some settings only apply to one of them.
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Black Forest Labs key (`BFL_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
 
 ## Parameters
 

@@ -5,9 +5,12 @@ when_to_use: Use it when you want text-to-image results from Wan, including up t
 
 ## When to use it
 
-Write a prompt, choose a size and how many images you want. The node offers Wan 2.7 Image Pro (the default) and Wan 2.7 Image. It takes a text prompt only and has no image input.
+You want text-to-image results from Wan, with up to 4K output on the Pro model. Write a prompt, choose a size and how many images you want. The node offers Wan 2.7 Image Pro (the default) and Wan 2.7 Image. It takes a text prompt only and has no image input.
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY` in Settings, Secrets). The run waits up to `timeout` seconds, 600 by default.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
 
 ## Parameters
 

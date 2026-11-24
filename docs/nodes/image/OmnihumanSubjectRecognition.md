@@ -7,13 +7,17 @@ when_to_use: Use it when you want to confirm an image will work with OmniHuman b
 
 OmniHuman animates people and similar characters. This node asks the service whether your image has a suitable subject and returns a yes or no in `contains_subject`. Use it as a quick gate before generation, for example to branch on the result. Skip it if you already know the image is fine.
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own ByteDance Seed key (`SEED_API_KEY` in Settings, Secrets).
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ByteDance Seed key (`SEED_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- The service downloads the image itself. A local image is uploaded to a short-lived public link, which is deleted after the run.
 
 ## Parameters
 
 ### image_url
 
-The service downloads the image itself, so it must be reachable from the internet. When you connect a local image, the node uploads it to a temporary public location and deletes it after the run.
+The image must be reachable from the internet. A connected local image is uploaded for you, see What it needs.
 
 ### contains_subject
 

@@ -7,9 +7,12 @@ when_to_use: Use it when you want to set image size and quality once and pass th
 
 You want to pass a Griptape Cloud image model, size and quality to [Generate Image](../image/GenerateImage.md) through a connection. The node generates nothing itself. It outputs `image_model_config`, which you connect to the `model` input of Generate Image.
 
-The node uses your Griptape Cloud credential (`GT_CLOUD_API_KEY`, or a Griptape Cloud license). You do not need an OpenAI key. The workflow fails validation if neither is available.
-
 Generate Image already has its own `model` and `image_size` settings that use Griptape Cloud. Use this node when you want `quality`, which Generate Image does not offer, or when you want to share one configuration across several nodes.
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). You do not need an OpenAI key.
+- The workflow fails validation if neither is available.
 
 ## Example
 

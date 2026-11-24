@@ -1,5 +1,5 @@
 ---
-description: Configures a model from the Griptape Cloud catalog, using your Griptape credential, for use by an Agent.
+description: Configures a model from the Griptape Cloud catalog, using a Griptape Nodes license or a Griptape Cloud API key, for use by an Agent.
 when_to_use: Use it when an Agent should use a specific Griptape Cloud model, or when you need control over temperature, top_p or retries.
 ---
 
@@ -7,9 +7,11 @@ when_to_use: Use it when an Agent should use a specific Griptape Cloud model, or
 
 This node builds a model configuration. It does not call the model itself. Connect `prompt_model_config` to an [Agent](../agents/Agent.md)'s `prompt model` input and the Agent uses that model.
 
-Griptape Cloud serves models from several providers, so you don't need a separate key for each. The node uses your Griptape credential, either a `GT_CLOUD_API_KEY` or a Griptape Nodes license. The workflow fails validation if neither is set.
+Griptape Cloud serves models from several providers, so you don't need a separate key for each. An Agent already uses Griptape Cloud models by default through its own `prompt model` dropdown. Use this node when you want the extra settings.
 
-An Agent already uses Griptape Cloud models by default through its own `prompt model` dropdown. Use this node when you want the extra settings.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). The workflow fails validation if neither is set.
 
 ## Example
 

@@ -5,17 +5,21 @@ when_to_use: Use it when you need masks of the people or characters in an image,
 
 ## When to use it
 
-This is the optional second step of the OmniHuman workflow. It detects subjects in an image and gives you a mask image for each one. You only need it if you want to pick a specific subject during video generation. If the image has one obvious subject, you can skip it.
+You have an image with several people or characters and want to pick which one speaks in an OmniHuman video. This node returns a mask image for each detected subject. It is the optional second step of the OmniHuman workflow. If the image has one obvious subject, skip it.
 
 To only check whether the image is usable, use [OmniHuman Subject Recognition](OmnihumanSubjectRecognition.md).
 
-The node runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own ByteDance Seed key (`SEED_API_KEY` in Settings, Secrets).
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ByteDance Seed key (`SEED_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- The service downloads the image itself. A local image is uploaded to a short-lived public link, which is deleted after the run.
 
 ## Parameters
 
 ### image_url
 
-The service downloads the image itself, so it must be reachable from the internet. When you connect a local image, the node uploads it to a temporary public location and deletes it after the run.
+The image must be reachable from the internet. A connected local image is uploaded for you, see What it needs.
 
 ### mask_image_urls
 

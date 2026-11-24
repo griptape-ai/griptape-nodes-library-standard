@@ -5,9 +5,13 @@ when_to_use: Use it when you want a quick clip from text, or want to steer the l
 
 ## When to use it
 
-You want a short clip from a description. Write a `prompt` and run the node. Gemini Omni Flash makes 720p video with audio. It chooses the clip length itself, between 3 and 10 seconds, so there is no duration setting. `aspect_ratio` is the only output control.
+You want a short clip from a description. Write a `prompt` and run the node. `aspect_ratio` is the only output control.
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` (shown as Credentials Provider) to **Customer** to use your own Google Cloud service account instead, stored in the `GOOGLE_SERVICE_ACCOUNT_JSON` secret. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Google Cloud service account JSON (`GOOGLE_SERVICE_ACCOUNT_JSON`) instead, set **Credentials Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The output is 720p video with audio. The model chooses the clip length itself, between 3 and 10 seconds, so there is no duration setting.
 
 ## Parameters
 

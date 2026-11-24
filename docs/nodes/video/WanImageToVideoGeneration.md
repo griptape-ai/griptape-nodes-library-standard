@@ -7,13 +7,20 @@ when_to_use: Use it when you want to animate a still image into a short clip.
 
 You have an image and want it to move. The image is the starting frame, and the prompt describes the motion and any other elements. To work from text alone, use [WAN Text to Video Generation](WanTextToVideoGeneration.md).
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own Alibaba Cloud Model Studio key instead. It waits for the result and saves the video. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- Nothing is uploaded. The image and any audio are sent inline in the request as base64 data.
+- The node does not check the limits below.
+- The image can be JPG, PNG, BMP or WEBP, 360 to 2000 px, up to 10 MB.
+- Your own audio can be WAV or MP3, 3 to 30 seconds, up to 15 MB. See `audio and input_audio`.
 
 ## Parameters
 
 ### model
 
-The model decides which resolutions, durations and extras are available. Changing it updates the `resolution` and `duration` choices and resets them to the first option if the current value is not supported.
+The model decides which resolutions, durations and extras are available. Changing it updates the `resolution` and `duration` choices, and resets them to the first option if the current value is not supported.
 
 | Model | Resolutions | Durations (s) | Audio | `shot_type` |
 |-------|-------------|---------------|-------|-------------|
@@ -26,11 +33,11 @@ The model decides which resolutions, durations and extras are available. Changin
 
 ### input_image
 
-Required. The tooltip lists JPG, PNG, BMP and WEBP, 360 to 2000 px, up to 10 MB.
+Required. The starting frame.
 
 ### audio and input_audio
 
-`audio` is on by default and asks the model to generate sound. To use your own audio instead, turn `audio` off. `input_audio` then appears. It takes WAV or MP3, 3 to 30 seconds, up to 15 MB. Audio longer than the video is cut off. Shorter audio leaves the rest of the video silent. Only `wan2.6-i2v` and `wan2.5-i2v-preview` use either setting.
+`audio` is on by default and asks the model to generate sound. To use your own audio instead, turn `audio` off and `input_audio` appears. Audio longer than the video is cut off. Shorter audio leaves the rest of the video silent. Only `wan2.6-i2v` and `wan2.5-i2v-preview` use either setting.
 
 ### shot_type
 

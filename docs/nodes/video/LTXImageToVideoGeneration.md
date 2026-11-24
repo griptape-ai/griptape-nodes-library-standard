@@ -7,7 +7,11 @@ when_to_use: Use it when you have a still image and want a 6 to 20 second clip t
 
 You have a picture and want it to move. Connect it to `image`, describe the motion in `prompt`, and run the node. Connect a second image to `last_frame` and the clip moves from the first image toward the second. For video from text alone, use [LTX Text to Video Generation](LTXTextToVideoGeneration.md).
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own LTX Studio key instead, stored in the `LTX_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and defaults to 1200. 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 1200 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
 
 ## Parameters
 

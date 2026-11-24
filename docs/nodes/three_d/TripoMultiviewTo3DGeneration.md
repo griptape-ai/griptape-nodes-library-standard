@@ -5,21 +5,26 @@ when_to_use: Use it when you have several angles of the same object and want mor
 
 ## When to use it
 
-Connect the front view and at least one other view. Tripo uses all of them to build the model. The node runs through the Griptape model proxy and needs a Griptape Cloud API key (`GT_CLOUD_API_KEY`). It polls until the job finishes. The default timeout is 10 minutes. If a run times out, the Refresh button in the Status group retrieves the result. Texturing and detailed quality settings cost more, and the status message reports the credits Tripo charged.
+Connect the front view and at least one other view. Tripo uses all of them to build the model. With a single image, use [Tripo Image to 3D](TripoImageTo3DGeneration.md).
 
 The model is saved as GLB, or as FBX when `quad` is on. A preview image is saved next to it when Tripo provides one.
 
-With a single image, use [Tripo Image to 3D](TripoImageTo3DGeneration.md).
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Tripo 3D key (`TRIPO_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Texturing and detailed quality settings can use more credits. The status message reports the credits Tripo charged when Tripo returns them.
+- A front image and at least one more view. The node tooltip gives PNG, JPEG or WEBP, up to 20 MB for each. The node does not check this.
 
 ## Parameters
 
 ### front_image
 
-Required. PNG, JPEG or WEBP, up to 20 MB. The node fails if it is missing, even when other views are connected.
+Required. The node fails if it is missing, even when other views are connected.
 
 ### left_image, back_image, right_image
 
-Optional views, with the same format and size limits. You need at least two views in total, counting the front. Each image goes in its own slot, so connect each view to the matching input.
+Optional views. You need at least two in total, counting the front. Connect each view to the matching input.
 
 ### model_version
 

@@ -7,7 +7,12 @@ when_to_use: Use it when you want a short clip of 1 to 15 seconds from a prompt,
 
 You want to turn a description into a video. Write a `prompt`, choose an aspect ratio, duration and resolution, and run the node. Connect an image to `image` to use it as the first frame.
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own xAI key instead, stored in the `GROK_API_KEY` secret. Generation can take a few minutes. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own xAI key (`GROK_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
+- Generation can take a few minutes.
 
 ## Parameters
 

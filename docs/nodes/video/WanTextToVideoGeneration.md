@@ -5,9 +5,14 @@ when_to_use: Use it when you want a short clip from a description alone, with op
 
 ## When to use it
 
-You want a video from a prompt, with no starting image. To start from a picture, use [WAN Image to Video Generation](WanImageToVideoGeneration.md).
+You want a short clip from a description alone, with generated or supplied audio and no starting image. To start from a picture, use [WAN Image to Video Generation](WanImageToVideoGeneration.md).
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own Alibaba Cloud Model Studio key instead. It waits for the result and saves the video. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- Nothing is uploaded. Your own audio is sent inline in the request as base64 data.
+- The node does not check the audio limits: WAV or MP3, 3 to 30 seconds, up to 15 MB. See `audio and input_audio`.
 
 ## Parameters
 
@@ -25,7 +30,7 @@ The model decides which sizes, durations and extras are available. Changing it u
 
 ### audio and input_audio
 
-`audio` is on by default and asks the model to generate sound. To use your own audio instead, turn `audio` off. `input_audio` then appears. It takes WAV or MP3, 3 to 30 seconds, up to 15 MB. Audio longer than the video is cut off. Shorter audio leaves the rest of the video silent. Only `wan2.6-t2v` and `wan2.5-t2v-preview` use either setting.
+`audio` is on by default and asks the model to generate sound. To use your own audio instead, turn `audio` off and `input_audio` appears. Audio longer than the video is cut off. Shorter audio leaves the rest of the video silent. Only `wan2.6-t2v` and `wan2.5-t2v-preview` use either setting.
 
 ### shot_type
 

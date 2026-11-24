@@ -7,7 +7,11 @@ when_to_use: Use it when you need a written transcript of a recording, such as a
 
 You have a recording and want the words as text. For example, a supervisor's voice notes from a review session can become written notes that an [Agent](../agents/Agent.md) sorts by shot.
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own OpenAI key instead. It waits for the result. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own OpenAI key (`OPENAI_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Audio in mp3, mp4, mpeg, mpga, m4a, wav, webm or flac, up to 25 MB. These limits come from the node tooltip. The node does not check them.
 
 ## Example
 
@@ -25,7 +29,7 @@ The only choice is `whisper-1`. Workflows saved with `gpt-4o-mini-transcribe` or
 
 ### audio
 
-mp3, mp4, mpeg, mpga, m4a, wav, webm or flac, up to 25 MB according to the tooltip. The node does not check the size before it sends the request, so a larger file fails at the provider. Split a long recording first, for example with [Trim Audio](TrimAudio.md).
+The node does not check the size before it sends the request, so a file over 25 MB fails at the provider. Split a long recording first, for example with [Trim Audio](TrimAudio.md).
 
 ### language
 

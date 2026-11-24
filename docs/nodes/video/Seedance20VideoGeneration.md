@@ -7,7 +7,12 @@ when_to_use: Use it when you want Seedance 2.0 output, including 1080p or 4k, or
 
 You want a clip from a prompt, from start and end frames, or guided by reference images, videos and audio. Pick the work with `input_mode`. For editing or extending an existing video, use [Seedance 2.5 Video Generation](Seedance25VideoGeneration.md).
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own ByteDance Seed key instead. It waits for the result and saves the video. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ByteDance Seed key (`SEED_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- Seedance does not accept video as base64. Local reference videos are uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run.
+- To use a human likeness or voice, pass the media through [Seedance Human Reference Asset](SeedanceHumanReferenceAsset.md). That needs a Griptape Nodes license or Griptape Cloud API key. The node stops with an error if a private-asset reference is connected while **API Key Provider** is set to **Customer**.
 
 ## Parameters
 
@@ -34,9 +39,6 @@ In Multimodal References mode, refer to media in the order you connected it, for
 - Up to 9 images, 3 videos and 3 audio clips. Reference audio can be 2 to 15 seconds each, 15 seconds in total.
 - Audio cannot be used alone. Add at least one image or video.
 - Videos are filled in order. `reference_video_2` needs `reference_video_1`, and `reference_video_3` needs `reference_video_2`. Each slot appears once the one before it is filled.
-- Seedance does not accept video as base64. Local videos are uploaded to Griptape Cloud storage so the service can fetch them. The upload is deleted when the run ends.
-
-To use a human likeness or voice, pass the media through [Seedance Human Reference Asset](SeedanceHumanReferenceAsset.md). That needs Griptape authentication and does not work with your own key.
 
 ### duration
 

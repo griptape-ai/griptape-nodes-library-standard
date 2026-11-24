@@ -7,7 +7,11 @@ when_to_use: Use it when you want a 6 to 20 second clip from a prompt and want t
 
 You want a generated clip from a description. Write a `prompt`, pick a model, resolution, duration and frame rate, and run the node. Audio is generated with the video unless you turn `generate_audio` off. To start from a picture, use [LTX Image to Video Generation](LTXImageToVideoGeneration.md).
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own LTX Studio key instead, stored in the `LTX_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and defaults to 1200. 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 1200 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
 
 ## Parameters
 

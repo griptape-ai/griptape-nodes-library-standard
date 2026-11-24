@@ -7,11 +7,13 @@ when_to_use: Use it when you want to lay one layer over another, such as film gr
 
 You have a base and a layer to put on it. For example, put a grain or dust pass over a plate with `grainmerge`, or lay a CG render that carries its own alpha over a background plate.
 
-The base (`video`) can be a video or a still image. The overlay can be a video or an image, including a PNG with transparency. At least one of the two must be a video, because that sets the length of the result. If the base is a still image, the result takes the overlay's length and frame rate. If the base is a video, the overlay is looped and trimmed to the base's length.
+## What it needs
 
-The output has no audio. The node maps only the composited picture. The ffmpeg run times out after 300 seconds.
+- A base (`video`) and an overlay, each a video or an image. A PNG with transparency works as an overlay.
+- At least one of the two must be a video, because that sets the length of the result. A still base takes the overlay's length and frame rate. A video base loops and trims the overlay to the base's length.
+- No credential. The node runs ffmpeg locally, and the run times out after 300 seconds.
 
-If `overlay_video` is empty, the base is re-encoded and nothing is added.
+The output has no audio. If `overlay_video` is empty, the base is re-encoded and nothing is added.
 
 ## Parameters
 
@@ -31,7 +33,7 @@ Shown as "Matte (Video or Image)". Optional. Its brightness replaces the overlay
 
 `overlay` (default), `screen`, `lighten`, `softlight`, `grainmerge`, `grainextract`, `glow` or `hardlight`.
 
-`overlay` is a normal alpha composite of the layer over the base, centered, at the layer's own size. Every other mode blends the colors with the matching ffmpeg blend filter and then mixes the result back using the layer's alpha, so transparency is respected in all modes. In these modes the layer is first scaled to the base's size using `sizing`.
+`overlay` is a normal alpha composite, centered, at the layer's own size. Every other mode blends colors with the matching ffmpeg filter and mixes the result back using the layer's alpha, so transparency is respected. In those modes the layer is first scaled to the base's size using `sizing`.
 
 ### amount
 

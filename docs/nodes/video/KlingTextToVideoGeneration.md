@@ -7,7 +7,11 @@ when_to_use: Use it when you want a clip from a description and want to choose b
 
 You want a generated clip from text. Write a `prompt`, pick a model, and run the node. Use [Kling Image to Video Generation](KlingImageToVideoGeneration.md) to start from a picture.
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own Kling key instead, stored in the `KLING_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Kling AI key (`KLING_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
 
 ## Parameters
 

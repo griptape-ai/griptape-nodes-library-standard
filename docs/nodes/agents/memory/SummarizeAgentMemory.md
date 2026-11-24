@@ -5,9 +5,15 @@ when_to_use: Use it when a long agent conversation is getting heavy and you want
 
 ## When to use it
 
-A long conversation costs more to send on every run. This node asks the agent's own model for a summary and replaces the whole history with it. The history becomes a single exchange with the input `conversation summary` and the summary as the output.
+A long conversation costs more to send on every run. This node asks the agent's own model for a summary and replaces the whole history with it.
 
-The summary run uses the agent's model and rulesets. If the agent has no model set, the default Griptape Cloud model is used. If the history is empty, the agent is returned unchanged and no model call is made.
+The history becomes a single exchange with the input `conversation summary` and the summary as the output.
+
+## What it needs
+
+- The summary run uses the agent's model and rulesets.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`), only if the agent has no model set. The node then uses the default Griptape Cloud model.
+- If the history is empty, the agent is returned unchanged and no model call is made.
 
 ## Parameters
 

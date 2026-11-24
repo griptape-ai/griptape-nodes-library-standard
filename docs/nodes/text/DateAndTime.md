@@ -7,7 +7,12 @@ when_to_use: Use it when you want a date string for a file name, a report header
 
 You want a date or time as text. Describe it in `prompt` ("Friday of next week", "the delivery date, 10 days from today") and choose the output style with `format`.
 
-A model on Griptape Cloud works out the answer using a date and time tool and writes it in the requested format, so the node needs a Griptape key. Because a model formats the result, check the output when exact formatting matters. An empty `prompt` does nothing.
+A model works out the answer using a date and time tool and writes it in the requested format. Check the output when exact formatting matters. An empty `prompt` does nothing.
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`).
+- The model call runs on Griptape Cloud. A model your license does not allow stops the run with an error.
 
 ## Example
 

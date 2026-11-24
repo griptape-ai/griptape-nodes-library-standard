@@ -5,13 +5,13 @@ when_to_use: Use it when you need one field, a list of fields, or a filtered or 
 
 ## When to use it
 
-Use it to read specific values from JSON with [JMESPath](https://jmespath.org) expressions. It supports nested object access, array indexing, wildcards, filters and functions such as `sum()`. For the full syntax, see the [JMESPath tutorial](https://jmespath.org/tutorial.html).
+You want one field, a list of fields, or a computed result from JSON. Typical sources are a production tracker export, a render manager's response, a delivery spec, or the structured JSON an [Agent](../agents/Agent.md) returns when you give it an output schema.
 
-Typical sources are shot codes, statuses or assignees from a production tracker export, frame counts or job IDs from a render manager's response, the format or date in a delivery spec, or one field from the structured JSON an [Agent](../agents/Agent.md) returns when you give it an output schema.
+The node reads values with [JMESPath](https://jmespath.org) expressions: nested access, array indexing, wildcards, filters and functions such as `sum()`. See the [JMESPath tutorial](https://jmespath.org/tutorial.html) for the full syntax.
 
 ## Examples
 
-The examples below all read from the same shot list, the kind of data a production tracker or a pipeline script hands you:
+These examples read from the same shot list:
 
 ```json
 {
@@ -33,28 +33,26 @@ The examples below all read from the same shot list, the kind of data a producti
 | `shots[*].frames` | The frame count of every shot | `[96, 120, 48]` |
 | `sum(shots[*].frames)` | The total frames across all shots | `264` |
 | `shots[?status=='in_progress'].code` | Only the shots still in progress | `["SH010", "SH030"]` |
-| `shots[?artist=='Maria'].frames` | Frame counts for one artist's shots | `[96, 48]` |
-| `shots[0].tags[0]` | The first tag on the first shot | `"comp"` |
 | `delivery` | A whole object | `{"date": "2026-12-04", "format": "EXR"}` |
 | `delivery.contact` | A key that isn't there | `{}` |
 
-Other path forms: `user.profile.email` for nested objects, `users[2].name` for the third user, `[*].assignee` for a root array, and `projects[*].tasks[*].assignee` for all assignees across all tasks.
+Other path forms: `[*].assignee` for a root array, and `projects[*].tasks[*].assignee` for all assignees across all tasks.
 
-The output keeps its type, so a list can go straight into a list node and a number into a math node. For example, `shots[?status=='in_progress'].code` gives a list of shot codes. Connect it to [Create Text List](../lists/CreateTextList.md) or an [Agent](../agents/Agent.md) prompt to write a "still open" summary for the daily.
+The output keeps its type, so a list can go straight into a list node and a number into a math node. Connect the in-progress shot codes to [Create Text List](../lists/CreateTextList.md) or an [Agent](../agents/Agent.md) prompt to write a "still open" summary for the daily.
 
 ## Parameters
 
 ### json
 
-A JSON string must be valid JSON. This node does not repair it. When the node runs, a string that cannot be parsed (including an empty string) fails with an error. While you edit the value on the node, a string that cannot be parsed yet clears `output` instead of raising. Use [JSON Input](JsonInput.md) or [Display JSON](DisplayJson.md) first if the text may be malformed.
+A JSON string must be valid JSON. This node does not repair it, and a string that cannot be parsed, including an empty one, fails when the node runs. While you edit the value on the node, `output` is cleared instead. Use [JSON Input](JsonInput.md) or [Display JSON](DisplayJson.md) first if the text may be malformed.
 
 ### path
 
-A JMESPath expression. If it is empty, the whole input is returned. An invalid expression, or a function given the wrong type (such as `sum()` on a number), fails with an error when the node runs.
+A JMESPath expression. If it is empty, the whole input is returned. An invalid expression, or a function given the wrong type such as `sum()` on a number, fails when the node runs.
 
 ### output
 
-The extracted value as a native type (string, number, list or dict), so there is no JSON text to parse afterwards. If the path does not exist, or the value at the path is JSON `null`, the output is an empty dict `{}`.
+The extracted value as a native type (string, number, list or dict). If the path does not exist, or the value is JSON `null`, the output is `{}`.
 
 ## Related nodes
 

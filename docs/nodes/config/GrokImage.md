@@ -7,7 +7,11 @@ when_to_use: Use it when you want Generate Image to call Grok instead of Griptap
 
 You want [Generate Image](../image/GenerateImage.md) to create images with Grok. The node generates nothing itself. It outputs `image_model_config`, which you connect to the `model` input of Generate Image.
 
-The node calls xAI directly and reads the `GROK_API_KEY` secret. You can get a key from [console.x.ai](https://console.x.ai). It does not go through Griptape Cloud, and the workflow fails validation if the key is missing.
+## What it needs
+
+- An xAI API key, stored as `GROK_API_KEY`. You can get one from [console.x.ai](https://console.x.ai).
+- The node calls xAI directly. It does not use a Griptape Nodes license or a Griptape Cloud API key.
+- The workflow fails validation if the key is missing.
 
 ## Example
 

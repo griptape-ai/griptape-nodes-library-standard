@@ -9,115 +9,75 @@ You have multiline text and want to replace a word or pattern in it. You can mat
 
 ## Examples
 
-### Simple Text Replacement
+### Simple text replacement
 
-1. Add a SearchReplaceText node to your workflow
-1. Set the input text to:
-    ```
-    Hello World
-    Welcome to Griptape
-    ```
-1. Set the search pattern to: "World"
-1. Set the replacement text to: "Griptape"
-1. The output will be:
-    ```
-    Hello Griptape
-    Welcome to Griptape
-    ```
+```
+Input text:       Hello World
+                  Welcome to Griptape
+search_pattern:   World
+replacement_text: Griptape
 
-### Case-Insensitive Replacement
+Output:           Hello Griptape
+                  Welcome to Griptape
+```
 
-1. Add a SearchReplaceText node to your workflow
-1. Set the input text to:
-    ```
-    Hello WORLD
-    Welcome to the WORLD
-    ```
-1. Set the search pattern to: "world"
-1. Set the replacement text to: "Griptape"
-1. Set case_sensitive to: false
-1. The output will be:
-    ```
-    Hello Griptape
-    Welcome to the Griptape
-    ```
+### Case-insensitive replacement
 
-### Regular Expression Examples
+```
+Input text:       Hello WORLD
+search_pattern:   world
+replacement_text: Griptape
+case_sensitive:   false
 
-> [!NOTE]
-> **Basic Regex Patterns**
->
-> ```
-> Input: "Line 1\nLine 2\nLine 3"
-> Search Pattern: "Line \d"
-> Replacement: "Item"
-> Use Regex: true
-> Output: "Item\nItem\nItem"
-> ```
->
-> This pattern matches "Line" followed by any digit (`\d`).
+Output:           Hello Griptape
+```
 
-> [!NOTE]
-> **Removing Numbers**
->
-> ```
-> Input: "Product123, Item456, Order789"
-> Search Pattern: "\d+"
-> Replacement: ""
-> Use Regex: true
-> Output: "Product, Item, Order"
-> ```
->
-> This pattern matches one or more digits (`\d+`).
+### Regular expressions
 
-> [!NOTE]
-> **Word Boundaries**
->
-> ```
-> Input: "cat in the hat"
-> Search Pattern: "\bcat\b"
-> Replacement: "dog"
-> Use Regex: true
-> Output: "dog in the hat"
-> ```
->
-> This pattern matches the word "cat" only when it appears as a complete word.
+With `use_regex` on:
 
-## Regex Reference
+| Goal | `search_pattern` | `replacement_text` | Input | Output |
+| --- | --- | --- | --- | --- |
+| Match "Line" and a digit | `Line \d` | `Item` | `Line 1\nLine 2` | `Item\nItem` |
+| Remove numbers | `\d+` | empty | `Product123, Item456` | `Product, Item` |
+| Match a whole word only | `\bcat\b` | `dog` | `cat in the hat` | `dog in the hat` |
 
-> [!NOTE]
-> **Common Regex Patterns**
->
-> | Pattern | Description                | Example                                 |
-> | ------- | -------------------------- | --------------------------------------- |
-> | `\n`    | Match a newline (regex mode only) | `Line 1\nLine 2`                 |
-> | `\s`    | Match any whitespace       | `Hello\sWorld`                          |
-> | `\d`    | Match any digit            | `\d+` matches "123"                     |
-> | `[a-z]` | Match any lowercase letter | `[a-z]+` matches "hello"                |
-> | `[A-Z]` | Match any uppercase letter | `[A-Z]+` matches "WORLD"                |
-> | `.`     | Match any character        | `a.c` matches "abc"                     |
-> | `*`     | Match 0 or more            | `a*` matches "", "a", "aa"              |
-> | `+`     | Match 1 or more            | `a+` matches "a", "aa"                  |
-> | `?`     | Match 0 or 1               | `a?` matches "", "a"                    |
-> | `\b`    | Word boundary              | `\bcat\b` matches "cat" but not "catch" |
+## Regex reference
+
+| Pattern | Description | Example |
+| ------- | ----------- | ------- |
+| `\n` | Match a newline (regex mode only) | `Line 1\nLine 2` |
+| `\s` | Match any whitespace | `Hello\sWorld` |
+| `\d` | Match any digit | `\d+` matches "123" |
+| `[a-z]` | Match any lowercase letter | `[a-z]+` matches "hello" |
+| `.` | Match any character | `a.c` matches "abc" |
+| `*` | Match 0 or more | `a*` matches "", "a", "aa" |
+| `+` | Match 1 or more | `a+` matches "a", "aa" |
+| `?` | Match 0 or 1 | `a?` matches "", "a" |
+| `\b` | Word boundary | `\bcat\b` matches "cat" but not "catch" |
+
+For more patterns, see the [Python Regular Expression HOWTO](https://docs.python.org/3/howto/regex.html), [Regex101](https://regex101.com/) for interactive testing, and [Regular-Expressions.info](https://www.regular-expressions.info/).
 
 ## Parameters
 
 ### input_text
 
-The text to change. Newlines are preserved in the output. If this or `search_pattern` is empty, the input text is returned unchanged.
+The text to change. Newlines are preserved. If this or `search_pattern` is empty, the input text is returned unchanged.
 
 ### search_pattern
 
-Plain text by default. With `use_regex` on, it is a regular expression and special characters are regex syntax, so escape them to match them literally. Without `use_regex`, special characters are escaped for you, which is safer for simple replacements. In plain-text mode, typing `\n` searches for a backslash followed by an n, not for a newline. Use regex mode to match a newline with `\n`. A pattern that can match nothing, such as `a*`, inserts the replacement at every empty match (`abc` becomes `--b-c-` with replacement `-`).
+Plain text by default, with special characters escaped for you. With `use_regex` on, it is a regular expression, so escape special characters to match them literally. In plain-text mode, `\n` searches for a backslash followed by an n, not a newline. Use regex mode to match a newline.
+
+> [!WARNING]
+> An invalid regular expression raises no error. The node returns the input unchanged, so check the pattern if nothing changes.
 
 ### replacement_text
 
-The replacement is passed to Python's `re.sub` in both modes, so backslashes in it are interpreted: `\n` inserts a newline and `\\` inserts one backslash. With `use_regex` on, `\1` inserts the first captured group. In plain-text mode there are no groups, so `\1` or any other bad escape returns the original text. Case-insensitive mode only affects matching.
+Backslashes are interpreted in both modes: `\n` inserts a newline and `\\` inserts one backslash. With `use_regex` on, `\1` inserts the first captured group. In plain-text mode there are no groups, so `\1` or any other bad escape returns the original text.
 
 ### case_sensitive
 
-`case_sensitive`, `use_regex` and `replace_all` are in the Options group, which is hidden until you expand it. Case-sensitive is the default. Case-insensitive search works for both plain text and regular expressions.
+`case_sensitive`, `use_regex` and `replace_all` are in the Options group, which is hidden until you expand it. Case-sensitive is the default. Case-insensitive works for both plain text and regular expressions.
 
 ### replace_all
 
@@ -125,16 +85,8 @@ On by default. Turn it off to replace only the first match.
 
 ### use_regex
 
-In regex mode, patterns are applied without the multiline flag, so `^` and `$` match only the start and end of the whole text, and `.` does not match a newline. Use `\n` in the pattern to match a newline.
+Patterns are applied without the multiline flag, so `^` and `$` match only the start and end of the whole text, and `.` does not match a newline.
 
-## Common issues
+## Edge cases
 
-An invalid regular expression raises no error. The node returns the input unchanged, so check the pattern if nothing changes.
-
-## Additional Resources
-
-For more comprehensive regex examples and patterns, check out:
-
-- [Python Regular Expression HOWTO](https://docs.python.org/3/howto/regex.html)
-- [Regex101](https://regex101.com/) - Interactive regex testing and debugging
-- [Regular-Expressions.info](https://www.regular-expressions.info/) - Detailed regex tutorials
+- A pattern that can match nothing, such as `a*`, inserts the replacement at every empty match. `abc` becomes `--b-c-` with replacement `-`.

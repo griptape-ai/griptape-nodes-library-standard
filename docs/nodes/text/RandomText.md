@@ -7,6 +7,10 @@ when_to_use: Use it for placeholder or varied text, such as picking a random lin
 
 You want one random piece of a block of text. With text in `input_text`, the node splits it into characters, words, sentences or paragraphs and picks one. With `input_text` empty, it makes one up.
 
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`), only when `input_text` is empty and `selection_type` is `sentence` or `paragraph`. Then the node calls a model. Otherwise it needs nothing.
+
 ## Example
 
 1. Add **Random Text** and paste several review notes into `input_text`, each separated by a blank line.
@@ -45,5 +49,5 @@ When `input_text` is empty:
 
 - `character` is a random letter, digit or punctuation mark.
 - `word` is a random common English word.
-- `sentence` and `paragraph` are written by the `gpt-4.1-nano` model through Griptape Cloud, so a Griptape key is needed. The seed is only mentioned in the prompt, so the model may not repeat itself for the same seed. Changing `selection_type`, `seed` or `randomize_seed` starts a run immediately.
+- `sentence` and `paragraph` are written by the `gpt-4.1-nano` model through Griptape Cloud. The seed is only mentioned in the prompt, so the model may not repeat itself for the same seed. Changing `selection_type`, `seed` or `randomize_seed` starts a run immediately.
 - Generated characters and words ignore the seed, so they differ on every run.

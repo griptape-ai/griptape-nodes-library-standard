@@ -5,17 +5,20 @@ when_to_use: Use it when most of a clip is right and you want to redo a short pa
 
 ## When to use it
 
-A clip has a moment you want to change. Connect the video to `video`, mark the part to redo in `retake_segment`, describe what should happen there in `prompt`, and run the node. The rest of the clip is kept.
+Most of a clip is right and one moment needs to change. Connect the video to `video`, mark the part to redo in `retake_segment`, describe what should happen there in `prompt`, and run the node. The rest of the clip is kept.
 
-To send the video, the node uploads it to Griptape Cloud as a short-lived public link and deletes it after the run. If that is not possible it embeds the video in the request instead, which only works for files up to about 11 MB.
+## What it needs
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own LTX Studio key instead, stored in the `LTX_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and defaults to 1200. 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 1200 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- A local video is uploaded to Griptape Cloud as a short-lived public link, which is deleted after the run. A video that is already a public https link is sent as is. If the upload is not possible, the video is embedded in the request instead. That only works for files up to about 11 MB.
+- The clip can be up to 21 seconds long. The node checks the length before it submits.
 
 ## Parameters
 
 ### video
 
-The clip to edit. It can be up to 21 seconds long. The node checks the length before it submits.
+The clip to edit.
 
 ### retake_segment
 

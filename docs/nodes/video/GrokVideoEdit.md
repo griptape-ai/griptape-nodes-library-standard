@@ -5,11 +5,13 @@ when_to_use: Use it when you have a short MP4 and want to change it with a promp
 
 ## When to use it
 
-You have a clip and want a changed version. Connect the clip to `video`, describe the change in `prompt`, and run the node.
+You have a clip and want a changed version. Connect the clip to `video`, describe the change in `prompt`, and run the node. Use a Trim Video node to convert or shorten a clip that does not fit the limits.
 
-The input must be an MP4 of 8.7 seconds or less. The node checks this before it submits, because xAI accepts a request that breaks these limits and then fails the job without a reason. Use a Trim Video node to convert or shorten a clip that does not fit. The duration of a video passed as an inline data link is not checked here, so xAI enforces it.
+## What it needs
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own xAI key instead, stored in the `GROK_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own xAI key (`GROK_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The input must be an MP4 of 8.7 seconds or less. The node checks the file type and length before it submits, because xAI accepts a request that breaks these limits and then fails the job without a reason. The duration of a video passed as an inline data link is not checked here, so xAI enforces it.
 
 ## Parameters
 

@@ -7,7 +7,15 @@ when_to_use: Use it when you want a character in an image to move the way a pers
 
 You have a picture of a person and a video of someone moving, and you want the person in the picture to perform that motion. The length of the result follows the reference video.
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own Alibaba Cloud Model Studio key instead. The image and video are uploaded to Griptape Cloud storage so the service can fetch them. The uploads are deleted when the run ends. The node waits for the result. Use `timeout` (600 seconds by default) to change how long it waits. The Refresh button fetches a result after a timeout.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The image and video are uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run.
+- The node does not check the limits below, so an input outside them fails at the provider.
+- Image: JPG, JPEG, PNG, BMP or WEBP, 200 to 4096 px, aspect ratio 1:3 to 3:1, up to 5 MB.
+- Video: MP4, AVI or MOV, 2 to 30 seconds, 200 to 2048 px, aspect ratio 1:3 to 3:1, up to 200 MB.
+- Both should show a single person facing the camera with the full face visible.
 
 ## Parameters
 
@@ -21,10 +29,8 @@ The node runs through Griptape Cloud and uses your Griptape key. Turn on the API
 
 ### image_url
 
-Required. The image of the person to animate. The model docs list a single person facing the camera, with the full face visible, as the expected content. Images are 200 to 4096 px, aspect ratio 1:3 to 3:1, up to 5 MB.
+Required. The image of the person to animate.
 
 ### video_url
 
-Required. The reference video that supplies the motion. Same expectations for content: one person facing the camera, full face visible. Videos are MP4, AVI or MOV, 2 to 30 seconds, 200 to 2048 px, aspect ratio 1:3 to 3:1, up to 200 MB.
-
-The node reads the video's length and rounds it up to whole seconds. It sends that as the duration, so there is no duration setting.
+Required. The reference video that supplies the motion. The node reads its length, rounds it up to whole seconds and sends that as the duration, so there is no duration setting.

@@ -5,9 +5,14 @@ when_to_use: Use it when you want Gemini image results, including edits and comp
 
 ## When to use it
 
-Write a prompt to generate an image. Add reference images to edit one or to combine several. Two models are offered. `gemini-3-pro-image` (Nano Banana Pro) is the default. `gemini-3.1-flash-image` (Nano Banana 2) adds smaller and wider formats and image search.
+Write a prompt to generate an image. Add reference images to edit one or to combine several.
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own Google Cloud service account JSON (`GOOGLE_SERVICE_ACCOUNT_JSON` in Settings, Secrets). The run waits up to `timeout` seconds, 600 by default.
+Two models are offered. `gemini-3-pro-image` (Nano Banana Pro) is the default. `gemini-3.1-flash-image` (Nano Banana 2) adds smaller and wider formats and image search.
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Google Cloud service account JSON (`GOOGLE_SERVICE_ACCOUNT_JSON`) instead, set **Credentials Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
 
 ## Parameters
 

@@ -7,9 +7,11 @@ when_to_use: Use it when you want text-to-image results from Qwen, including ima
 
 Write a prompt, pick one of five sizes and get one image back. To change an existing image, use [Qwen Image Edit](QwenImageEdit.md).
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY` in Settings, Secrets). The run waits up to `timeout` seconds, 600 by default.
+## What it needs
 
-Workflows saved with the older Qwen Image or Qwen Image Plus models are migrated to `qwen-image-3.0`.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Workflows saved with the older Qwen Image or Qwen Image Plus models are migrated to `qwen-image-3.0`.
 
 ## Parameters
 

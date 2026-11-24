@@ -7,7 +7,13 @@ when_to_use: Use it when you want to check generated text, such as a shot descri
 
 You have an actual output and want to know how well it meets criteria you define, optionally compared with an expected output. For example, check that an Agent's summary of a review session keeps every shot code from the notes.
 
-The evaluation runs on a model through Griptape Cloud and needs a Griptape key. The model first writes three or four evaluation steps from your criteria. It then scores the input, expected output and actual output against those steps. The score is the model's judgment, so it can change between runs.
+The model first writes three or four evaluation steps from your criteria. It then scores the input, expected output and actual output against those steps. The score is the model's judgment, so it can change between runs.
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`).
+- The evaluation runs on a model through Griptape Cloud. A model your license does not allow stops the run with an error.
+- `criteria` filled in. The node fails if it is empty.
 
 ## Example
 
@@ -36,7 +42,7 @@ The text being evaluated.
 
 ### criteria
 
-How to judge the output. Required. The node fails if it is empty.
+How to judge the output. Required.
 
 ### model
 

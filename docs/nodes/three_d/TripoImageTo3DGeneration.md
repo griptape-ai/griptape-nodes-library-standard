@@ -5,17 +5,22 @@ when_to_use: Use it when you have a picture of an object and want a 3D model of 
 
 ## When to use it
 
-Connect one image and Tripo builds a model from it. The node runs through the Griptape model proxy and needs a Griptape Cloud API key (`GT_CLOUD_API_KEY`). It polls until the job finishes. The default timeout is 10 minutes. If a run times out, the Refresh button in the Status group retrieves the result. Texturing and detailed quality settings cost more, and the status message reports the credits Tripo charged.
+Connect one image and Tripo builds a model from it. For better geometry from several angles, use [Tripo Multiview to 3D](TripoMultiviewTo3DGeneration.md). To start from text, use [Tripo Text to 3D](TripoTextTo3DGeneration.md).
 
 The model is saved as GLB, or as FBX when `quad` is on. A preview image is saved next to it when Tripo provides one.
 
-For better geometry from several angles, use [Tripo Multiview to 3D](TripoMultiviewTo3DGeneration.md). To start from text, use [Tripo Text to 3D](TripoTextTo3DGeneration.md).
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Tripo 3D key (`TRIPO_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Texturing and detailed quality settings can use more credits. The status message reports the credits Tripo charged when Tripo returns them.
+- One image. The node tooltip gives PNG, JPEG or WEBP, up to 10 MB. The node does not check this.
 
 ## Parameters
 
 ### image
 
-Required. PNG, JPEG or WEBP, up to 10 MB.
+Required.
 
 ### model_version
 

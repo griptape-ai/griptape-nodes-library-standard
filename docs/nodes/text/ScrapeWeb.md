@@ -7,9 +7,12 @@ when_to_use: Use it when you have a URL and want the readable text of the page i
 
 You have the address of a page, such as a vendor's release notes, and want its text. Connect `output` to an [Agent](../agents/Agent.md) or a text node to work with it.
 
-The node asks a model on Griptape Cloud to call a scraper on the URL, then returns the scraped page text as `output`. It needs a Griptape key for that model call. The node does not check for a key before the run, so a missing key shows up as an error when the node runs.
+The node asks a model to call a scraper on the URL, then returns the scraped page text as `output`. To let an Agent decide for itself which pages to read, use the [Web Scraper](../tools/WebScraper.md) tool.
 
-To let an Agent decide for itself which pages to read, use the [Web Scraper](../tools/WebScraper.md) tool.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`).
+- The model call runs on Griptape Cloud. The node does not check for a key before the run, so a missing key shows up as an error when the node runs.
 
 ## Example
 

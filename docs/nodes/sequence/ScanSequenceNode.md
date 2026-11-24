@@ -13,9 +13,9 @@ If the folder has gaps and you want each unbroken run as its own Sequence, use [
 
 ### template
 
-The path with a token where the item number goes: `####`, `%04d` or `@@@`. `render.####.png` matches `render.0001.png`, `render.0002.png` and so on. A path with no token is treated as a sequence of one by default (see `no_token_behavior`).
+The path with a token where the item number goes: `####`, `%04d` or `@@@`. `render.####.png` matches `render.0001.png`, `render.0002.png` and so on. A path with no token is treated as a single file by default (see `no_token_behavior`).
 
-Project macros such as `{inputs}/render.####.png` are accepted. The returned paths keep the macro form, so the workflow still works on another machine.
+Project macros such as `{inputs}/render.####.png` are accepted. The returned paths keep the macro form, so the workflow works on another machine.
 
 ### missing_item_policy
 
@@ -33,10 +33,9 @@ On by default. When the scan finds nothing, the node fails, which usually means 
 
 ### Advanced Sequence Control
 
-A collapsed group that limits the scan. Its parameters are `start_mode`, `start_number`, `start_offset`, `end_mode`, `end_number`, `end_offset` and `no_token_behavior`.
+A collapsed group that limits the scan.
 
-- `start_mode` and `end_mode` choose the active range. Pick the first or last item on disk, a specific item number, or an offset from the first or last item. The number or offset field only shows when its mode is selected.
-- Numbers and offsets must be 0 or greater.
+- `start_mode` and `end_mode` choose the range: the first or last item on disk, a specific item number, or an offset from the first or last item. The matching `start_number`, `start_offset`, `end_number` or `end_offset` field shows only when its mode is selected. Values must be 0 or greater.
 - `no_token_behavior` controls a path with no token, such as `render.0002.png`. *Treat as a single file* returns only that file. *Treat as part of a sequence* reads the digits as an item number and collects the neighbouring files. *Fail unless a token is present* fails with an error.
 
 ### paths

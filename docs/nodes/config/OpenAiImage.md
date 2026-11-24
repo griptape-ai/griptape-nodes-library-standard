@@ -7,7 +7,11 @@ when_to_use: Use it when you want Generate Image to call OpenAI directly, for ex
 
 You want [Generate Image](../image/GenerateImage.md) to use an OpenAI image model with settings the Generate Image node does not offer, such as `background`, `moderation` or `output_format`. The node generates nothing itself. It outputs `image_model_config`, which you connect to the `model` input of Generate Image.
 
-This node calls OpenAI directly and reads the `OPENAI_API_KEY` secret. It does not go through Griptape Cloud. The workflow fails validation if the key is missing.
+## What it needs
+
+- An OpenAI API key, stored as `OPENAI_API_KEY`.
+- The node calls OpenAI directly. It does not use a Griptape Nodes license or a Griptape Cloud API key.
+- The workflow fails validation if the key is missing.
 
 ## Example
 

@@ -7,15 +7,18 @@ when_to_use: Use it when you want to change an existing image by describing the 
 
 Connect up to six images and describe the change. When you use more than one, refer to them as "Image 1", "Image 2" and so on in the instruction. To generate from text alone, use [Qwen Image Generation](QwenImageGeneration.md).
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY` in Settings, Secrets). The run waits up to `timeout` seconds, 600 by default.
+## What it needs
 
-Workflows saved with the older Qwen Image Edit models are migrated to `qwen-image-3.0`.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- One to six input images, sent to the service inline. The node checks only the count. The service expects JPG, PNG, BMP, TIFF or WEBP, 384 to 3072 pixels on each side and under 10 MB.
+- Workflows saved with the older Qwen Image Edit models are migrated to `qwen-image-3.0`.
 
 ## Parameters
 
 ### images
 
-At least one and at most six images. Each should be JPG, PNG, BMP, TIFF or WEBP, between 384 and 3072 pixels on each side, and under 10 MB.
+At least one and at most six images. See What it needs for format and size expectations.
 
 > [!WARNING]
 > The node asks for one edited image per input image, but it has a single `image_url` output. With several inputs, you get only the first result and the extra images are generated without any way to read them. Edit one image at a time if you want to avoid that.

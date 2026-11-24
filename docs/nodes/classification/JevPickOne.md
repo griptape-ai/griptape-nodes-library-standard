@@ -7,17 +7,26 @@ when_to_use: Use it when a workflow should branch into one of several routes bas
 
 You have text, and optionally images, and want to route it to one of several outcomes, such as which department should handle a message. Write each option as a row. Each row becomes its own flow output, and the flow continues from the one JEV picks. A Failed output is taken on errors.
 
-The node runs through Griptape Cloud and needs a Griptape Cloud API key (`GT_CLOUD_API_KEY`).
+For a yes or no decision, use [Ask Yes/No (JEV)](JevAskYesNo.md). For a graded scale, use [Rate (JEV)](JevRate.md).
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own TypeSafe key (`TYPESAFE_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Text in `context`, images, or both. The node fails if both are empty.
+- Images are resized to fit JEV's limits of 280 to 1568 pixels per side. They are saved as JPEG, and transparency is flattened onto white. The encoded images must total under 30 MiB, counting an image once for each time the context or question names it. Otherwise the node fails.
 
 ## Parameters
 
 ### context
 
-The text JEV reads. JSON also works. It can be empty if you connect images. The node fails if both are empty.
+The text JEV reads. JSON also works. It can be empty if you connect images.
 
 ### images
 
-Optional images. Name them in the question or context as `[image 1]`, `[image 2]` and so on. They are numbered among connected images only, so empty rows are skipped. Images are resized to fit JEV's limits of 280 to 1568 pixels per side and saved as JPEG, and transparency is flattened onto white. An image with an aspect ratio too extreme to fit the limits raises an error that tells you to crop it.
+Optional images. Name them in the question or context as `[image 1]`, `[image 2]` and so on. Numbering counts connected images only, so empty rows are skipped.
+
+An image whose aspect ratio is too extreme to fit the size limits raises an error that tells you to crop it.
 
 ### question
 

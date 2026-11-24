@@ -7,9 +7,12 @@ when_to_use: Use it when you have a picture of a character and a clip of someone
 
 You want a character to copy a performance. Connect the character picture to `reference_image` and a clip with the movement to `reference_video`. The result is a new video where the character from the image performs the actions from the clip. A `prompt` is optional and adds guidance.
 
-To give Kling access to the files, the node uploads both to Griptape Cloud as short-lived public links and deletes them after the run.
+## What it needs
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own Kling key instead, stored in the `KLING_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Kling AI key (`KLING_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
+- To give Kling access to the files, the node uploads both to Griptape Cloud as short-lived public links and deletes them after the run.
 
 ## Parameters
 

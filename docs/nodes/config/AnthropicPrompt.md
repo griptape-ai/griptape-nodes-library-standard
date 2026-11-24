@@ -7,7 +7,12 @@ when_to_use: Use it when an Agent should call Anthropic directly with your key, 
 
 This node builds a model configuration. It does not call the model itself. Connect `prompt_model_config` to an [Agent](../agents/Agent.md)'s `prompt model` input and the Agent uses that model.
 
-It talks to Anthropic directly and needs `ANTHROPIC_API_KEY` in Settings under API Keys & Secrets. A warning appears on the node when the key is missing, and the workflow fails validation. If you don't have an Anthropic key, use [Griptape Cloud Prompt](GriptapeCloudPrompt.md), which offers Claude models through Griptape Cloud.
+Use it when the Agent should call Anthropic directly. If you don't have an Anthropic key, use [Griptape Cloud Prompt](GriptapeCloudPrompt.md), which offers Claude models through Griptape Cloud.
+
+## What it needs
+
+- An Anthropic API key, stored as `ANTHROPIC_API_KEY` in Settings under API Keys & Secrets. This node does not use a Griptape Nodes license or a Griptape Cloud API key.
+- If the key is missing, a warning appears on the node and the workflow fails validation.
 
 ## Example
 

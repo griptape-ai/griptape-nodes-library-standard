@@ -5,12 +5,11 @@ when_to_use: Use it to cut a region out of a plate or render, such as a hero are
 
 ## When to use it
 
-You want part of an image. For example, crop the area of a frame where a comp issue shows up so it can be reviewed at a larger size, or reframe a render before sending it on.
+You want part of an image, such as the area of a frame where a comp issue shows up, or a reframed render.
 
 ## Example
 
-1. Add a **Load Image** node and pick a frame.
-1. Add **Crop Image** and connect the image to `input_image`. The editor shows the image.
+1. Connect a frame from **Load Image** to `input_image`. The editor shows the image.
 1. Drag the crop box in the editor, or open the crop coordinates group and enter `left`, `top`, `width` and `height`.
 1. Run the workflow. The cropped image is in `output`.
 
@@ -18,32 +17,25 @@ You want part of an image. For example, crop the area of a frame where a comp is
 
 ### crop_editor
 
-An interactive widget where you drag the crop area. It reads and writes `left`, `top`, `width`, `height`, `zoom` and `rotate`. A value that has an incoming connection is locked in the editor.
+Drag the crop area here. It reads and writes `left`, `top`, `width`, `height`, `zoom` and `rotate`. A value with an incoming connection is locked.
 
 ### left, top, width, height
 
-Pixels. `left` and `top` default to 0. `width` and `height` default to 0, which means the full image width or height. When an image is set, the slider limits update to the image size.
+Pixels. `width` and `height` of 0 mean the full image.
 
-The node adjusts values that fall outside the image instead of failing:
-
-- An origin past the image edge is moved to the last pixel column or row.
-- A box that extends past the edge is cut at the edge.
-- A negative `left` or `top` with a set `width` or `height` keeps the box's far edge, so only the part on the image is cropped.
-- A box entirely off the image becomes a one pixel strip at the edge.
-
-The adjustment is logged. Negative `width` or `height` fails validation.
+Values outside the image are adjusted and logged, not failed. Negative `width` or `height` fails validation.
 
 ### zoom
 
-Percent, 0 to 500, default 100. Zoom changes the size of the crop window around its center. 200 halves the window's width and height, so the output covers a quarter of the area. 50 doubles them, up to the image edges. The output is not scaled back up. Values are limited to between 10% and 1000% of the window when applied.
+Percent, 0 to 500, default 100. Zoom resizes the crop window around its center. 200 halves its width and height, and 50 doubles them, up to the image edges. The output is not scaled back up. The applied factor is limited to 10% through 1000%, so a zoom of 0 acts as 10%.
 
 ### rotate
 
-Degrees, -180 to 180, default 0. The image is rotated around the center of the crop window, and then the window is cut out. The window stays axis aligned. Positive values rotate counter-clockwise. Areas that come from outside the original image are filled with `background_color`.
+Degrees, -180 to 180, default 0. Positive values rotate counter-clockwise. The image rotates around the center of the crop window, and areas from outside it are filled with `background_color`.
 
 ### background_color
 
-Default `#00000000` (transparent). Used to fill areas exposed by rotation. If a color cannot be parsed, transparent is used.
+Default `#00000000` (transparent). Fills areas exposed by rotation. A color that cannot be parsed falls back to transparent.
 
 ### output_format
 
@@ -51,12 +43,18 @@ Default `#00000000` (transparent). Used to fill areas exposed by rotation. If a 
 
 ### output_quality
 
-0.0 to 1.0, default 0.9. Applies to `JPEG`. `WEBP` is currently saved lossless regardless of this value.
+0.0 to 1.0, default 0.9. Applies to `JPEG` only. `WEBP` is saved lossless regardless of this value.
 
 ### output_file
 
-Where the result is saved. The node writes the image to the project file location set here.
+Where the result is saved in the project.
 
 ### output
 
 The cropped image.
+
+## Edge cases
+
+- An origin past the image edge moves to the last pixel column or row, and a box that runs past the edge is cut at the edge.
+- A negative `left` or `top` with a set `width` or `height` keeps the box's far edge, so only the part on the image is cropped.
+- A box entirely off the image becomes a one pixel strip at the edge.

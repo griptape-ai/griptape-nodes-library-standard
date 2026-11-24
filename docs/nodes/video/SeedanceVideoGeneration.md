@@ -8,15 +8,19 @@ when_to_use: "Don't use it for new work. Use Seedance 2.0 Video Generation or Se
 > [!WARNING]
 > This node is deprecated. BytePlus no longer serves Seedance 1.0 Pro, 1.0 Pro Fast or 1.5 Pro through Griptape Cloud. Use [Seedance 2.0 Video Generation](Seedance20VideoGeneration.md) or [Seedance 2.5 Video Generation](Seedance25VideoGeneration.md) for new work.
 
-The node is kept so that saved workflows still open. It turns a prompt into a video, or animates from a still. A first frame starts the clip from an image, and a last frame also controls where it ends. For reference images, reference videos, audio or editing, use the 2.0 or 2.5 node.
+The node is kept so that saved workflows still open. It turns a prompt into a video, or animates from a still. For reference images, reference videos, audio or editing, use the 2.0 or 2.5 node.
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own ByteDance Seed key instead. The node waits for the result and saves the video. Use the `timeout` parameter (600 seconds by default) to change how long it waits. If a run times out, the Refresh button on the node fetches the result later.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ByteDance Seed key (`SEED_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
 
 ## Parameters
 
 ### model_id
 
-These models are no longer served through Griptape Cloud. The model changes which inputs appear.
+The model changes which inputs appear.
 
 | Model | `first_frame` | `last_frame` | `generate_audio` |
 |-------|---------------|--------------|------------------|
@@ -26,7 +30,7 @@ These models are no longer served through Griptape Cloud. The model changes whic
 
 ### first_frame / last_frame
 
-Both are optional and connect as inputs only. Leave both empty for text-to-video. Images that cannot be loaded are skipped without an error.
+Both are optional and connect as inputs only. A first frame starts the clip from an image, and a last frame also controls where it ends. Leave both empty for text-to-video. Images that cannot be loaded are skipped without an error.
 
 ### ratio
 

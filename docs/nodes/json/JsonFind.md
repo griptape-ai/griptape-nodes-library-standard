@@ -5,9 +5,9 @@ when_to_use: Use it when you need to look up an item in a list of records by nam
 
 ## When to use it
 
-Use it to search a JSON array for items that match a field value. It supports exact, contains and starts-with matching, case-sensitive or not, and returns either the first match or all matches. Typical uses are finding a shot, task or version in a list by name, status or assignee, filtering an API response, or looking up an entry in a configuration.
+You have a list of records and want the ones that match a field value, such as a shot, task or version by name, status or assignee. It supports exact, contains and starts-with matching, and returns the first match or all of them.
 
-If the input is an object that contains arrays, the node checks the keys `data`, `items`, `results` and `list`, in that order, and searches the first one that holds an array. If `data` holds an array, `items` is never searched. For example, with `{"data": [{"name": "Item 1"}, {"name": "Item 2"}]}` it searches the `data` array.
+If the input is an object, the node searches the first array it finds under the keys `data`, `items`, `results` or `list`, in that order. If `data` holds an array, `items` is never searched.
 
 ## Examples
 
@@ -16,7 +16,6 @@ Find a task by content:
 ```python
 # Input JSON: [
 #   {"attributes": {"content": "Design", "status": "wtg"}},
-#   {"attributes": {"content": "Model", "status": "wtg"}},
 #   {"attributes": {"content": "Design Review", "status": "ip"}}
 # ]
 # search_field: "attributes.content"
@@ -29,11 +28,9 @@ Find a task by content:
 Find all tasks with a status:
 
 ```python
-# Input JSON: [
-#   {"attributes": {"content": "Design", "status": "wtg"}},
+# Input JSON: [{"attributes": {"content": "Design", "status": "wtg"}},
 #   {"attributes": {"content": "Model", "status": "wtg"}},
-#   {"attributes": {"content": "Review", "status": "ip"}}
-# ]
+#   {"attributes": {"content": "Review", "status": "ip"}}]
 # search_field: "attributes.status"
 # search_value: "wtg"
 # search_mode: "exact"
@@ -42,47 +39,10 @@ Find all tasks with a status:
 #          {"attributes": {"content": "Model", "status": "wtg"}}]
 ```
 
-Case-insensitive search:
-
-```python
-# Input JSON: [
-#   {"name": "Design Task"},
-#   {"name": "design review"},
-#   {"name": "DESIGN WORK"}
-# ]
-# search_field: "name"
-# search_value: "design"
-# search_mode: "contains"
-# case_sensitive: false
-# return_mode: "all"
-# Result: All three items
-```
-
-Items starting with a value:
-
-```python
-# Input JSON: [
-#   {"title": "Design Task"},
-#   {"title": "Design Review"},
-#   {"title": "My Design Work"}
-# ]
-# search_field: "title"
-# search_value: "Design"
-# search_mode: "starts_with"
-# return_mode: "all"
-# Result: [{"title": "Design Task"}, {"title": "Design Review"}]
-```
-
 Nested search:
 
 ```python
-# Input JSON: [
-#   {
-#     "relationships": {
-#       "entity": {"data": {"name": "convertible", "type": "Asset"}}
-#     }
-#   }
-# ]
+# Input JSON: [{"relationships": {"entity": {"data": {"name": "convertible", "type": "Asset"}}}}]
 # search_field: "relationships.entity.data.name"
 # search_value: "convertible"
 # search_mode: "exact"
@@ -94,15 +54,15 @@ Nested search:
 
 ### json
 
-An array, or an object that contains an array under one of the names listed above. A string that cannot be parsed, including an empty string, makes the node fail with an error when the node runs. While you edit values on the node, the same input clears the outputs instead of raising. JSON `null` or an unset input is treated as no array.
+An array, or an object that contains an array under one of the keys above. A string that cannot be parsed, including an empty string, fails the node when it runs. While you edit values on the node, the same input clears the outputs instead.
 
 ### search_field
 
-Plain dot notation with optional `[n]` array indexes, such as `attributes.content` or `items[0].title`. An index must follow a key, so `[0].title` does not work. A key that contains a dot cannot be matched. It does not support JMESPath features such as wildcards or filters, which [JSON Extract Value](JsonExtractValue.md) does. A path that does not exist in an item means that item does not match.
+Dot notation with optional `[n]` array indexes, such as `attributes.content` or `items[0].title`. An index must follow a key, so `[0].title` does not work. It does not support JMESPath wildcards or filters. Use [JSON Extract Value](JsonExtractValue.md) for those. An item without the path does not match.
 
 ### search_value
 
-The field value and `search_value` are both converted to text before they are compared, so the number `5` matches `"5"`. A float such as `5.0` becomes `"5.0"` and does not match `"5"`. A JSON `null` field never matches, and `true` becomes `"True"`.
+The field value and `search_value` are both converted to text before they are compared, so the number `5` matches `"5"`. A float such as `5.0` becomes `"5.0"` and does not match `"5"`. `true` becomes `"True"`.
 
 ### search_mode
 
@@ -126,19 +86,21 @@ On by default.
 
 ### found_item
 
-The single item for `first`, or an array for `all`.
+The single item for `first`, or an array for `all`. With no match it is `{}` for `first` and `[]` for `all`.
 
 ### found_count
 
-The number of all matches, even when `return_mode` is `first`.
+The number of all matches, even when `return_mode` is `first`. It is 0 with no match.
 
 ### found_index
 
-The index of the first match in the array, or -1 if nothing matched. It is set in both return modes.
+The index of the first match, or -1 if nothing matched. It is set in both return modes.
 
-## No match and empty inputs
+## Edge cases
 
-If `search_field` or `search_value` is empty, or the input has no array to search, `found_item` is `{}` in both modes. If the search runs and nothing matches, `found_item` is `{}` for `first` and `[]` for `all`. Either way `found_count` is 0 and `found_index` is -1.
+- If `search_field` or `search_value` is empty, or the input has no array, `found_item` is `{}` in both modes.
+- A key that contains a dot cannot be matched.
+- A JSON `null` field never matches.
 
 ## Related nodes
 

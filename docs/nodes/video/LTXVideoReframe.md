@@ -5,19 +5,22 @@ when_to_use: Use it when you need a clip in another shape, such as turning a 16:
 
 ## When to use it
 
-You have a clip in one shape and need another. Choose the target `resolution`, run the node, and LTX extends the picture around the source so it fills the new frame. The new areas are generated to match the video.
+You have a clip in one shape and need another, such as 16:9 to 9:16 or square, without cropping the subject. Choose the target `resolution` and LTX extends the picture around the source to fill the new frame. The new areas are generated to match the video.
 
-The input can be up to 60 seconds and 1800 frames, with each side between 64 and 4096 pixels. The node checks these before it submits.
+## What it needs
 
-To send the video, the node uploads it to Griptape Cloud as a short-lived public link and deletes it after the run. If that is not possible it embeds the video in the request instead, which only works for files up to about 11 MB.
-
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own LTX Studio key instead, stored in the `LTX_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and defaults to 1200. 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 1200 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
+- A local file is uploaded to Griptape Cloud as a short-lived public link, which is deleted after the run. A public link to another website is sent as it is. If the upload is not possible, the video is embedded in the request instead. That only works for files up to about 11 MB.
+- The input can be up to 60 seconds and 1800 frames, with each side between 64 and 4096 pixels. The node checks this before it submits, when it can read the video.
+- Billing is per second of input video, at the 720p or 1080p tier of the output.
 
 ## Parameters
 
 ### resolution
 
-The output size. Each option shows its aspect ratio: 1:1, 4:5, 5:4, 9:16 and 16:9, each at a 720 and a 1080 size. The default is `1080x1920`. Billing is per second of input video, at the 720p or 1080p tier of the output.
+The output size. Each option shows its aspect ratio: 1:1, 4:5, 5:4, 9:16 and 16:9, each at a 720 and a 1080 size. The default is `1080x1920`.
 
 ### placement_mode
 

@@ -5,9 +5,14 @@ when_to_use: Use it when you want FLUX.1 Kontext Pro for text-to-image, or to ch
 
 ## When to use it
 
-Write a prompt to generate an image. Connect `input_image` to start from an existing image instead. The only model offered is FLUX.1 Kontext Pro. For newer models, see [FLUX.2 Image Generation](Flux2ImageGeneration.md) and [FLUX 3 Image Generation](Flux3ImageGeneration.md).
+Write a prompt to generate an image. Connect `input_image` to start from an existing image instead.
 
-It runs through the Griptape model proxy. You need a Griptape Cloud credential, or you can switch `api_key_provider` to use your own Black Forest Labs key (`BFL_API_KEY` in Settings, Secrets). The run waits up to `timeout` seconds, 600 by default.
+The only model offered is FLUX.1 Kontext Pro. For newer models, see [FLUX.2 Image Generation](Flux2ImageGeneration.md) and [FLUX 3 Image Generation](Flux3ImageGeneration.md).
+
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Black Forest Labs key (`BFL_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
 
 ## Parameters
 

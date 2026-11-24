@@ -5,9 +5,14 @@ when_to_use: Use it when you need HDR frames from an SDR clip for grading or com
 
 ## When to use it
 
-You have an SDR clip and want HDR frames to work with in a compositing or grading tool. Connect the video to `video`, choose an output colour space, and run the node. The result is a set of EXR images, not a video file. A small 10-bit HLG MP4 preview is also saved when the generation has one.
+You have an SDR clip and want HDR frames for grading or compositing in a linear or ACES workflow. The result is a set of EXR images, not a video file.
 
-The input is checked before it submits. It can be up to 4K, and the frame limit depends on its size.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 900 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- A local video is uploaded to Griptape Cloud as a short-lived public link, which is deleted after the run. A video that is already a public https link is sent as is. If the upload is not possible, the video is embedded in the request instead. That only works for files up to about 11 MB.
+- The input can be up to 4K. The node checks the frame limit before it submits.
 
 | Input size | Maximum frames |
 | --- | --- |
@@ -15,32 +20,28 @@ The input is checked before it submits. It can be up to 4K, and the frame limit 
 | Up to 2560 x 1440 | 193 |
 | Up to 3840 x 2160 | 65 |
 
-To send the video, the node uploads it to Griptape Cloud as a short-lived public link and deletes it after the run. If that is not possible it embeds the video in the request instead, which only works for files up to about 11 MB.
-
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own LTX Studio key instead, stored in the `LTX_API_KEY` secret. A largest-size job takes about ten minutes, so `timeout` defaults to 900 seconds. 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
-
 ## Parameters
 
 ### model
 
-`ltx-hdr-2` is the current model. `ltx-2-3-pro` is marked deprecated and goes to the same service. It always returns ACEScg and ignores `output_colorspace`.
+`ltx-hdr-2` is the current model. `ltx-2-3-pro` is deprecated, always returns ACEScg and ignores `output_colorspace`.
 
 ### output_colorspace
 
-The colour space of the EXR frames: `acescg` (the default), `acescct`, `srgb_linear` or `aces2065-1`. It is only shown for `ltx-hdr-2`.
+The colour space of the EXR frames: `acescg` (the default), `acescct`, `srgb_linear` or `aces2065-1`. Shown for `ltx-hdr-2` only.
 
 ### direct_download
 
-Downloads the results straight from LTX to this machine instead of through Griptape Cloud hosting. Use it for very large outputs. Griptape Cloud does not keep the files in this mode, so Refresh fetches them from LTX again and fails once LTX has removed them.
+Downloads the results straight from LTX instead of through Griptape Cloud hosting. Use it for very large outputs. Griptape Cloud does not keep the files in this mode, so **Refresh** fails once LTX has removed them.
 
-### output_file
+### output_file and exr_sequence
 
-Where the ZIP of EXR frames is saved. `project_path` returns the project path of that ZIP after a run.
-
-### exr_sequence
-
-The EXR frames unpacked into a sequence. Connect it to a node that reads EXR sequences. `colour_space` gives the OCIO name of their colour space. If unpacking fails, the ZIP is still saved and the status says so.
+`output_file` is where the ZIP of EXR frames is saved. `exr_sequence` is the same frames unpacked into a sequence for a node that reads EXR sequences. `colour_space` gives their OCIO name.
 
 ### preview_video
 
-The HLG MP4 preview, saved at `preview_video_file`. It is empty when the generation has no preview. A missing preview does not fail the run.
+A 10-bit HLG MP4 preview, saved at `preview_video_file`. Empty when the generation has no preview. A missing preview does not fail the run.
+
+## Edge cases
+
+- If unpacking fails, the ZIP is still saved and the status says so.

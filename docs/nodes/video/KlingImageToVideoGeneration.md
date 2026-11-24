@@ -7,7 +7,11 @@ when_to_use: Use it when you have a still image and want a clip that starts from
 
 You have an image and want it animated. Connect it to `image` and describe the motion in `prompt`. Add an end frame to control where the clip lands. Use [Kling Text to Video Generation](KlingTextToVideoGeneration.md) when you have no image.
 
-The node runs through the Griptape model proxy and needs a Griptape Cloud API key. Switch `api_key_provider` to **Customer** to use your own Kling key instead, stored in the `KLING_API_KEY` secret. `timeout` sets how long the node waits, in seconds, and 0 means no limit. If the wait ends first, the Refresh button in the Status group retrieves a finished result.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Kling AI key (`KLING_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- Set `timeout` to 0 to wait with no limit.
 
 ## Parameters
 
@@ -23,25 +27,26 @@ The default is `kling-v3`. The controls shown depend on the model.
 | `kling-v2-6` | 5 or 10 s | `mode` `std` or `pro`. Optional `sound`. |
 | `kling-v2-5-turbo` | 5 or 10 s | `mode` `std` or `pro`. |
 
-Workflows saved with older Kling models are switched to `kling-v2-6`, because Kling no longer offers them.
+Workflows saved with Kling v1, v1.5, v1.6, v2 Master, v2.1 or v2.1 Master are switched to `kling-v2-6`, because Kling no longer offers them.
 
 ### image and image_tail
 
-`image` is the start frame and `image_tail` is the end frame. On Kling v3, v2.6 and v2.5 Turbo you need at least one of them. Kling 4.0 needs the start frame.
-
-An end frame needs `pro` mode. The node stops with a message in `std` mode, and also in `4k`. Kling 4.0 Flash takes no end frame.
+`image` is the start frame and `image_tail` is the end frame. Kling v3, v2.6 and v2.5 Turbo need at least one of them. Kling 4.0 needs the start frame. On v3, v2.6 and v2.5 Turbo an end frame needs `pro` mode, and the node stops with a message in `std` or `4k`. Kling 4.0 Flash takes no end frame.
 
 ### middle_frames
 
-Kling 4.0 only. Keyframes between the start and end frame, in order. In the prompt, the start frame is `@frame_1`, the first middle frame is `@frame_2`, and so on. Kling 4.0 accepts up to 10 keyframes in total.
+Kling 4.0 only. Keyframes between the start and end frame, up to 10 in total. In the prompt the start frame is `@frame_1`, the first middle frame `@frame_2`, and so on.
 
 ### prompt
 
-A prompt is required. It can be up to 2500 characters on v3, v2.6 and v2.5 Turbo, except for v3 in custom multi-shot mode.
+Required on all models except v3 in custom multi-shot mode. Up to 2500 characters on v3, v2.6 and v2.5 Turbo.
 
 ### multi_shot, shot_type and shots
 
-Kling v3 only. With `multi_shot` on, `customize` lets you write each shot in the `shots` editor with its own prompt and a whole-second duration, up to 6 shots. The total becomes the video length and `prompt` and `duration` are hidden. `intelligence` takes one `prompt` and Kling splits it into shots.
+Kling v3 only. With `multi_shot` on:
+
+- `customize`: write each shot in the `shots` editor with its own prompt and a whole-second duration, up to 6 shots. The total becomes the video length, and `prompt` and `duration` are hidden.
+- `intelligence`: write one `prompt` and Kling splits it into shots.
 
 ### sound
 
@@ -49,7 +54,7 @@ Kling v2.6 only. It is only shown in `pro` mode and is reset to `off` in `std` m
 
 ### dynamic_masks
 
-A JSON list that configures Kling's dynamic brush. It must be valid JSON, and any masks inside it must be URLs or base64. The node stops with a message if the JSON does not parse. `static_mask` takes an image for the static brush area. The mask inputs are hidden on Kling 4.0.
+A JSON list that configures Kling's dynamic brush. It must be valid JSON, and any masks inside it must be URLs or base64. The node stops with a message if the JSON does not parse. `static_mask` takes an image for the static brush area. Both are hidden on Kling 4.0.
 
 ### kling_video_id
 

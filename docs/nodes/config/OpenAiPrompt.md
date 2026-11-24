@@ -7,7 +7,12 @@ when_to_use: Use it when an Agent should call OpenAI directly with your key, or 
 
 This node builds a model configuration. It does not call the model itself. Connect `prompt_model_config` to an [Agent](../agents/Agent.md)'s `prompt model` input and the Agent uses that model.
 
-It talks to OpenAI directly and needs `OPENAI_API_KEY` in Settings under API Keys & Secrets. If you don't have an OpenAI key, use [Griptape Cloud Prompt](GriptapeCloudPrompt.md), or leave the Agent on its default model.
+Use it when the Agent should call OpenAI directly. If you don't have an OpenAI key, use [Griptape Cloud Prompt](GriptapeCloudPrompt.md), or leave the Agent on its default model.
+
+## What it needs
+
+- An OpenAI API key, stored as `OPENAI_API_KEY` in Settings under API Keys & Secrets. This node does not use a Griptape Nodes license or a Griptape Cloud API key.
+- The key must work when you add the node, because the node asks OpenAI for your model list at that point.
 
 ## Example
 
@@ -21,7 +26,7 @@ An Agent that writes dailies notes should be consistent from run to run.
 
 ### model
 
-The node asks OpenAI which models your key can use when the node is created, and offers that list. The first model returned becomes the default. This means the node needs a working `OPENAI_API_KEY` at the moment you add it to the workflow.
+The list is the models your key can use, fetched from OpenAI when the node is created. The first model returned becomes the default.
 
 ### temperature
 

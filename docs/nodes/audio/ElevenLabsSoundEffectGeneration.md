@@ -7,7 +7,10 @@ when_to_use: Use it when you want a sound effect such as footsteps, rain or a do
 
 Describe the sound, choose a length and run. The result is saved as an audio file and returned as `audio_url`.
 
-The node runs through Griptape Cloud and uses your Griptape key. Turn on the API Key Provider option to use your own Eleven Labs key instead. It waits for the result for up to `timeout` seconds (600 by default). If a run times out, the Refresh button in the Status group fetches the result later.
+## What it needs
+
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ElevenLabs key (`ELEVENLABS_API_KEY`) instead, set **API Key Provider** to **Customer**.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
 
 ## Parameters
 

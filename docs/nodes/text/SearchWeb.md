@@ -9,7 +9,13 @@ You have a query and want the search results as text. For example, look up a cod
 
 To let an Agent decide for itself when to search, use the [Web Search](../tools/WebSearch.md) tool instead.
 
-Without `summarize`, `output` holds up to five results, one per line, each as JSON with `title`, `url` and `description`. With `summarize` on, a model reads the results and writes an answer. The model call runs through Griptape Cloud, so a Griptape key is needed for that. The node's own validation only checks the search engine keys.
+Without `summarize`, `output` holds up to five results, one per line, each as JSON with `title`, `url` and `description`. With `summarize` on, a model reads the results and writes an answer. A model call is made either way: without `summarize` the model calls the search and the run ends on the raw results.
+
+## What it needs
+
+- A search engine. DuckDuckGo needs no key. Google and Exa need keys in Settings under API Keys & Secrets (see `search_engine`).
+- A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`), with or without `summarize`. The model call runs through Griptape Cloud, and a model your license does not allow stops the run with an error.
+- The node's own validation checks only the search engine keys.
 
 ## Example
 
