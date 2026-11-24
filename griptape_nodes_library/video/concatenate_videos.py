@@ -4,10 +4,10 @@ import tempfile
 import uuid
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, SuccessFailureNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
@@ -22,6 +22,8 @@ from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 class ConcatenateVideos(BaseVideoProcessor):
     """Concatenate multiple videos into a single video file using FFmpeg."""
+
+    OUTPUT_FILE_DEFAULT_FILENAME: ClassVar[str] = "concatenated.mp4"
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         # Initialize the base SuccessFailureNode first (skip BaseVideoProcessor custom init)
@@ -78,6 +80,8 @@ class ConcatenateVideos(BaseVideoProcessor):
             )
         )
 
+        self._setup_output_file_parameter()
+
         # Setup logging group
         self._setup_logging_group()
 
@@ -86,6 +90,15 @@ class ConcatenateVideos(BaseVideoProcessor):
             result_details_tooltip="Details about the video concatenation operation result",
             result_details_placeholder="Details on the concatenation attempt will be presented here.",
         )
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "output_format" and isinstance(value, str) and value:
+            current = self.get_parameter_value("output_file")
+            updated = self._swap_filename_extension(current, value)
+            if updated != current:
+                self.set_parameter_value("output_file", updated)
+                self.publish_update_to_parameter("output_file", updated)
+        return super().after_value_set(parameter, value)
 
     def _setup_logging_group(self) -> None:
         """Setup the common logging parameter group."""

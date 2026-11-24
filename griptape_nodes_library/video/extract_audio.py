@@ -46,13 +46,6 @@ class ExtractAudio(BaseVideoProcessor):
                 self.publish_update_to_parameter("output_file", updated)
         return super().after_value_set(parameter, value)
 
-    @staticmethod
-    def _swap_filename_extension(filename: Any, new_extension: str) -> str:
-        if not isinstance(filename, str) or not filename:
-            return f"output.{new_extension}"
-        path = Path(filename)
-        return str(path.with_suffix(f".{new_extension}"))
-
     def _register_primary_output_parameter(self) -> None:
         self.add_parameter(
             ParameterAudio(
