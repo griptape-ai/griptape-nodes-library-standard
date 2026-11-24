@@ -25,7 +25,7 @@ An Agent that writes dailies notes should be consistent from run to run.
 
 ### model
 
-The list is fixed, so the node can be added without a working key. The default is `gpt-5.6-sol`. A saved workflow whose model isn't on the list loads with `gpt-5.6-sol`. Models your license does not permit are flagged, and the run fails if one is selected.
+The list is fixed, so the node can be added without a working key. The default is `gpt-5.6-sol`. A saved workflow whose model isn't on the list keeps it, and the run fails before it starts with an error naming that model. Models your license does not permit are flagged, and the run fails if one is selected.
 
 ### temperature
 

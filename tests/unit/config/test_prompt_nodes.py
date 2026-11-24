@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 import pytest
 from griptape_nodes.node_library.library_registry import LibraryRegistry
+from griptape_nodes.traits.options import Options
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.models.cohere import CohereModel
@@ -215,6 +216,33 @@ def test_openai_prompt_builds_without_credentials(monkeypatch: pytest.MonkeyPatc
     node = _create_node("OpenAiPrompt")
 
     assert node.get_parameter_value("model") == OPENAI_DEFAULT_MODEL
+
+
+def test_openai_prompt_keeps_unlisted_saved_model() -> None:
+    node = _create_node("OpenAiPrompt")
+    parameter = node.get_parameter_by_name("model")
+    assert parameter is not None
+    options = parameter.find_elements_by_type(Options)[0]
+    choices = list(options.choices)
+    node.set_parameter_value("model", "gpt-3.5-turbo", initial_setup=True)
+
+    exceptions = node.validate_before_workflow_run()
+
+    assert options.choices == choices
+
+    assert node.get_parameter_value("model") == "gpt-3.5-turbo"
+    assert exceptions is not None
+    assert len(exceptions) == 1
+    assert "'gpt-3.5-turbo'" in str(exceptions[0])
+    with pytest.raises(ValueError, match="gpt-3.5-turbo"):
+        node.process()
+
+
+def test_openai_prompt_listed_model_passes_validation() -> None:
+    node = _create_node("OpenAiPrompt")
+    node.set_parameter_value("model", "gpt-4.1", initial_setup=True)
+
+    assert node.validate_before_workflow_run() is None
 
 
 def test_openai_seed_parameter_is_not_offered() -> None:
