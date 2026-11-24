@@ -160,7 +160,7 @@ class AddRGBShift(BaseVideoProcessor):
                 f"gh={green_h_scaled + tear_offset}:gv={green_v_scaled}:"
                 f"bh={blue_h_scaled + tear_offset}:bv={blue_v_scaled}[bottom_shifted];"
                 f"[top_shifted][bottom_shifted]vstack[tear_effect];"
-                f"[rgb_shifted][tear_effect]overlay=0:0[out]"
+                f"[rgb_shifted][tear_effect]overlay=0:0"
             )
         else:
             # Simple RGB shift without tear effect
