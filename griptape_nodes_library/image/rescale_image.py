@@ -342,19 +342,19 @@ class RescaleImage(BaseImageProcessor):
             # Resize by width, maintain aspect ratio
             ratio = target_size / pil_image.width
             new_width = target_size
-            new_height = int(pil_image.height * ratio)
+            new_height = max(1, int(pil_image.height * ratio))
             resized_image = pil_image.resize((new_width, new_height), resample_constant)
         elif resize_mode == self.RESIZE_MODE_HEIGHT:
             # Resize by height, maintain aspect ratio
             ratio = target_size / pil_image.height
-            new_width = int(pil_image.width * ratio)
+            new_width = max(1, int(pil_image.width * ratio))
             new_height = target_size
             resized_image = pil_image.resize((new_width, new_height), resample_constant)
         elif resize_mode == self.RESIZE_MODE_PERCENTAGE:
             # Resize by percentage scale
             scale_factor = percentage_scale / 100.0
-            new_width = int(pil_image.width * scale_factor)
-            new_height = int(pil_image.height * scale_factor)
+            new_width = max(1, int(pil_image.width * scale_factor))
+            new_height = max(1, int(pil_image.height * scale_factor))
             resized_image = pil_image.resize((new_width, new_height), resample_constant)
         elif resize_mode == self.RESIZE_MODE_WIDTH_HEIGHT:
             # Resize to specific width and height with fit mode
