@@ -120,6 +120,7 @@ class SearchWeb(BaseTask):
             )
             for api_key in self.missing_api_keys()
         ]
+        exceptions.extend(super().validate_before_workflow_run() or [])
         return exceptions or None
 
     def process(self) -> AsyncResult[str]:

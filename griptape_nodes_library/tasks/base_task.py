@@ -9,6 +9,7 @@ from pydantic_ai.toolsets import AbstractToolset
 from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import Prompt
 from griptape_nodes_library.llm.task_support import TaskRunResult, run_task_agent
+from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_error, resolve_cloud_api_key
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -86,6 +87,23 @@ class BaseTask(ControlNode):
             raise RuntimeError(msg)
         self._model_access.raise_if_selection_denied()
         return self._model_access.selected_value or ""
+
+    def validate_before_workflow_run(self) -> list[Exception] | None:
+        return self._with_credential_check(super().validate_before_workflow_run())
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        return self._with_credential_check(super().validate_before_node_run())
+
+    def _with_credential_check(self, exceptions: list[Exception] | None) -> list[Exception] | None:
+        """Add a missing Griptape Cloud credential to `exceptions`.
+
+        Every task node runs its model on Griptape Cloud, which accepts a Griptape Nodes
+        License or a Griptape Cloud API key, so either one passes.
+        """
+        exceptions = list(exceptions or [])
+        if not resolve_cloud_api_key():
+            exceptions.append(missing_credential_error(f"run {self.name}"))
+        return exceptions or None
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if self._model_access is not None:

@@ -7,11 +7,16 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.retained_mode.events.execution_events import ResolveNodeRequest
+from griptape_nodes.retained_mode.events.parameter_events import (
+    GetConnectionsForParameterRequest,
+    GetConnectionsForParameterResultSuccess,
+)
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.llm.model_config import cloud_model_config
 from griptape_nodes_library.llm.runner import output_to_text, prompt_model
+from griptape_nodes_library.utils.cloud_credential_utils import missing_credential_error, resolve_cloud_api_key
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 
 API_KEY_ENV_VAR = "GT_CLOUD_API_KEY"
@@ -248,22 +253,9 @@ class RandomText(DataNode):
         rng = random.Random(seed)  # noqa: S311
 
         try:
-            # If input text is empty, generate random content
-            if not input_text.strip():
-                return self._generate_with_agent(selection_type, seed)
+            items = self._split_input(input_text, selection_type)
 
-            # Split text based on selection type
-            if selection_type == "character":
-                items = list(input_text)
-            elif selection_type == "word":
-                items = input_text.split()
-            elif selection_type == "sentence":
-                # Split on sentence endings followed by space or newline
-                items = [s.strip() for s in re.split(r"[.!?]+[\s\n]+", input_text) if s.strip()]
-            else:  # paragraph
-                items = [p.strip() for p in input_text.split("\n\n") if p.strip()]
-
-            # Return empty string if no items found
+            # Generate random content if there is nothing to pick from
             if not items:
                 return self._generate_with_agent(selection_type, seed)
 
@@ -272,6 +264,58 @@ class RandomText(DataNode):
 
         except Exception:
             return self._generate_with_agent(selection_type, seed)
+
+    @staticmethod
+    def _split_input(input_text: str, selection_type: str) -> list[str]:
+        """Split the input text into the units to pick from, empty when there are none."""
+        if not input_text.strip():
+            return []
+        match selection_type:
+            case "character":
+                return list(input_text)
+            case "word":
+                return input_text.split()
+            case "sentence":
+                # Split on sentence endings followed by space or newline
+                return [s.strip() for s in re.split(r"[.!?]+[\s\n]+", input_text) if s.strip()]
+            case "paragraph":
+                return [p.strip() for p in input_text.split("\n\n") if p.strip()]
+            case _:
+                msg = f"Unknown selection type: {selection_type!r}"
+                raise ValueError(msg)
+
+    def _generates_with_model(self) -> bool:
+        """Whether the run writes a sentence or paragraph with the model instead of picking one."""
+        # A connected input_text is None until its upstream node sets a value
+        input_text = self.parameter_values.get("input_text") or ""
+        selection_type = self.parameter_values.get("selection_type", "word")
+        return selection_type in ["sentence", "paragraph"] and not self._split_input(input_text, selection_type)
+
+    def _input_text_is_connected(self) -> bool:
+        result = GriptapeNodes.handle_request(
+            GetConnectionsForParameterRequest(parameter_name="input_text", node_name=self.name, broadcast_result=False)
+        )
+        return isinstance(result, GetConnectionsForParameterResultSuccess) and result.has_incoming_connections()
+
+    def validate_before_workflow_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_workflow_run()
+        # A connected input_text has no value until its upstream node runs, so
+        # validate_before_node_run checks it instead
+        if self._input_text_is_connected():
+            return exceptions
+        return self._with_credential_check(exceptions)
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        return self._with_credential_check(super().validate_before_node_run())
+
+    def _with_credential_check(self, exceptions: list[Exception] | None) -> list[Exception] | None:
+        """Add a missing Griptape Cloud credential to `exceptions` when the run would call the model."""
+        exceptions = list(exceptions or [])
+        if self._generates_with_model() and not resolve_cloud_api_key():
+            exceptions.append(
+                missing_credential_error(f"generate a random {self.parameter_values.get('selection_type')}")
+            )
+        return exceptions or None
 
     def preprocess(self) -> None:
         self._seed_parameter.preprocess()
@@ -284,17 +328,11 @@ class RandomText(DataNode):
         # Handle seed parameter component
         self._seed_parameter.after_value_set(parameter, value)
 
-        if parameter.name != "output":
-            # Get current values
-            input_text = self.parameter_values.get("input_text", "")
-            selection_type = self.parameter_values.get("selection_type", "word")
-
+        # A value arriving on a connected input_text comes from the run, and process() picks then
+        arrived_from_connection = parameter.name == "input_text" and self._input_text_is_connected()
+        if parameter.name != "output" and not arrived_from_connection:
             # Only trigger node execution if we need to generate content with the agent
-            if (
-                not input_text.strip()
-                and selection_type in ["sentence", "paragraph"]
-                and parameter.name in ["selection_type", "seed", "randomize_seed"]
-            ):
+            if self._generates_with_model() and parameter.name in ["selection_type", "seed", "randomize_seed"]:
                 # Trigger node execution
                 request = ResolveNodeRequest(node_name=self.name)
                 GriptapeNodes.handle_request(request)
