@@ -9,6 +9,8 @@ You have text, and optionally images, and want to route it to one of several out
 
 For a yes or no decision, use [Ask Yes/No (JEV)](JevAskYesNo.md). For a graded scale, use [Rate (JEV)](JevRate.md).
 
+To ask this question together with others about the same text in one call, use [Questions (JEV)](JevAsk.md).
+
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own TypeSafe key (`TYPESAFE_API_KEY`) instead, set **API Key Provider** to **Customer**.
