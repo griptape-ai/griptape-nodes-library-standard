@@ -6,6 +6,7 @@ from typing import Any
 
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.node_types import BaseNode
 from griptape_nodes.exe_types.param_components.artifact_url.public_artifact_url_parameter import (
     PublicArtifactUrlParameter,
 )
@@ -18,6 +19,10 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.retained_mode.events.connection_events import (
+    ListConnectionsForNodeRequest,
+    ListConnectionsForNodeResultSuccess,
+)
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media import prepare_media_data_uri
@@ -69,6 +74,8 @@ SHOT_TYPE_OPTIONS = [
     "single",
     "multi",
 ]
+
+REFERENCE_VIDEO_PARAMETER_NAMES = frozenset({"reference_video_1", "reference_video_2", "reference_video_3"})
 
 # Generation status constants
 STATUS_PENDING = "PENDING"
@@ -359,6 +366,67 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
             self.show_parameter_by_name("input_audio")
             self.show_message_by_name("artifact_url_parameter_message_input_audio")
 
+    def _filled_reference_videos(self) -> set[str]:
+        """Names of the reference video slots that hold a value or are fed by a connection."""
+        filled = {name for name in REFERENCE_VIDEO_PARAMETER_NAMES if self.get_parameter_value(name)}
+        if filled == REFERENCE_VIDEO_PARAMETER_NAMES:
+            return filled
+        # A node built outside a workflow has no connections; that lookup failing is expected.
+        result = self._handle_request_in_workflow(
+            ListConnectionsForNodeRequest(node_name=self.name, broadcast_result=False, failure_log_level=logging.DEBUG)
+        )
+        if isinstance(result, ListConnectionsForNodeResultSuccess):
+            filled.update(
+                connection.target_parameter_name
+                for connection in result.incoming_connections
+                if connection.target_parameter_name in REFERENCE_VIDEO_PARAMETER_NAMES
+            )
+        return filled
+
+    def _update_reference_video_visibility(self) -> None:
+        """Progressively reveal reference video inputs as earlier ones are filled."""
+        filled = self._filled_reference_videos()
+        video_1_filled = "reference_video_1" in filled
+        video_2_filled = "reference_video_2" in filled
+        video_3_filled = "reference_video_3" in filled
+
+        show_video_2 = video_1_filled or video_2_filled or video_3_filled
+        show_video_3 = video_2_filled or video_3_filled
+
+        if show_video_2:
+            self.show_parameter_by_name("reference_video_2")
+            self.show_message_by_name("artifact_url_parameter_message_reference_video_2")
+        else:
+            self.hide_parameter_by_name("reference_video_2")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_2")
+
+        if show_video_3:
+            self.show_parameter_by_name("reference_video_3")
+            self.show_message_by_name("artifact_url_parameter_message_reference_video_3")
+        else:
+            self.hide_parameter_by_name("reference_video_3")
+            self.hide_message_by_name("artifact_url_parameter_message_reference_video_3")
+
+    def after_incoming_connection(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name in REFERENCE_VIDEO_PARAMETER_NAMES:
+            self._update_reference_video_visibility()
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name in REFERENCE_VIDEO_PARAMETER_NAMES:
+            self._update_reference_video_visibility()
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes."""
         super().after_value_set(parameter, value)
@@ -366,6 +434,9 @@ class WanReferenceToVideoGeneration(GriptapeProxyNode):
         # Update input_audio visibility when audio parameter changes
         if parameter.name == "audio":
             self._update_input_audio_visibility()
+
+        if parameter.name in REFERENCE_VIDEO_PARAMETER_NAMES:
+            self._update_reference_video_visibility()
 
     async def aprocess(self) -> None:
         await self._process_generation()
