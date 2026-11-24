@@ -41,7 +41,7 @@ class Askulator(BaseTask):
                 name="instruction",
                 type="str",
                 default_value=None,
-                tooltip="URL to scrape",
+                tooltip="The calculation or math question to solve.",
                 ui_options={"multiline": True, "placeholder_text": "Enter something to calculate."},
             )
         )

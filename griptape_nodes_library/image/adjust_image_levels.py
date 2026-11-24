@@ -55,7 +55,7 @@ class AdjustImageLevels(BaseImageProcessor):
             midtones_param = ParameterFloat(
                 name="midtones",
                 default_value=self.DEFAULT_MIDTONES,
-                tooltip="Midtones adjustment (0.1-10.0). Values < 1.0 lighten midtones, > 1.0 darken midtones.",
+                tooltip="Midtones adjustment (0.1-10.0). Values > 1.0 lighten midtones, < 1.0 darken midtones.",
             )
             midtones_param.add_trait(Slider(min_val=0.1, max_val=10.0))
             self.add_parameter(midtones_param)

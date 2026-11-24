@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx
@@ -11,7 +10,8 @@ from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.models.cohere import CohereModel
 from pydantic_ai.models.openai import OpenAIChatModel
 
-from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.config.prompt.base_prompt import TOP_P_TOOLTIP, BasePrompt
+from griptape_nodes_library.config.prompt.openai_prompt import DEFAULT_MODEL as OPENAI_DEFAULT_MODEL
 from griptape_nodes_library.llm.model_config import PROMPT_MODEL_CONFIG_TYPE, ModelConfig, ModelProvider
 from griptape_nodes_library.llm.models import build_model
 
@@ -38,15 +38,6 @@ SECRETS = {
 def secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     for name, value in SECRETS.items():
         monkeypatch.setenv(name, value)
-
-
-@pytest.fixture(autouse=True)
-def openai_model_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`OpenAiPrompt` lists the account's models when constructed."""
-    models = SimpleNamespace(
-        list=lambda: SimpleNamespace(data=[SimpleNamespace(id="gpt-4.1"), SimpleNamespace(id="o3")])
-    )
-    monkeypatch.setattr("openai.Client", lambda: SimpleNamespace(models=models))
 
 
 def _create_node(node_type: str) -> BaseNode:
@@ -191,6 +182,39 @@ def test_non_positive_max_tokens_is_omitted() -> None:
     node.set_parameter_value("max_tokens", -1)
 
     assert "max_tokens" not in _process(node).settings
+
+
+@pytest.mark.parametrize(
+    ("node_type", "param_name"),
+    [
+        ("OpenAiPrompt", "top_p"),
+        ("AnthropicPrompt", "top_p"),
+        ("CoherePrompt", "p"),
+        ("GrokPrompt", "top_p"),
+        ("GroqPrompt", "top_p"),
+        ("NimPrompt", "top_p"),
+        ("GriptapeCloudPrompt", "top_p"),
+    ],
+)
+def test_top_p_tooltip_describes_nucleus_sampling(node_type: str, param_name: str) -> None:
+    parameter = _create_node(node_type).get_parameter_by_name(param_name)
+
+    assert parameter is not None
+    assert parameter.tooltip == TOP_P_TOOLTIP
+
+
+def test_openai_prompt_builds_without_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY")
+
+    def _no_network(*_args: object, **_kwargs: object) -> None:
+        msg = "OpenAiPrompt must not call OpenAI when constructed"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr("openai.Client", _no_network)
+
+    node = _create_node("OpenAiPrompt")
+
+    assert node.get_parameter_value("model") == OPENAI_DEFAULT_MODEL
 
 
 def test_openai_seed_parameter_is_not_offered() -> None:

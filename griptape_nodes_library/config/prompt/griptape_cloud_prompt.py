@@ -16,7 +16,7 @@ from griptape_nodes.drivers.cloud_models import (
 )
 from griptape_nodes.exe_types.core_types import Parameter
 
-from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.config.prompt.base_prompt import TOP_P_TOOLTIP, BasePrompt
 from griptape_nodes_library.llm.model_config import ModelProvider
 from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
@@ -73,7 +73,9 @@ class GriptapeCloudPrompt(BasePrompt):
         self.remove_parameter_element_by_name("top_k")
 
         # Replace `min_p` with `top_p` for Griptape Cloud.
-        self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
+        self._replace_param_by_name(
+            param_name="min_p", new_param_name="top_p", tooltip=TOP_P_TOOLTIP, default_value=0.9
+        )
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "model":

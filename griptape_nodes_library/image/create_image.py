@@ -68,7 +68,7 @@ class GenerateImage(ControlNode):
                 type="Agent",
                 input_types=["Agent"],
                 output_type="Agent",
-                tooltip="None",
+                tooltip="Optional agent. Its conversation is added to the prompt. With enhance_prompt on, its model and rulesets rewrite the prompt.",
                 default_value=None,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.OUTPUT},
             )
@@ -96,7 +96,7 @@ class GenerateImage(ControlNode):
         self.add_parameter(
             ParameterString(
                 name="prompt",
-                tooltip="None",
+                tooltip="Description of the image to generate.",
                 default_value="",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 multiline=True,
@@ -116,7 +116,7 @@ class GenerateImage(ControlNode):
         self.add_parameter(
             ParameterBool(
                 name="enhance_prompt",
-                tooltip="None",
+                tooltip="Rewrite the prompt with the agent's model (GPT-4o by default) before generating, to add detail.",
                 default_value=False,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
@@ -124,7 +124,7 @@ class GenerateImage(ControlNode):
         self.add_parameter(
             ParameterImage(
                 name="output",
-                tooltip="None",
+                tooltip="The generated image.",
                 default_value=None,
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
                 ui_options={"pulse_on_run": True},

@@ -155,7 +155,7 @@ class DescribeImage(ControlNode):
         self.add_parameter(
             ParameterString(
                 name="output",
-                tooltip="None",
+                tooltip="The description of the image. Holds JSON matching output_schema when one is connected.",
                 default_value=None,
                 allowed_modes={ParameterMode.OUTPUT},
                 multiline=True,

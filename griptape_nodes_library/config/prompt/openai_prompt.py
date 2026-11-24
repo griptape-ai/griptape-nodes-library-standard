@@ -1,6 +1,4 @@
-from griptape_nodes.traits.options import Options
-
-from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.config.prompt.base_prompt import TOP_P_TOOLTIP, BasePrompt
 from griptape_nodes_library.llm.model_config import ModelProvider
 
 # --- Constants ---
@@ -35,31 +33,22 @@ class OpenAiPrompt(BasePrompt):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Update the 'model' parameter for OpenAi specifics.
-        # call openai listmodels to get available models
-        import openai
-
-        available_models = [model.id for model in openai.Client().models.list().data]
-        # This node offers whatever models the account can see rather than a
-        # declared list, so it owns the dropdown trait instead of routing through
-        # `_install_model_access`.
-        model_param = self.get_parameter_by_name("model")
-        if model_param is not None:
-            model_param.add_trait(Options(choices=available_models))
-        self._update_option_choices(
-            param="model", choices=available_models, default=available_models[0] if available_models else ""
-        )
+        self._install_model_access(model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL)
 
         self.remove_parameter_element_by_name("seed")
 
         self.remove_parameter_element_by_name("top_k")
 
-        self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
+        self._replace_param_by_name(
+            param_name="min_p", new_param_name="top_p", tooltip=TOP_P_TOOLTIP, default_value=0.9
+        )
 
     def process(self) -> None:
+        self._raise_if_model_denied()
+
         config = self._build_model_config(
             ModelProvider.OPENAI,
-            self.get_parameter_value("model"),
+            self._get_selected_model_id(),
             api_key_secret=API_KEY_ENV_VAR,
         )
         self.parameter_output_values["prompt_model_config"] = config
