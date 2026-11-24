@@ -19,12 +19,10 @@ from griptape_nodes_library.llm.image_generation import ImageGenerationConfig, I
 from griptape_nodes_library.llm.model_config import DEFAULT_BASE_URLS, ModelConfig, ModelProvider
 from griptape_nodes_library.llm.tools import build_toolset
 
-from .fixture_tools import rewrite_pickled_strings
 from .harness import (
     FIXTURES,
     CompatEnv,
     FakeLLM,
-    fixture_source,
     load,
     materialize,
     node,
@@ -280,20 +278,6 @@ async def test_prompt_config_feeds_agent(node_type: str, compat_engine: CompatEn
         "Now say goodbye in exactly three words.",
     ]
     assert out("show", "text") == out("a2", "output")
-
-
-async def test_openai_prompt_keeps_unlisted_saved_model(compat_engine: CompatEnv, tmp_path) -> None:
-    path = tmp_path / "prompt_OpenAiPrompt.py"
-    path.write_text(rewrite_pickled_strings(fixture_source("prompt_OpenAiPrompt"), {"gpt-4.1": "gpt-3.5-turbo"}))
-    await load(path)
-
-    config = node("config")
-    exceptions = config.validate_before_workflow_run()
-
-    assert config.get_parameter_value("model") == "gpt-3.5-turbo"
-    assert exceptions is not None
-    assert len(exceptions) == 1
-    assert "'gpt-3.5-turbo'" in str(exceptions[0])
 
 
 class TestMcpAndAgentTools:

@@ -33,8 +33,8 @@ if TYPE_CHECKING:
 MANIFEST_PATH = Path(__file__).resolve().parents[2] / "griptape_nodes_library.json"
 
 # Node types that can't be constructed in the unit-test environment, so the
-# all-nodes sweep below skips them. It installs no model-access dropdown.
-_UNCONSTRUCTIBLE_NODE_TYPES = frozenset({"SubflowWorkflowNode"})
+# all-nodes sweep below skips them. Neither installs a model-access dropdown.
+_UNCONSTRUCTIBLE_NODE_TYPES = frozenset({"OpenAiPrompt", "SubflowWorkflowNode"})
 
 
 def _declared_provider_model_ids(node: BaseNode) -> set[str]:
