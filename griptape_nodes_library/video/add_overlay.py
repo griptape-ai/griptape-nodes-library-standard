@@ -14,6 +14,7 @@ from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 
 from griptape_nodes_library.media import resolve_media_location
+from griptape_nodes_library.utils.ffmpeg_filter_graph import FilterGraph
 from griptape_nodes_library.video.base_video_processor import BaseVideoProcessor
 
 
@@ -246,8 +247,8 @@ class AddOverlay(BaseVideoProcessor):
         # Every blend mode composites from one straight-RGBA overlay stream, so all of them honour the
         # overlay's transparency. That stream is built in this order: straight RGBA, size (blend modes
         # only), matte alpha if there is one, loop and trim to the base duration, then alpha scaled by amount.
-        graph = ["[0]format=rgba[src]"]
-        source = "src"
+        graph = FilterGraph()
+        overlay = graph.chain(graph.input(0), "format=rgba", "src")
 
         match alpha_convention:
             case AlphaConvention.STRAIGHT:
@@ -255,82 +256,73 @@ class AddOverlay(BaseVideoProcessor):
             case AlphaConvention.PREMULTIPLIED:
                 # FFmpeg's unpremultiply filter leaves the colour untouched on ProRes input, so divide
                 # the colour planes by the alpha plane with the blend filter and put the alpha back.
-                graph.append(
-                    "[src]split=3[pm_color][pm_alpha_divisor][pm_alpha_keep];"
-                    "[pm_color]format=gbrp[pm_rgb];"
-                    "[pm_alpha_divisor]alphaextract,format=gbrp[pm_divisor];"
-                    "[pm_alpha_keep]alphaextract[pm_alpha];"
-                    "[pm_rgb][pm_divisor]blend=all_mode=divide[pm_straight];"
-                    "[pm_straight][pm_alpha]alphamerge,format=rgba[unpremultiplied]"
-                )
-                source = "unpremultiplied"
+                color, divisor, alpha = graph.split(overlay, "pm_color", "pm_alpha_divisor", "pm_alpha_keep")
+                rgb = graph.chain(color, "format=gbrp", "pm_rgb")
+                divisor = graph.chain(divisor, ["alphaextract", "format=gbrp"], "pm_divisor")
+                alpha = graph.chain(alpha, "alphaextract", "pm_alpha")
+                straight = graph.chain([rgb, divisor], "blend=all_mode=divide", "pm_straight")
+                overlay = graph.chain([straight, alpha], ["alphamerge", "format=rgba"], "unpremultiplied")
             case _:
                 msg = f"Unknown alpha convention: {alpha_convention!r}"
                 raise ValueError(msg)
 
-        # The matte is stretched to the overlay's own size first, in every mode, so the pair is then sized
-        # together and the matte stays registered with the overlay. scale2ref would do this without probing,
-        # but FFmpeg 7.0 aborts on it when an input is a still image, so size it explicitly.
-        matte_filters = ""
-        if matte_url:
-            _, (overlay_width, overlay_height), _ = self._detect_video_properties(overlay_url, ffprobe_path)
-            matte_filters = f"scale={overlay_width}:{overlay_height},"
-
+        # The blend filter requires both inputs to share size and pixel format, so blend modes scale the
+        # overlay (and its matte, the same way) to the base video. The overlay filter accepts any overlay
+        # size, so overlay mode keeps the overlay at its own size.
+        sizing_filters: list[str] = []
         if blend_mode != "overlay":
-            # The blend filter requires both inputs to share size and pixel format, so scale the overlay
-            # (and its matte, the same way) to the base video. The overlay filter accepts any overlay
-            # size, so overlay mode keeps the overlay at its own size.
             sizing_filter = self._get_sizing_filter(kwargs.get("sizing", "Scale to cover"), base_width, base_height)
-            graph.append(f"[{source}]{sizing_filter},setsar=1[sized]")
-            source = "sized"
-            matte_filters += f"{sizing_filter},setsar=1,"
+            sizing_filters = [sizing_filter, "setsar=1"]
+            overlay = graph.chain(overlay, sizing_filters, "sized")
 
         if matte_url:
-            graph.append(f"[2]{matte_filters}format=gray[matte];[{source}][matte]alphamerge,format=rgba[matted]")
-            source = "matted"
+            # The matte is stretched to the overlay's own size first, in every mode, then sized the same way
+            # as the overlay, so it stays registered with it. scale2ref would do this without probing, but
+            # FFmpeg 7.0 aborts on it when an input is a still image, so size it explicitly.
+            _, (overlay_width, overlay_height), _ = self._detect_video_properties(overlay_url, ffprobe_path)
+            matte = graph.chain(
+                graph.input(2), [f"scale={overlay_width}:{overlay_height}", *sizing_filters, "format=gray"], "matte"
+            )
+            overlay = graph.chain([overlay, matte], ["alphamerge", "format=rgba"], "matted")
 
         choke = int(kwargs.get("choke") or 0)
         edge_softness = float(kwargs.get("edge_softness") or 0.0)
         if choke > 0 or edge_softness > 0:
             # Rebuild the alpha from itself: erode it (each pass is a 3x3 minimum, so one pixel), then blur
             # it, and put it back on the unchanged colour.
-            alpha_steps = ",".join(
-                ["alphaextract", *["erosion"] * choke, *([f"gblur=sigma={edge_softness}"] if edge_softness > 0 else [])]
-            )
-            graph.append(
-                f"[{source}]split[edge_color][edge_alpha_src];"
-                f"[edge_alpha_src]{alpha_steps}[edge_alpha];"
-                "[edge_color][edge_alpha]alphamerge,format=rgba[edged]"
-            )
-            source = "edged"
+            alpha_steps = [
+                "alphaextract",
+                *["erosion"] * choke,
+                *([f"gblur=sigma={edge_softness}"] if edge_softness > 0 else []),
+            ]
+            color, alpha_source = graph.split(overlay, "edge_color", "edge_alpha_src")
+            alpha = graph.chain(alpha_source, alpha_steps, "edge_alpha")
+            overlay = graph.chain([color, alpha], ["alphamerge", "format=rgba"], "edged")
 
-        graph.append(
-            f"[{source}]loop=loop=-1,trim=duration={base_duration},format=rgba,colorchannelmixer=aa={amount}[fg]"
+        foreground = graph.chain(
+            overlay,
+            ["loop=loop=-1", f"trim=duration={base_duration}", "format=rgba", f"colorchannelmixer=aa={amount}"],
+            "fg",
         )
 
+        # A frame rate filter, when needed, runs on the composited result
+        frame_rate_filter = self._get_frame_rate_filter(input_frame_rate)
+        composited_label = "out_temp" if frame_rate_filter else "out"
+
+        base = graph.input(1)
         if blend_mode == "overlay":
-            graph.append(f"[1][fg]overlay={overlay_position}[out]")
+            composited = graph.chain([base, foreground], f"overlay={overlay_position}", composited_label)
         else:
             # Blend the colour, then mix the blended result back over the base using the overlay alpha
-            graph.append(
-                "[fg]split[fg_color_src][fg_alpha_src];"
-                "[fg_color_src]format=gbrp[fg_color];"
-                "[fg_alpha_src]alphaextract[fg_alpha];"
-                "[1]setsar=1,format=gbrp,split[bg_blend][bg_keep];"
-                f"[bg_blend][fg_color]blend=all_mode={blend_mode}:all_opacity=1[blended];"
-                "[bg_keep][blended][fg_alpha]maskedmerge[out]"
-            )
+            fg_color_source, fg_alpha_source = graph.split(foreground, "fg_color_src", "fg_alpha_src")
+            fg_color = graph.chain(fg_color_source, "format=gbrp", "fg_color")
+            fg_alpha = graph.chain(fg_alpha_source, "alphaextract", "fg_alpha")
+            bg_blend, bg_keep = graph.split(base, "bg_blend", "bg_keep", filters=["setsar=1", "format=gbrp"])
+            blended = graph.chain([bg_blend, fg_color], f"blend=all_mode={blend_mode}:all_opacity=1", "blended")
+            composited = graph.chain([bg_keep, blended, fg_alpha], "maskedmerge", composited_label)
 
-        custom_filter = ";".join(graph)
-
-        # Add frame rate filter if needed (after the overlay effect)
-        frame_rate_filter = self._get_frame_rate_filter(input_frame_rate)
         if frame_rate_filter:
-            # For complex filters, we need to add the frame rate filter to the output
-            custom_filter = custom_filter.replace("[out]", "[out_temp]")
-            custom_filter = f"{custom_filter};[out_temp]{frame_rate_filter}[out]"
-
-        filter_complex = custom_filter
+            composited = graph.chain(composited, frame_rate_filter, "out")
 
         # Get processing speed settings
         preset, pix_fmt, crf = self._get_processing_speed_settings()
@@ -339,6 +331,10 @@ class AddOverlay(BaseVideoProcessor):
         ffmpeg_path, _ = self._get_ffmpeg_paths()
 
         matte_inputs = ["-i", matte_url] if matte_url else []  # Matte - [2]
+
+        # The base sets the length. -shortest would end the video early at a shorter audio track, so
+        # with an unknown base duration the output runs to its longest stream instead.
+        length_options = ["-t", str(base_duration)] if base_duration > 0 else []
 
         return [
             ffmpeg_path,
@@ -349,10 +345,12 @@ class AddOverlay(BaseVideoProcessor):
             input_url,  # Base video (main content) - [1]
             *matte_inputs,
             "-filter_complex",
-            filter_complex,
+            graph.render(),
             "-map",
-            "[out]",
-            "-shortest",  # End when shortest stream ends
+            composited.pad,
+            "-map",
+            "1:a?",  # The base video's audio, when it has any
+            *length_options,
             "-c:v",
             "libx264",
             "-preset",
