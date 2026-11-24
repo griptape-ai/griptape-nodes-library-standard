@@ -25,7 +25,7 @@ def node(griptape_nodes: GriptapeNodes) -> QwenImageEdit:  # noqa: ARG002
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("image_count", [1, 3, 6])
+@pytest.mark.parametrize("image_count", [1, 3])
 async def test_build_payload_requests_one_output_image_for_any_input_count(
     node: QwenImageEdit, image_count: int
 ) -> None:
@@ -37,3 +37,22 @@ async def test_build_payload_requests_one_output_image_for_any_input_count(
     image_items = [item for item in payload["messages"][0]["content"] if "image" in item]
     assert len(image_items) == image_count
     assert payload["n"] == 1
+
+
+def test_validation_accepts_three_images(node: QwenImageEdit) -> None:
+    node.set_parameter_value("editing_instruction", "Combine these")
+    node.set_parameter_value("images", [ImageUrlArtifact(PNG_DATA_URI)] * 3)
+
+    assert node.validate_before_node_run() is None
+
+
+def test_validation_refuses_four_images(node: QwenImageEdit) -> None:
+    node.set_parameter_value("editing_instruction", "Combine these")
+    node.set_parameter_value("images", [ImageUrlArtifact(PNG_DATA_URI)] * 4)
+
+    errors = node.validate_before_node_run()
+
+    assert errors is not None
+    assert [str(e) for e in errors] == [
+        "'Images to Edit' accepts at most 3 images. 4 are connected. Disconnect 1 of them."
+    ]

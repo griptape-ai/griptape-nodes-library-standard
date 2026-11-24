@@ -9,7 +9,7 @@ from http import HTTPStatus
 from typing import Any
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -56,8 +56,10 @@ STATUS_ERROR = "Error"
 STATUS_REQUEST_MODERATED = "Request Moderated"
 STATUS_CONTENT_MODERATED = "Content Moderated"
 
-# Maximum number of images for editing
-MAX_IMAGES = 6
+# Provider docs: "In I2I scenarios, the qwen-image-2.1 series supports 1-10 images, and the
+# qwen-image-3.0 series supports 1-3 images."
+# https://www.alibabacloud.com/help/en/model-studio/qwen-image-generation-and-editing-api-reference
+MAX_IMAGES = 3
 
 # The node surfaces a single ``image_url``, so it asks for one output image. Provider docs:
 # "n: The number of output images. Value range: 1 to 6. Default: 1."
@@ -68,17 +70,17 @@ OUTPUT_IMAGE_COUNT = 1
 class QwenImageEdit(GriptapeProxyNode):
     """Edit images using Qwen image editing models via Griptape model proxy.
 
-    Supports editing 1-6 input images with text instructions.
+    Supports editing 1-3 input images with text instructions.
 
     Documentation: https://www.alibabacloud.com/help/en/model-studio/qwen-image-generation-and-editing-api-reference
 
     Inputs:
         - model (str): Qwen model to use (default: "qwen-image-3.0")
-        - editing_instruction (str): Text instruction describing the desired edits (max 800 characters)
+        - editing_instruction (str): Text instruction describing the desired edits (recommended max 4,500 tokens)
             When editing multiple images, use "Image 1", "Image 2", "Image 3" to refer to specific images
-        - images (list): List of 1-6 input images to edit (required)
+        - images (list): List of 1-3 input images to edit (required)
             Supports JPG, JPEG, PNG, BMP, TIFF, WEBP
-            Resolution: 384-3072 pixels (width and height)
+            Resolution: 1-8000 pixels (width and height), 384-2048 for best results
             Size: Max 10 MB per image
         - negative_prompt (str): Description of content to avoid (max 500 characters)
         - watermark (bool): Add "Qwen-Image" watermark to bottom-right corner (default: False)
@@ -123,7 +125,7 @@ class QwenImageEdit(GriptapeProxyNode):
         self.add_parameter(
             ParameterString(
                 name="editing_instruction",
-                tooltip="Editing instruction (max 800 characters). Use 'Image 1', 'Image 2', 'Image 3' to refer to specific images.",
+                tooltip="Editing instruction (recommended max 4,500 tokens). Use 'Image 1', 'Image 2', 'Image 3' to refer to specific images.",
                 multiline=True,
                 placeholder_text="Describe the edits you want to make to the image(s)...",
                 allow_output=False,
@@ -133,7 +135,7 @@ class QwenImageEdit(GriptapeProxyNode):
             )
         )
 
-        # Images list for editing (1-6 images)
+        # Images list for editing (1-3 images)
         self.add_parameter(
             ParameterList(
                 name="images",
@@ -142,7 +144,7 @@ class QwenImageEdit(GriptapeProxyNode):
                 ],
                 input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
                 default_value=[],
-                tooltip="List of 1-6 images to edit (JPG, PNG, BMP, TIFF, WEBP; 384-3072px; max 10MB each)",
+                tooltip="List of 1-3 images to edit (JPG, PNG, BMP, TIFF, WEBP; 1-8000px, 384-2048px for best results; max 10MB each)",
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={
                     "display_name": "Images to Edit",
@@ -216,6 +218,20 @@ class QwenImageEdit(GriptapeProxyNode):
         super().after_value_set(parameter, value)
         self._seed_parameter.after_value_set(parameter, value)
 
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_node_run() or []
+
+        images = self.get_parameter_list_value("images") or []
+        if len(images) > MAX_IMAGES:
+            exceptions.append(
+                NodeError(
+                    f"'Images to Edit' accepts at most {MAX_IMAGES} images. {len(images)} are connected. "
+                    f"Disconnect {len(images) - MAX_IMAGES} of them."
+                )
+            )
+
+        return exceptions or None
+
     async def _process_generation(self) -> None:
         self._seed_parameter.preprocess()
         await super()._process_generation()
@@ -252,7 +268,7 @@ class QwenImageEdit(GriptapeProxyNode):
         # Build content array with images first, then text instruction
         content = []
 
-        # Process images (1-6 images)
+        # Process images (1-3 images)
         images_list = params["images"] if isinstance(params["images"], list) else []
         for image_input in images_list:
             image_data = await self._process_input_image(image_input)
