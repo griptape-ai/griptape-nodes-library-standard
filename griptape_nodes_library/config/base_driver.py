@@ -125,6 +125,7 @@ class BaseDriver(DataNode):
         default_model: str,
         param: str = "model",
         deprecated_values: dict[str, str] | None = None,
+        keep_unlisted_values: bool = False,
     ) -> None:
         """Turn the named model parameter into a license-filtered dropdown.
 
@@ -141,6 +142,10 @@ class BaseDriver(DataNode):
             deprecated_values: Legacy value -> canonical `model_choices` entry map,
                 needed only when the parameter used to store something other than
                 the provider's model id (an old display label, a catalog key).
+            keep_unlisted_values: Store a saved value outside `model_choices` as
+                saved instead of replacing it with the first choice. A node that
+                sets it reports the value through `_validate_model_listed` and
+                `_raise_if_model_unlisted`.
         """
         if default_model not in model_choices:
             msg = f"Default model '{default_model}' is not one of the offered choices."
@@ -158,6 +163,7 @@ class BaseDriver(DataNode):
             model_choices=model_choices,
             default_model=default_model,
             deprecated_values=deprecated_values,
+            keep_unlisted_values=keep_unlisted_values,
         )
 
     def _get_selected_model_id(self) -> str:
@@ -179,6 +185,27 @@ class BaseDriver(DataNode):
         """
         if self._model_access is not None:
             self._model_access.raise_if_selection_denied()
+
+    def _raise_if_model_unlisted(self) -> None:
+        """Fail rather than run a model the dropdown doesn't offer.
+
+        Only reachable on nodes that installed their dropdown with
+        `keep_unlisted_values`; no-ops on the nodes that never installed one.
+        """
+        if self._model_access is None:
+            return
+        error = self._model_access.unlisted_selection_error()
+        if error is not None:
+            raise error
+
+    def _validate_model_listed(self) -> list[Exception] | None:
+        """The stored model selection as a validation failure, if the dropdown doesn't offer it."""
+        if self._model_access is None:
+            return None
+        error = self._model_access.unlisted_selection_error()
+        if error is None:
+            return None
+        return [error]
 
     def _validate_model_selection(self) -> list[Exception] | None:
         """The license denial for the stored model selection, as a validation failure.

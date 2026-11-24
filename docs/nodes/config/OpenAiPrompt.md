@@ -12,7 +12,6 @@ Use it when the Agent should call OpenAI directly. If you don't have an OpenAI k
 ## What it needs
 
 - An OpenAI API key, stored as `OPENAI_API_KEY` in Settings under API Keys & Secrets. This node does not use a Griptape Nodes license or a Griptape Cloud API key.
-- The key must work when you add the node, because the node asks OpenAI for your model list at that point.
 
 ## Example
 
@@ -26,7 +25,7 @@ An Agent that writes dailies notes should be consistent from run to run.
 
 ### model
 
-The list is the models your key can use, fetched from OpenAI when the node is created. The first model returned becomes the default.
+The list is fixed, so the node can be added without a working key. The default is `gpt-5.6-sol`. A saved workflow whose model isn't on the list keeps it, and the run fails before it starts with an error naming that model. Models your license does not permit are flagged, and the run fails if one is selected.
 
 ### temperature
 
