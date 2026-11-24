@@ -5,6 +5,7 @@ import contextlib
 import io
 import json as _json
 import logging
+from enum import StrEnum
 from typing import Any, ClassVar
 
 import httpx
@@ -44,8 +45,17 @@ MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_DIMENSION = 4096
 
 
+class OmnihumanModel(StrEnum):
+    OMNIHUMAN_1_0 = "omnihuman-1-0"
+    OMNIHUMAN_1_5 = "omnihuman-1-5"
+
+
+# Parameters only OmniHuman 1.5 accepts; the node hides them and leaves them out of the request on 1.0.
+OMNIHUMAN_1_5_ONLY_PARAMETERS = ("prompt", "seed", "fast_mode")
+
+
 class OmnihumanVideoGeneration(GriptapeProxyNode):
-    """Generate video effects from a single image, text prompt, and audio file using OmniHuman 1.5.
+    """Generate video effects from a single image, text prompt, and audio file using OmniHuman.
 
     This is Step 3 of the OmniHuman workflow. It generates video matching the input image based
     on the provided audio and optional mask. The generation process is asynchronous and will
@@ -55,9 +65,9 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         - image_url (str): Source image URL
         - audio_url (str): Audio file URL
         - mask_image_urls (list): Optional mask image URLs from subject detection
-        - prompt (str): Text prompt to guide generation
-        - seed (int): Random seed for generation (-1 for random)
-        - fast_mode (bool): Enable fast mode (sacrifices some effects for speed
+        - prompt (str): Text prompt to guide generation (OmniHuman 1.5 only)
+        - seed (int): Random seed for generation, -1 for random (OmniHuman 1.5 only)
+        - fast_mode (bool): Enable fast mode, sacrificing some effects for speed (OmniHuman 1.5 only)
 
     Outputs:
         - generation_id (str): Griptape Cloud generation identifier
@@ -68,10 +78,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
-    MODEL_IDS: ClassVar[list[str]] = [
-        "omnihuman-1-0",
-        "omnihuman-1-5",
-    ]
+    MODEL_IDS: ClassVar[list[str]] = [model.value for model in OmnihumanModel]
     # Migrates values saved before the dropdown stored the provider's own model id.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "OmniHuman 1.0": "omnihuman-1-0",
@@ -83,13 +90,13 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.category = "API Nodes"
-        self.description = "Generate talking head videos using OmniHuman 1.5 via Griptape Cloud"
+        self.description = "Generate talking head videos using OmniHuman via Griptape Cloud"
 
         # INPUTS
         # add model_id parameter with fixed value
         model_id_param = ParameterString(
             name="model_id",
-            default_value="omnihuman-1-5",
+            default_value=OmnihumanModel.OMNIHUMAN_1_5.value,
             tooltip="Model identifier to use for generation",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
@@ -100,7 +107,7 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
             node=self,
             parameter=model_id_param,
             model_choices=self.MODEL_IDS,
-            default_model="omnihuman-1-5",
+            default_model=OmnihumanModel.OMNIHUMAN_1_5.value,
             deprecated_values=self.LEGACY_MODEL_VALUES,
         )
         self.add_parameter(
@@ -215,15 +222,13 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         value: Any,
     ) -> None:
         super().after_value_set(parameter, value)
-        # if the model_id parameter is OmniHuman 1.0, remove seed, fast_mode, and prompt parameters
-        if parameter.name == "model_id" and value == "omnihuman-1-0":
-            self.hide_parameter_by_name("seed")
-            self.hide_parameter_by_name("fast_mode")
-            self.hide_parameter_by_name("prompt")
-        elif parameter.name == "model_id":
-            self.show_parameter_by_name("seed")
-            self.show_parameter_by_name("fast_mode")
-            self.show_parameter_by_name("prompt")
+        if parameter.name != "model_id":
+            return
+        for name in OMNIHUMAN_1_5_ONLY_PARAMETERS:
+            if value == OmnihumanModel.OMNIHUMAN_1_5:
+                self.show_parameter_by_name(name)
+            else:
+                self.hide_parameter_by_name(name)
 
     def _log(self, message: str) -> None:
         """Log a message."""
@@ -359,9 +364,6 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
         image_input = self.get_parameter_value("image_url")
         audio_input = self.get_parameter_value("audio_url")
         mask_image_urls = self.get_parameter_value("mask_image_urls")
-        prompt = self.get_parameter_value("prompt")
-        seed = self.get_parameter_value("seed")
-        fast_mode = self.get_parameter_value("fast_mode")
 
         if not image_input:
             msg = "Connect an image to 'image_url'."
@@ -398,15 +400,21 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
                 if mask_url:
                     mask_urls.append(mask_url)
 
+        model_id = self._get_selected_model_id()
         body = {
-            "req_key": self._get_req_key(self._get_selected_model_id()),
+            "req_key": self._get_req_key(model_id),
             "image_url": image_url,
             "audio_url": audio_url,
             "mask_url": "; ".join(mask_urls) if mask_urls else None,
-            "prompt": prompt if prompt else None,
-            "seed": seed if seed else None,
-            "fast_mode": fast_mode if fast_mode else None,
         }
+        if model_id == OmnihumanModel.OMNIHUMAN_1_5:
+            prompt = self.get_parameter_value("prompt")
+            seed = self.get_parameter_value("seed")
+            fast_mode = self.get_parameter_value("fast_mode")
+            body["prompt"] = prompt if prompt else None
+            # -1 asks for a random seed, which the provider picks when the field is absent.
+            body["seed"] = seed if seed is not None and seed >= 0 else None
+            body["fast_mode"] = fast_mode if fast_mode else None
         return {k: v for k, v in body.items() if v is not None}
 
     async def _auto_detect_masks(self, image_url: str) -> list[str]:
@@ -449,12 +457,14 @@ class OmnihumanVideoGeneration(GriptapeProxyNode):
 
     def _get_req_key(self, model_id: str) -> str:
         """Get the request key based on the upstream provider's model id."""
-        if model_id == "omnihuman-1-0":
-            return "realman_avatar_picture_omni_cv"
-        if model_id == "omnihuman-1-5":
-            return "realman_avatar_picture_omni15_cv"
-        msg = f"Unsupported model_id: {model_id}"
-        raise ValueError(msg)
+        match model_id:
+            case OmnihumanModel.OMNIHUMAN_1_0:
+                return "realman_avatar_picture_omni_cv"
+            case OmnihumanModel.OMNIHUMAN_1_5:
+                return "realman_avatar_picture_omni15_cv"
+            case _:
+                msg = f"Unsupported model_id: {model_id}"
+                raise ValueError(msg)
 
     async def _build_payload(self) -> dict[str, Any]:
         params = await self._get_parameters()

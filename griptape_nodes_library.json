@@ -2874,7 +2874,7 @@
       "file_path": "griptape_nodes_library/video/omnihuman_video_generation.py",
       "metadata": {
         "category": "video",
-        "description": "Generate talking head videos from image and audio using OmniHuman 1.5",
+        "description": "Generate talking head videos from image and audio using OmniHuman",
         "display_name": "OmniHuman Video Generation",
         "icon": "UserCircle",
         "group": "create",
