@@ -16,6 +16,7 @@ from griptape_nodes_library.classification.jev_common import (
     build_payload,
     build_state_and_assets,
 )
+from griptape_nodes_library.classification.jev_questions import choice_question, parse_options, read_choice
 from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
@@ -137,37 +138,18 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
         return parse_row(text)[0]
 
     def _criteria(self) -> dict[str, str | None]:
-        criteria: dict[str, str | None] = {}
-        for row in self.get_parameter_value("options") or []:
-            label, description = parse_row(row)
-            if not label:
-                continue
-            if label in criteria:
-                raise ValueError(f"'{label}' appears more than once in 'Options'. Give each option a unique label.")
-            criteria[label] = description
-        if len(criteria) < 2:  # noqa: PLR2004
-            raise ValueError("'Options' needs at least two rows for JEV to pick from. Add another option.")
-        return criteria
+        return parse_options(self.get_parameter_value("options") or [])
 
     async def _build_payload(self) -> dict[str, Any]:
         state, assets = await build_state_and_assets(self)
 
-        criteria = self._criteria()
-        question = (self.get_parameter_value("question") or "").strip()
-
-        choice_q: dict[str, Any] = {
-            "type": "choice",
-            "criteria": {k: v or k for k, v in criteria.items()},
-        }
-        if question:
-            choice_q["instructions"] = question
-
+        choice_q = choice_question(self.get_parameter_value("question"), self._criteria())
         return build_payload(state, choice_q, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
-        picked = answer_data.get("choice")
-        if picked is None:
+        details = read_choice(answer_data, self._criteria)
+        if details is None:
             self._set_safe_defaults()
             raise NodeError(
                 "JEV's response didn't include a choice. Run the node again.",
@@ -175,12 +157,9 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
                 response=error_response(result_json),
             )
 
-        criteria = self._criteria()
-        self.parameter_output_values["confidence"] = float(answer_data.get("confidence", 0.0))
-        self.parameter_output_values["probabilities"] = dict(answer_data.get("probabilities") or {})
-        self.parameter_output_values["description"] = criteria.get(picked) or ""
-        self.parameter_output_values["label"] = picked
-        self._set_status_results(was_successful=True, result_details=f"JEV picked '{picked}'.")
+        for key in ("confidence", "probabilities", "description", "label"):
+            self.parameter_output_values[key] = details[key]
+        self._set_status_results(was_successful=True, result_details=f"JEV picked '{details['label']}'.")
 
     def _set_safe_defaults(self) -> None:
         for key in ("label", "description", "confidence", "probabilities"):

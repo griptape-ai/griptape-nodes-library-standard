@@ -17,15 +17,20 @@ from griptape_nodes_library.classification.jev_common import (
     build_payload,
     build_state_and_assets,
 )
-from griptape_nodes_library.classification.row_outputs import RowOutputsMixin, parse_row
+from griptape_nodes_library.classification.jev_questions import (
+    MAX_LEVELS,
+    level_label,
+    parse_levels,
+    read_score,
+    score_question,
+)
+from griptape_nodes_library.classification.row_outputs import RowOutputsMixin
 from griptape_nodes_library.proxy import GriptapeProxyNode
 from griptape_nodes_library.utils.node_error_utils import error_fields, error_response
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["JevRate"]
-
-MAX_LEVELS = 10
 
 
 class JevRate(RowOutputsMixin, GriptapeProxyNode):
@@ -162,8 +167,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
         )
 
     def _row_output_label(self, index: int, text: str) -> str:
-        label, description = parse_row(text)
-        return label if description else f"Level {index + 1}"
+        return level_label(index, text)
 
     def _row_output_tooltip(self, label: str) -> str:
         return f"Taken when the score rounds to {label}."
@@ -171,25 +175,17 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
     async def _build_payload(self) -> dict[str, Any]:
         state, assets = await build_state_and_assets(self)
 
-        rows = self._rows()
-        descriptions = [parse_row(text)[1] or text for _, text in rows]
-        if len(descriptions) < 2:  # noqa: PLR2004
-            raise ValueError("'Levels' needs at least two rows for JEV to rate against. Add another level.")
-        if len(descriptions) > MAX_LEVELS:
-            raise ValueError(f"'Levels' has {len(descriptions)} rows. JEV accepts up to {MAX_LEVELS}; remove some.")
-
-        question = (self.get_parameter_value("question") or "").strip()
-        score_q: dict[str, Any] = {"type": "score", "criteria": descriptions}
-        if question:
-            score_q["instructions"] = question
-
+        descriptions, _ = parse_levels([text for _, text in self._rows()])
+        score_q = score_question(self.get_parameter_value("question"), descriptions)
         return build_payload(state, score_q, assets)
 
     async def _parse_result(self, result_json: dict[str, Any], generation_id: str) -> None:
         self._route = None
         answer_data = (result_json.get("answers") or {}).get(QUESTION_KEY) or {}
-        raw_score = answer_data.get("score")
-        if raw_score is None:
+        rows = self._rows()
+        descriptions, labels = parse_levels([text for _, text in rows])
+        details = read_score(answer_data, labels, descriptions)
+        if details is None:
             self._set_safe_defaults()
             raise NodeError(
                 "JEV's response didn't include a score. Run the node again.",
@@ -197,22 +193,10 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
                 response=error_response(result_json),
             )
 
-        rows = self._rows()
-        jev_score = float(raw_score)
-        # Round half-up; JEV numbers from 0, display from 1.
-        index = min(int(jev_score + 0.5), len(rows) - 1)
-        output_name, text = rows[index]
-        description = parse_row(text)[1] or text
-
-        self.parameter_output_values["score"] = jev_score + 1
-        self.parameter_output_values["level"] = index + 1
-        self.parameter_output_values["label"] = self._row_output_label(index, text)
-        self.parameter_output_values["description"] = description
-        self.parameter_output_values["confidence"] = float(answer_data.get("confidence", 0.0))
-        raw_probs = answer_data.get("probabilities") or {}
-        self.parameter_output_values["probabilities"] = {str(int(k) + 1): v for k, v in raw_probs.items()}
-        self._route = output_name
-        self._set_status_results(was_successful=True, result_details=f"JEV scored level {index + 1}.")
+        for key in ("score", "level", "label", "description", "confidence", "probabilities"):
+            self.parameter_output_values[key] = details[key]
+        self._route = rows[details["level"] - 1][0]
+        self._set_status_results(was_successful=True, result_details=f"JEV scored level {details['level']}.")
 
     def _set_safe_defaults(self) -> None:
         self._route = None
