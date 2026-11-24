@@ -39,7 +39,7 @@ class RandomNumber(ControlNode):
         self.add_parameter(
             ParameterFloat(
                 name="maximum",
-                tooltip="Maximum value (inclusive for integers, exclusive for floats).",
+                tooltip="Maximum value (inclusive).",
                 default_value=100,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
@@ -65,8 +65,12 @@ class RandomNumber(ControlNode):
         self._seed_parameter.preprocess()
 
         mode = self.get_parameter_value("mode") or NumberMode.INTEGER
-        minimum = self.get_parameter_value("minimum") or 0
-        maximum = self.get_parameter_value("maximum") or 100
+        minimum = self.get_parameter_value("minimum")
+        if minimum is None:
+            minimum = 0
+        maximum = self.get_parameter_value("maximum")
+        if maximum is None:
+            maximum = 100
         seed = self._seed_parameter.get_seed()
 
         rng = random.Random(seed)
