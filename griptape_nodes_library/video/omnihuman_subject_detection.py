@@ -170,15 +170,27 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
         if isinstance(provider_response, str):
             try:
                 provider_response = _json.loads(provider_response)
-            except Exception:
-                provider_response = {}
+            except _json.JSONDecodeError as e:
+                self._set_safe_defaults()
+                logger.error("%s: Could not parse provider_response. Response: %s", self.name, response_json)
+                error_details = f"Subject detection failed: could not parse provider_response as JSON: {e}"
+                self._set_status_results(was_successful=False, result_details=error_details)
+                return
+        if not isinstance(provider_response, dict):
+            self._set_safe_defaults()
+            logger.error("%s: Unexpected provider_response. Response: %s", self.name, response_json)
+            error_details = (
+                f"Subject detection failed: provider_response is a {type(provider_response).__name__}, not an object."
+            )
+            self._set_status_results(was_successful=False, result_details=error_details)
+            return
 
         data = provider_response.get("data", {})
         status = data.get("status", "").lower()
-        if status and status != "done":
+        if status != "done":
             self._set_safe_defaults()
             logger.error("%s: Subject detection did not finish. Response: %s", self.name, response_json)
-            error_details = f"Subject detection did not finish. The provider reported status '{status}'."
+            error_details = f"Subject detection did not finish. The provider reported status '{status or 'unknown'}'."
             self._set_status_results(was_successful=False, result_details=error_details)
             return
 

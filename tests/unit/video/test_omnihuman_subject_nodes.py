@@ -75,16 +75,20 @@ _DETECTION_RESP_DATA = {
 @pytest.mark.parametrize(
     "result_json",
     [
-        pytest.param({"data": {"resp_data": json.dumps(_DETECTION_RESP_DATA)}}, id="unwrapped"),
+        pytest.param({"data": {"status": "done", "resp_data": json.dumps(_DETECTION_RESP_DATA)}}, id="unwrapped"),
         pytest.param(
             {"provider_response": {"data": {"status": "done", "resp_data": json.dumps(_DETECTION_RESP_DATA)}}},
             id="provider_response",
         ),
         pytest.param(
-            {"provider_response": json.dumps({"data": {"resp_data": json.dumps(_DETECTION_RESP_DATA)}})},
+            {
+                "provider_response": json.dumps(
+                    {"data": {"status": "done", "resp_data": json.dumps(_DETECTION_RESP_DATA)}}
+                )
+            },
             id="provider_response_string",
         ),
-        pytest.param({"data": {"resp_data": _DETECTION_RESP_DATA}}, id="resp_data_dict"),
+        pytest.param({"data": {"status": "done", "resp_data": _DETECTION_RESP_DATA}}, id="resp_data_dict"),
     ],
 )
 @pytest.mark.asyncio
@@ -101,7 +105,6 @@ async def test_detection_parse_result_reads_masks(result_json: dict) -> None:
 @pytest.mark.parametrize(
     "result_json",
     [
-        pytest.param({}, id="empty"),
         pytest.param({"data": {"status": "done"}}, id="no_resp_data"),
         pytest.param({"provider_response": {"data": {"status": "done"}}}, id="provider_response_no_resp_data"),
     ],
@@ -122,6 +125,9 @@ async def test_detection_parse_result_without_resp_data_reports_no_subject(resul
     [
         pytest.param({"data": {"status": "expired"}}, id="unwrapped"),
         pytest.param({"provider_response": {"data": {"status": "not_found"}}}, id="provider_response"),
+        pytest.param({}, id="empty"),
+        pytest.param({"data": {"resp_data": json.dumps(_DETECTION_RESP_DATA)}}, id="missing_status"),
+        pytest.param({"data": {"status": "", "resp_data": json.dumps(_DETECTION_RESP_DATA)}}, id="empty_status"),
     ],
 )
 @pytest.mark.asyncio
@@ -132,4 +138,15 @@ async def test_detection_parse_result_reports_unfinished_status(result_json: dic
 
     assert node.parameter_output_values["was_successful"] is False
     assert "did not finish" in node.parameter_output_values["result_details"]
+    assert node.parameter_output_values["mask_image_urls"] == []
+
+
+@pytest.mark.asyncio
+async def test_detection_parse_result_reports_unparseable_provider_response() -> None:
+    node = OmnihumanSubjectDetection(name="Subject")
+
+    await node._parse_result({"provider_response": "not json"}, "gen-1")
+
+    assert node.parameter_output_values["was_successful"] is False
+    assert "could not parse provider_response" in node.parameter_output_values["result_details"]
     assert node.parameter_output_values["mask_image_urls"] == []
