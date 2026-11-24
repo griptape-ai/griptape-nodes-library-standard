@@ -1,6 +1,9 @@
+import json
 from typing import Any
 
 from griptape.artifacts import ImageUrlArtifact
+from griptape_nodes.drivers.image_metadata.base_image_metadata_driver import BaseImageMetadataDriver
+from griptape_nodes.drivers.image_metadata.exif_metadata_driver import EXIF_USERCOMMENT_TAG, ExifMetadataDriver
 from griptape_nodes.drivers.image_metadata.image_metadata_driver_registry import (
     ImageMetadataDriverRegistry,
 )
@@ -26,9 +29,10 @@ IMAGE_FORMAT_TO_EXTENSION = {
 class WriteImageMetadataNode(SuccessFailureNode):
     """Write custom key-value metadata to images.
 
-    Supports PNG (text chunks), JPEG/TIFF/MPO (EXIF UserComment field).
+    Supports PNG (text chunks) and JPEG/TIFF/MPO/WEBP (JSON in the EXIF UserComment field).
     Format is automatically detected and appropriate metadata mechanism is used.
-    Preserves existing metadata and merges with new values.
+    Preserves existing metadata and merges with new values; a new value replaces an existing
+    value with the same key.
     """
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -182,16 +186,54 @@ class WriteImageMetadataNode(SuccessFailureNode):
         # Get driver for this format
         driver = ImageMetadataDriverRegistry.get_driver_for_format(pil_image.format)
         if driver is None:
-            error_msg = f"Unsupported format '{pil_image.format}'. Supported formats: PNG, JPEG, TIFF, MPO."
+            supported_formats = ", ".join(sorted(ImageMetadataDriverRegistry.get_supported_formats()))
+            error_msg = f"Unsupported format '{pil_image.format}'. Supported formats: {supported_formats}."
             raise ValueError(error_msg)
 
         # Write metadata using driver
         try:
-            return driver.inject_metadata(pil_image, metadata_dict)
+            return driver.inject_metadata(pil_image, self._merge_with_existing(driver, pil_image, metadata_dict))
         except Exception as e:
             error_msg = f"{self.name}: Failed to write metadata: {e}"
             logger.warning(error_msg)
             raise
+
+    def _merge_with_existing(
+        self, driver: BaseImageMetadataDriver, pil_image: Image.Image, metadata_dict: dict
+    ) -> dict:
+        """Merge new metadata over the custom metadata already in the image.
+
+        The PNG driver keeps existing text chunks itself. The EXIF driver stores all custom
+        metadata as one JSON object in UserComment and overwrites it, so the existing object
+        is read here and the new keys are layered on top.
+
+        Args:
+            driver: Driver that will write the metadata
+            pil_image: PIL Image the metadata is written to
+            metadata_dict: New metadata to write
+
+        Returns:
+            Metadata for the driver to write
+        """
+        if not isinstance(driver, ExifMetadataDriver):
+            return metadata_dict
+
+        user_comment = pil_image.getexif().get(EXIF_USERCOMMENT_TAG)
+        if not user_comment:
+            return metadata_dict
+        if isinstance(user_comment, bytes):
+            user_comment = user_comment.decode("utf-8", errors="ignore").strip("\x00")
+
+        try:
+            existing = json.loads(user_comment)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(f"{self.name}: Existing EXIF UserComment is not JSON metadata and will be replaced.")
+            return metadata_dict
+        if not isinstance(existing, dict):
+            logger.warning(f"{self.name}: Existing EXIF UserComment is not JSON metadata and will be replaced.")
+            return metadata_dict
+
+        return {**existing, **metadata_dict}
 
     def _save_image_to_storage(self, image_bytes: bytes, pil_image: Image.Image) -> ImageUrlArtifact:
         """Save image bytes to storage.
