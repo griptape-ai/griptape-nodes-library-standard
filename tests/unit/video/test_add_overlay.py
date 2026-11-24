@@ -692,3 +692,87 @@ def test_a_raw_image_artifact_base_is_rejected_with_a_clear_message(node: AddOve
 
     assert errors
     assert "must be a video" in str(errors[0])
+
+
+# ---------------------------------------------------------------------------
+# Audio
+# ---------------------------------------------------------------------------
+
+
+def _audio_streams(output: Path) -> list[str]:
+    probe = subprocess.run(  # noqa: S603
+        [
+            AddOverlay(name="Add Overlay")._get_ffmpeg_paths()[1],
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "csv=p=0",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    return probe.stdout.split()
+
+
+def _make_base_with_audio(path: Path, video_seconds: float, audio_seconds: float) -> Path:
+    subprocess.run(  # noqa: S603
+        [
+            _ffmpeg_path(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=blue:s={SIZE}:duration={video_seconds}:rate=10",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={audio_seconds}",
+            "-c:a",
+            "aac",
+            str(path),
+        ],
+        capture_output=True,
+        check=True,
+        timeout=120,
+    )
+    return path
+
+
+@pytest.mark.parametrize("blend_mode", ["overlay", "screen"])
+def test_base_audio_is_kept(tmp_path: Path, blend_mode: str) -> None:
+    base = _make_base_with_audio(tmp_path / "base.mp4", video_seconds=1, audio_seconds=1)
+    overlay = _make_input(tmp_path / "overlay.png", f"color=c=red@0.5:s={SIZE},format=rgba", frames=1)
+    output = tmp_path / "out.mp4"
+
+    cmd = _build(AddOverlay(name="Add Overlay"), base, output, overlay, blend_mode=blend_mode, amount=0.5)
+    _render_pixel(cmd, output, tmp_path)
+
+    assert _audio_streams(output) == ["aac"]
+
+
+def test_silent_base_renders_without_audio(tmp_path: Path, gray_base: Path) -> None:
+    overlay = _make_input(tmp_path / "overlay.png", f"color=c=red:s={SIZE}", frames=1)
+    output = tmp_path / "out.mp4"
+
+    _render_pixel(_build(AddOverlay(name="Add Overlay"), gray_base, output, overlay), output, tmp_path)
+
+    assert _audio_streams(output) == []
+
+
+def test_shorter_audio_does_not_cut_the_video_short(tmp_path: Path) -> None:
+    base = _make_base_with_audio(tmp_path / "base.mp4", video_seconds=2, audio_seconds=0.5)
+    overlay = _make_input(tmp_path / "overlay.png", f"color=c=red:s={SIZE}", frames=1)
+    output = tmp_path / "out.mp4"
+    node = AddOverlay(name="Add Overlay")
+
+    _render_pixel(_build(node, base, output, overlay), output, tmp_path)
+
+    assert _frame_count_and_rate(node, output) == (20, "10/1")
+    assert _audio_streams(output) == ["aac"]
