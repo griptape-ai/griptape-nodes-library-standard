@@ -28,31 +28,19 @@ class OllamaConnectionError(Exception):
 
 DEFAULT_PORT = "11434"
 DEFAULT_BASE_URL = "http://127.0.0.1"
-DEFAULT_MODEL = "llama3.2"
+# Ollama lists models with their tag, so validation matches the tagged name.
+DEFAULT_MODEL = "llama3.2:latest"
 MODEL_LIST_TIMEOUT_SECONDS = 5.0
-REFRESH_MODELS_MESSAGE = "🔄 Refresh Models..."
-WARNING_EMOJI = "⚠️"
-# Common Ollama models - users can type their own model name as well
-MODEL_CHOICES = [
-    "llama4",
-    "llama3.2",
-    "llama3.2:1b",
-    "llama3.2:3b",
-    "llama3.1",
-    "llama3.1:8b",
-    "llama3.1:70b",
-    "codellama",
-    "mistral",
-    "mixtral",
-    "qwen2.5",
-]
+OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
+# Status text older versions of this node stored as the model value; never a model name.
+LEGACY_STATUS_PREFIXES = ("⚠️", "📝", "🔄")
 
 
 class OllamaPrompt(BasePrompt):
     """Node for configuring an Ollama prompt model.
 
     Inherits from `BasePrompt` to leverage common LLM parameters. This node
-    customizes the available models to common Ollama models, adds Ollama-specific
+    lists the models installed on the Ollama server, adds Ollama-specific
     parameters like base_url and port, and does not require an API key since
     Ollama runs locally.
 
@@ -64,38 +52,33 @@ class OllamaPrompt(BasePrompt):
         """Initializes the OllamaPrompt node.
 
         Calls the superclass initializer, then modifies the inherited 'model'
-        parameter to use common Ollama models and sets a default. It also adds
+        parameter to list the models installed on the Ollama server. It also adds
         Ollama-specific parameters for base_url and port.
         """
         super().__init__(**kwargs)
 
         # --- Customize Inherited Parameters ---
 
-        # Update the 'model' parameter for Ollama specifics.
-        # Try to get actual available models, fallback to static list
-        available_models = self._get_available_models()
-
         # Replace the model parameter with one that has Button trait
         self.remove_parameter_element_by_name("model")
 
-        # Ensure we have at least one choice (fallback to error message if needed)
-        if not available_models:
-            available_models = [f"{WARNING_EMOJI} No models found"]
+        models = self._fetch_models_or_none()
+        choices = models or [DEFAULT_MODEL]
 
         self.model_param = Parameter(
             name="model",
             input_types=["str"],
             type="str",
             output_type="str",
-            default_value=available_models[0],
+            default_value=choices[0],
             tooltip="Select the model you want to use from the available options.",
             traits={
-                Options(choices=available_models),
+                Options(choices=choices),
                 Button(
                     icon="list-restart",
                     size="icon",
                     variant="secondary",
-                    on_click=self._refresh_models,
+                    on_click=self._on_refresh_clicked,
                 ),
             },
         )
@@ -121,9 +104,9 @@ class OllamaPrompt(BasePrompt):
         self.install_ollama_message = ParameterMessage(
             name="install_ollama_message",
             title="Install Ollama",
-            value="To use the Ollama Prompt Models, you will need to have the Ollama server running.\nYou can download the Ollama server from https://ollama.com/download.",
+            value=f"To use the Ollama Prompt Models, you will need to have the Ollama server running.\nYou can download the Ollama server from {OLLAMA_DOWNLOAD_URL}.",
             variant="warning",
-            button_link="https://ollama.com/download",
+            button_link=OLLAMA_DOWNLOAD_URL,
             button_text="Download Ollama",
             button_icon="download",
         )
@@ -143,190 +126,73 @@ class OllamaPrompt(BasePrompt):
         self.add_node_element(self.install_models_message)
         self.move_element_to_position(self.install_models_message.name, "first")
 
-        # Initially hide both messages - we'll show the appropriate one if needed
-        self.hide_message_by_name("install_ollama_message")
-        self.hide_message_by_name("install_models_message")
+        self._update_ollama_messages(models)
 
-        # Check Ollama status and show/hide message accordingly
-        self._update_ollama_message_visibility()
+    def _host(self) -> str:
+        base_url = self.get_parameter_value("base_url") or DEFAULT_BASE_URL
+        port = self.get_parameter_value("port") or DEFAULT_PORT
+        return f"{base_url.rstrip('/')}:{port}"
 
-    def _update_ollama_message_visibility(self) -> None:
-        """Update the visibility of the appropriate message based on Ollama status."""
-        try:
-            # Try to connect to Ollama server and get models
-            models = self._get_models(include_refresh=False, raise_on_error=True)
+    def _fetch_models(self) -> list[str]:
+        """Return the models installed on the Ollama server, sorted by name.
 
-            if not models:
-                # Server is running but no models available
-                self.hide_message_by_name("install_ollama_message")
-                self.show_message_by_name("install_models_message")
-            else:
-                # Models are available - hide both messages
-                self.hide_message_by_name("install_ollama_message")
-                self.hide_message_by_name("install_models_message")
-
-        except OllamaConnectionError:
-            # Server is not running or not accessible
-            self.show_message_by_name("install_ollama_message")
-            self.hide_message_by_name("install_models_message")
-        except Exception:
-            # Other error - assume server not running
-            self.show_message_by_name("install_ollama_message")
-            self.hide_message_by_name("install_models_message")
-
-    def _get_models(self, *, include_refresh: bool = True, raise_on_error: bool = True) -> list[str]:
-        """Get the list of available models from the Ollama server.
-
-        Attempts to connect to the Ollama server and retrieve the list of
-        installed models. Falls back to helpful messages if the server is not available.
-
-        Args:
-            include_refresh: Whether to include the refresh option in the returned list
-            raise_on_error: Whether to raise an exception on connection error (vs silent fallback)
-
-        Returns:
-            List of available model names.
+        Raises:
+            OllamaConnectionError: If the server can't be reached or its model list can't be read.
         """
         try:
-            # Get current connection settings (may be different from defaults)
-            base_url = self.get_parameter_value("base_url") or DEFAULT_BASE_URL
-            port = self.get_parameter_value("port") or DEFAULT_PORT
-            host = f"{base_url.rstrip('/')}:{port}"
-
-            response = httpx.get(f"{host}/api/tags", timeout=MODEL_LIST_TIMEOUT_SECONDS)
+            response = httpx.get(f"{self._host()}/api/tags", timeout=MODEL_LIST_TIMEOUT_SECONDS)
             response.raise_for_status()
-
-            models = [model.get("model") or model["name"] for model in response.json().get("models", [])]
-
-            if models:
-                # Sort models alphabetically for better UX
-                models.sort()
-                if include_refresh:
-                    models.append(REFRESH_MODELS_MESSAGE)
-                return models
-
+            return sorted(model.get("model") or model["name"] for model in response.json().get("models", []))
         except Exception as e:
-            if raise_on_error:
-                msg = f"Unable to get available models from Ollama: {e}"
-                raise OllamaConnectionError(msg) from e
-            # Silent fallback for internal use
-            return []
+            msg = f"Unable to get available models from Ollama at {self._host()}: {e}"
+            raise OllamaConnectionError(msg) from e
 
-        # No models found - show helpful message
-        if include_refresh:
-            no_models_message = "📝 No models found - Install models with 'ollama pull <model>'"
-            return [no_models_message, REFRESH_MODELS_MESSAGE]
-        return []
-
-    def _get_available_models(self) -> list[str]:
-        """Get the list of available models from the Ollama server.
-
-        Returns:
-            List of available model names.
-        """
+    def _fetch_models_or_none(self) -> list[str] | None:
+        """Return the installed models, or None if the Ollama server can't be reached."""
         try:
-            return self._get_models(include_refresh=False, raise_on_error=True)
+            return self._fetch_models()
         except OllamaConnectionError as e:
-            # If we can't connect to Ollama, it means Ollama server is not running
-            # or there's a connection issue - return a connection error message
-            msg = f"{self.name}: Ollama connection error: {e}"
-            logger.error(msg)
-            return [f"{WARNING_EMOJI} Ollama connection error\n{e}"]
-        except Exception:
-            # For any other error, also return the models message
-            return [f"{WARNING_EMOJI} No models found"]
+            logger.warning("%s: %s", self.name, e)
+            return None
 
-    def _get_base_models(self) -> list[str]:
-        """Get the list of available models from the Ollama server (without refresh option).
-
-        Returns:
-            List of available model names (without refresh option).
-        """
-        return self._get_models(include_refresh=False, raise_on_error=False)
-
-    def _refresh_models(self, button: Button, button_details: ButtonDetailsMessagePayload) -> NodeMessageResult | None:  # noqa: ARG002
-        """Refresh models when the refresh button is clicked."""
-        try:
-            # Get fresh model list (without refresh option for counting)
-            base_models = self._get_base_models()
-            available_models = base_models.copy()
-
-            # Update the model parameter with new choices
-            model_param = self.get_parameter_by_name("model")
-            if model_param:
-                # Store current value to preserve user's selection if still valid
-                current_value = self.get_parameter_value("model")
-
-                # Update choices
-                self._update_option_choices(param="model", choices=available_models, default=available_models[0])
-
-                # Restore previous value if it's still available, otherwise use new default
-                if current_value and current_value in base_models:  # Don't restore if it was the refresh option
-                    self.set_parameter_value("model", current_value)
-                else:
-                    # Don't auto-select the helpful message - pick first real model if available
-                    first_real_model = next(
-                        (model for model in available_models if not model.startswith(WARNING_EMOJI)),
-                        None,
-                    )
-                    if first_real_model:
-                        self.set_parameter_value("model", first_real_model)
-                    else:
-                        # Only helpful message and refresh option available
-                        self.set_parameter_value("model", available_models[0])
-        except Exception:
-            # If refresh fails, ensure we still have a working model list
-            fallback_models = [f"{WARNING_EMOJI} No models found"]
-            self._update_option_choices(param="model", choices=fallback_models, default=fallback_models[0])
-            self.set_parameter_value("model", fallback_models[0])
-
-        # Update message visibility based on new status
-        self._update_ollama_message_visibility()
-        return None
+    def _update_ollama_messages(self, models: list[str] | None) -> None:
+        """Show the install message matching the server state: unreachable, no models, or ready."""
+        if models is None:
+            self.show_message_by_name("install_ollama_message")
+            self.hide_message_by_name("install_models_message")
+        elif not models:
+            self.hide_message_by_name("install_ollama_message")
+            self.show_message_by_name("install_models_message")
+        else:
+            self.hide_message_by_name("install_ollama_message")
+            self.hide_message_by_name("install_models_message")
 
     def _refresh_model_list(self) -> None:
-        """Refresh the model list and update the model parameter choices.
+        """Re-read the server's models into the model choices and update the install messages.
 
-        Queries the Ollama server for available models and updates the model
-        parameter's choices and default value accordingly.
+        Keeps the selected model when the server still has it, or when the server can't list models,
+        so a workflow opened before Ollama starts keeps its model. Status messages live in the install
+        messages, never in the model value.
         """
-        try:
-            # Get fresh model list (without refresh option for counting)
-            base_models = self._get_base_models()
-            available_models = base_models.copy()
-            available_models.append(REFRESH_MODELS_MESSAGE)
+        models = self._fetch_models_or_none()
+        current = self.get_parameter_value("model")
+        if not current or str(current).startswith(LEGACY_STATUS_PREFIXES):
+            current = None
 
-            # Update the model parameter with new choices
-            model_param = self.get_parameter_by_name("model")
-            if model_param:
-                # Store current value to preserve user's selection if still valid
-                current_value = self.get_parameter_value("model")
+        if models and current not in models:
+            selected = models[0]
+        else:
+            selected = current or DEFAULT_MODEL
+        self._update_option_choices(param="model", choices=models or [selected], default=selected)
+        self._update_ollama_messages(models)
 
-                # Update choices
-                self._update_option_choices(param="model", choices=available_models, default=available_models[0])
-
-                # Restore previous value if it's still available, otherwise use new default
-                if current_value and current_value in base_models:  # Don't restore if it was the refresh option
-                    self.set_parameter_value("model", current_value)
-                else:
-                    # Don't auto-select the helpful message - pick first real model if available
-                    first_real_model = next(
-                        (model for model in available_models if not model.startswith(f"{WARNING_EMOJI}")),
-                        None,
-                    )
-                    if first_real_model:
-                        self.set_parameter_value("model", first_real_model)
-                    else:
-                        # Only helpful message and refresh option available
-                        self.set_parameter_value("model", available_models[0])
-        except Exception:
-            # If refresh fails, ensure we still have a working model list
-            fallback_models = ["f{WARNING_EMOJI} No models found"]
-            self._update_option_choices(param="model", choices=fallback_models, default=fallback_models[0])
-            self.set_parameter_value("model", fallback_models[0])
-
-        # Update message visibility based on new status
-        self._update_ollama_message_visibility()
+    def _on_refresh_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
+    ) -> NodeMessageResult | None:
+        self._refresh_model_list()
+        return None
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes.
@@ -335,10 +201,7 @@ class OllamaPrompt(BasePrompt):
         - Base URL or port changes (indicating different Ollama server)
         """
         if parameter.name in ["base_url", "port"]:
-            # Server settings changed, auto-refresh model list
             self._refresh_model_list()
-            # Update message visibility based on new server settings
-            self._update_ollama_message_visibility()
 
         return super().after_value_set(parameter, value)
 
@@ -350,40 +213,32 @@ class OllamaPrompt(BasePrompt):
         Returns:
             A list of Exception objects if validation fails, otherwise None.
         """
-        exceptions = []
+        selected_model = self.get_parameter_value("model")
+        if not selected_model:
+            return [ValueError(f"{self.name}: No model selected.")]
 
-        # Check if the selected model is available
         try:
-            selected_model = self.get_parameter_value("model")
-            if not selected_model:
-                msg = "No model selected"
-                exceptions.append(ValueError(msg))
-                return exceptions
-
-            # Skip validation for special UI messages
-            if selected_model.startswith(f"{WARNING_EMOJI}"):
-                return exceptions if exceptions else None
-
-            # Get available models
-            available_models = self._get_base_models()
-
-            if not available_models:
-                msg = "No models found. Install models with 'ollama pull <model>'"
-                exceptions.append(ValueError(msg))
-                return exceptions
-
-            if selected_model not in available_models:
-                msg = f"Selected model '{selected_model}' is not available. Available models: {', '.join(available_models)}"
-                exceptions.append(ValueError(msg))
-
+            available_models = self._fetch_models()
         except OllamaConnectionError as e:
-            msg = f"Unable to connect to Ollama server: {e}"
-            exceptions.append(e)
-        except Exception as e:
-            msg = f"Error validating Ollama configuration: {e}"
-            exceptions.append(Exception(msg))
+            logger.warning("%s: %s", self.name, e)
+            msg = (
+                f"{self.name}: Can't reach the Ollama server at {self._host()}. Start Ollama "
+                f"(download it from {OLLAMA_DOWNLOAD_URL}), or check the base_url and port settings."
+            )
+            return [OllamaConnectionError(msg)]
 
-        return exceptions if exceptions else None
+        if not available_models:
+            msg = f"{self.name}: Ollama is running but has no models. Install one with 'ollama pull <model>'."
+            return [ValueError(msg)]
+
+        if selected_model not in available_models:
+            msg = (
+                f"{self.name}: Model '{selected_model}' is not installed in Ollama. "
+                f"Available models: {', '.join(available_models)}"
+            )
+            return [ValueError(msg)]
+
+        return None
 
     def process(self) -> None:
         """Emits the `ModelConfig` for the selected Ollama model.
