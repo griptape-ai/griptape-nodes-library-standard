@@ -6,6 +6,7 @@ so no ffmpeg or real video is needed.
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -329,3 +330,47 @@ class TestProcessFailures:
             next(real_graph.process())
 
         assert real_graph._execution_succeeded is False
+
+
+class TestExtractFramesFfmpegErrors:
+    BANNER = (
+        "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers\n"
+        "  built with Apple clang version 21.0.0\n"
+        "  configuration: " + "--enable-something " * 40 + "\n"
+    )
+
+    def test_a_failure_reports_ffmpeg_error_not_banner(
+        self, node: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stderr = self.BANNER + "Unrecognized option 'vsync'.\nError splitting the argument list: Option not found\n"
+        monkeypatch.setattr(
+            "griptape_nodes_library.video.extract_frames.run.get_or_fetch_platform_executables_else_raise",
+            lambda: ("ffmpeg", "ffprobe"),
+        )
+
+        def fail(cmd: list[str], **_: Any) -> None:
+            raise subprocess.CalledProcessError(1, cmd, stderr=stderr)
+
+        monkeypatch.setattr("griptape_nodes_library.video.extract_frames.subprocess.run", fail)
+
+        with pytest.raises(RuntimeError, match="Option not found"):
+            node._extract_frames("in.mp4", [1], tmp_path, "frames", 4, "png")
+
+    def test_command_uses_fps_mode_and_hides_banner(
+        self, node: ExtractFrames, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[list[str]] = []
+        monkeypatch.setattr(
+            "griptape_nodes_library.video.extract_frames.run.get_or_fetch_platform_executables_else_raise",
+            lambda: ("ffmpeg", "ffprobe"),
+        )
+        monkeypatch.setattr(
+            "griptape_nodes_library.video.extract_frames.subprocess.run",
+            lambda cmd, **_: seen.append(cmd),
+        )
+
+        node._extract_frames("in.mp4", [1], tmp_path, "frames", 4, "png")
+
+        assert "-hide_banner" in seen[0]
+        assert "-vsync" not in seen[0]
+        assert seen[0][seen[0].index("-fps_mode") + 1] == "passthrough"

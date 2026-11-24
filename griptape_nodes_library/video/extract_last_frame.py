@@ -49,7 +49,7 @@ class ExtractLastFrame(BaseVideoProcessor):
 
         # Use sseof to seek to near the end and extract one frame
         # -sseof -3: seek to 3 seconds before end of file (must come before -i)
-        # -vsync 0: extract only 1 frame
+        # -fps_mode passthrough: write decoded frames as-is, no duplicates
         # -q:v 0: highest quality
         # -f image2: output as image format
         # -update 1: overwrite output file if it exists
@@ -59,8 +59,8 @@ class ExtractLastFrame(BaseVideoProcessor):
             "-3",  # Seek to 3 seconds before end (BEFORE input)
             "-i",
             input_url,  # Input video URL
-            "-vsync",
-            "0",  # Extract 1 frame
+            "-fps_mode",
+            "passthrough",  # No duplicated frames
             "-q:v",
             "0",  # Set quality to 0 (highest quality)
             "-f",
