@@ -128,16 +128,6 @@ def test_auto_output_format_keeps_the_base_image_format(
     assert Image.open(io.BytesIO(data)).format == "JPEG"
 
 
-def test_quality_changes_lossy_output(node: ImageBlendCompositor, monkeypatch: pytest.MonkeyPatch) -> None:
-    node.set_parameter_value("output_format", "JPEG")
-    node.set_parameter_value("quality", "50")
-    low = saved_bytes(node, monkeypatch, "PNG")
-    node.set_parameter_value("quality", "100")
-    high = saved_bytes(node, monkeypatch, "PNG")
-
-    assert len(high) > len(low)
-
-
 def test_auto_output_format_falls_back_to_png_for_unwritable_formats(
     node: ImageBlendCompositor, monkeypatch: pytest.MonkeyPatch
 ) -> None:

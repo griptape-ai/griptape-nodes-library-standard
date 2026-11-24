@@ -7,7 +7,7 @@ when_to_use: Use it when you need a quick layer composite, such as laying a grai
 
 You have a base image and a second image to lay on top of it. Connect the base to `input_image` and the layer to `blend_image`. For example, multiply a dirt pass over a background plate, or screen a smoke element over a frame.
 
-The node processes both images as RGBA. `output_format` defaults to `auto`, which saves in the base image's format, or PNG when that format can't be written (such as GIF). JPEG has no alpha, so a JPEG output is flattened onto white; pick `PNG` or `WEBP` to keep transparency. `quality` applies to `JPEG` and `WEBP`.
+The node processes both images as RGBA. `output_format` defaults to `auto`, which saves in the base image's format, or PNG when that format can't be written (such as GIF). JPEG has no alpha, so a JPEG output is flattened onto white; pick `PNG` or `WEBP` to keep transparency.
 
 ## Example
 
