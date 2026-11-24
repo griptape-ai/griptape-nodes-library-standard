@@ -44,7 +44,6 @@ class OpenAiPrompt(BasePrompt):
         self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
 
     def process(self) -> None:
-        self._raise_if_model_unlisted()
         self._raise_if_model_denied()
 
         config = self._build_model_config(
@@ -55,9 +54,6 @@ class OpenAiPrompt(BasePrompt):
         self.parameter_output_values["prompt_model_config"] = config
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
-        unlisted_model = self._validate_model_listed()
-        if unlisted_model is not None:
-            return unlisted_model
         return self._validate_api_key(
             service_name=SERVICE,
             api_key_env_var=API_KEY_ENV_VAR,
