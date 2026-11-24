@@ -23,17 +23,17 @@ __all__ = ["OmnihumanSubjectDetection"]
 
 
 class OmnihumanSubjectDetection(GriptapeProxyNode):
-    """Detect and locate subjects in an image, returning masks and bounding boxes.
+    """Detect subjects in an image, returning a mask image for each.
 
     This is Step 2 of the OmniHuman workflow (optional). It detects subjects in the image
-    and provides profile images, mask images, and bounding box coordinates. This step can
-    be skipped if there's no need to specify a subject to speak during video generation.
+    and outputs one mask image URL per subject. This step can be skipped if there's no need
+    to specify a subject to speak during video generation.
 
     Inputs:
         - image_url (str): URL of the image to analyze for subject detection
 
     Outputs:
-        - mask_image_urls (list[ImageUrlArtifact]): URLs of the subject mask images
+        - mask_image_urls (list[str]): URLs of the subject mask images
         - contains_subject (bool): Whether the image contains a human subject
         - was_successful (bool): Whether the detection succeeded
         - result_details (str): Details about the detection result or error
@@ -166,8 +166,37 @@ class OmnihumanSubjectDetection(GriptapeProxyNode):
 
     def _process_response(self, response_json: dict[str, Any]) -> None:
         """Process the API response from Griptape Cloud proxy."""
-        # Extract provider response from Griptape Cloud format
-        resp_data = _json.loads(response_json.get("data", {}).get("resp_data", {}))
+        provider_response = response_json.get("provider_response", response_json)
+        if isinstance(provider_response, str):
+            try:
+                provider_response = _json.loads(provider_response)
+            except _json.JSONDecodeError as e:
+                self._set_safe_defaults()
+                logger.error("%s: Could not parse provider_response. Response: %s", self.name, response_json)
+                error_details = f"Subject detection failed: could not parse provider_response as JSON: {e}"
+                self._set_status_results(was_successful=False, result_details=error_details)
+                return
+        if not isinstance(provider_response, dict):
+            self._set_safe_defaults()
+            logger.error("%s: Unexpected provider_response. Response: %s", self.name, response_json)
+            error_details = (
+                f"Subject detection failed: provider_response is a {type(provider_response).__name__}, not an object."
+            )
+            self._set_status_results(was_successful=False, result_details=error_details)
+            return
+
+        data = provider_response.get("data", {})
+        status = data.get("status", "").lower()
+        if status != "done":
+            self._set_safe_defaults()
+            logger.error("%s: Subject detection did not finish. Response: %s", self.name, response_json)
+            error_details = f"Subject detection did not finish. The provider reported status '{status or 'unknown'}'."
+            self._set_status_results(was_successful=False, result_details=error_details)
+            return
+
+        resp_data = data.get("resp_data") or "{}"
+        if isinstance(resp_data, str):
+            resp_data = _json.loads(resp_data)
 
         contains_human = resp_data.get("status") == 1
         mask_urls = resp_data.get("object_detection_result", {}).get("mask", {}).get("url", [])

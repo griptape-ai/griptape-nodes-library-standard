@@ -2847,7 +2847,7 @@
       "file_path": "griptape_nodes_library/video/omnihuman_subject_detection.py",
       "metadata": {
         "category": "image",
-        "description": "Detect and locate subjects in an image, returning masks and bounding boxes using OmniHuman 1.5",
+        "description": "Detect subjects in an image, returning a mask image for each, using OmniHuman 1.5",
         "display_name": "OmniHuman Subject Detection",
         "icon": "ScanFace",
         "group": "describe",
