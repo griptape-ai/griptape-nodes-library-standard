@@ -89,7 +89,7 @@ class ReplaceInList(ControlNode):
             return
 
         new_item = self.get_parameter_value("new_item")
-        if not new_item:
+        if new_item is None:
             return
 
         replace_by = self.get_parameter_value("replace_by")

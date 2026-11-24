@@ -29,8 +29,8 @@ Zero-based position. Defaults to 0. If it is outside the list, the node produces
 
 ### new_item
 
-The replacement value. If it is empty or falsy (an empty string, `0` or `False`), the node produces no output.
+The replacement value. It can be any value, including `0`, an empty string or `False`. If it is not set, the node produces no output.
 
 ### output
 
-The modified list. It is not filled when `items` is empty, when the item or index is not found, or when `new_item` is falsy.
+The modified list. It is not filled when `items` is empty, when the item or index is not found, or when `new_item` is not set.

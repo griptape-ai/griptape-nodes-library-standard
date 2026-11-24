@@ -21,8 +21,8 @@ The list to search.
 
 ### item
 
-The value to look for. Matching is exact and uses Python equality, so text comparisons are case-sensitive and `1` matches `1.0`.
+The value to look for. Matching uses Python equality, so text comparisons are case-sensitive, `1` matches `1.0`, and `0` matches `False`.
 
 ### contains_item
 
-True or false. It is false when `items` is empty or not set, and also when `item` is empty or falsy (an empty string, `0` or `False`), even if the list contains that value. The output is also updated when `items` changes or is disconnected, without running the node.
+True or false. It is false when `items` is empty or not set, or when `item` is not set. The output is also updated when `items` changes or is disconnected, without running the node.

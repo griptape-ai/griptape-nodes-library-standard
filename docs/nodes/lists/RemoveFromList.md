@@ -23,11 +23,11 @@ A shot list is `["SH010", "SH020", "SH030"]` and `SH020` was omitted.
 
 ### item
 
-The value to remove. The first matching entry is removed. If no entry matches, the node fails with an error.
+The value to remove. The first matching entry is removed. If no entry matches, `output` is the list unchanged. Running with `item` unset or `None` fails with an error asking you to set it, so a `None` entry can't be removed this way.
 
 ### index
 
-Zero-based position. Negative values count from the end. An index outside the list fails with an error. It has no default value, so set it before running.
+Zero-based position. Negative values count from the end. An index outside the list fails with an error. It has no default value; running with it unset fails with an error asking you to set it.
 
 ### output
 

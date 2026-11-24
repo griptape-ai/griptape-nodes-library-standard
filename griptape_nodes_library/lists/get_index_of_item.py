@@ -39,9 +39,12 @@ class GetIndexOfItem(ControlNode):
     def _get_index(self) -> int:
         list_items = self.get_parameter_value("items")
         item = self.get_parameter_value("item")
-        if not item or not list_items:
+        if item is None or not list_items:
             return -1
-        return list_items.index(item)
+        try:
+            return list_items.index(item)
+        except ValueError:
+            return -1
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "items":

@@ -21,8 +21,8 @@ The list to search.
 
 ### item
 
-The value to find. Matching is exact and the first match wins, so text is case-sensitive.
+The value to find. Matching uses Python equality and the first match wins, so text is case-sensitive, `1` matches `1.0`, and `0` matches `False`.
 
 ### index
 
-The zero-based position. It is `-1` when `items` is empty or not set, and also when `item` is empty or falsy (an empty string, `0` or `False`), even if the list holds that value. If `item` is set but is not in the list, running the node fails with an error instead of returning `-1`.
+The zero-based position. It is `-1` when `items` is empty or not set, when `item` is not set, or when `item` is not in the list. Get From List and Remove From List read `-1` as the last entry, so check for `-1` before passing `index` on.
