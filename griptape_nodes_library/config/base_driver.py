@@ -186,7 +186,7 @@ class BaseDriver(DataNode):
             self._model_access.raise_if_selection_denied()
 
     def _validate_model_selection(self) -> list[Exception] | None:
-        """The license denial for the stored model selection, as a validation failure.
+        """The denial for the stored model selection, as a validation failure.
 
         Returns `None` when the node never installed a license-filtered dropdown,
         or when its current selection is permitted. Asks the component for the
@@ -196,11 +196,10 @@ class BaseDriver(DataNode):
         """
         if self._model_access is None:
             return None
-        denial = self._model_access.selection_denial()
-        if denial is None:
+        message = self._model_access.selection_denial_message()
+        if message is None:
             return None
-        selection = self._model_access.selected_value
-        return [RuntimeError(f"Model '{selection}' is not permitted. {denial.reason()}")]
+        return [RuntimeError(message)]
 
     def validate_before_workflow_run(self) -> list[Exception] | None:
         """Refuse a model the caller's license denies before the workflow starts.

@@ -211,7 +211,7 @@ def test_validation_does_not_report_an_unrelated_error_as_a_denial(monkeypatch: 
         msg = "engine exploded"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(node._model_access, "selection_denial", explode)
+    monkeypatch.setattr(node._model_access, "selection_denial_message", explode)
 
     with pytest.raises(RuntimeError, match="engine exploded"):
         node.validate_before_workflow_run()

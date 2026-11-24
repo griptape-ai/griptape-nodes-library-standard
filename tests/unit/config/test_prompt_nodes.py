@@ -209,6 +209,7 @@ def test_openai_prompt_keeps_unlisted_saved_model() -> None:
     assert exceptions is not None
     assert len(exceptions) == 1
     assert "'gpt-3.5-turbo'" in str(exceptions[0])
+    assert "not permitted" not in str(exceptions[0])
     with pytest.raises(RuntimeError, match="gpt-3.5-turbo"):
         node.process()
 
