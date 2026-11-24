@@ -121,3 +121,72 @@ def test_payload_value_error_raises_when_failed_is_not_wired() -> None:
     with pytest.raises(ValueError, match="Enter a prompt"):
         node._handle_payload_build_error(ValueError("Enter a prompt."))
     assert node.get_parameter_value("was_successful") is False
+
+
+def _validation_messages(node: Veo3VideoGeneration) -> list[str]:
+    # Outside the engine the base class reports that no model policy is loaded; that is not ours.
+    return [str(error) for error in node.validate_before_node_run() or [] if "allowed to use" not in str(error)]
+
+
+@pytest.mark.parametrize("duration", ["4", "6"])
+def test_validate_refuses_1080p_below_8_seconds(duration: str) -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node.set_parameter_value("resolution", "1080p")
+    node.set_parameter_value("duration_seconds", duration)
+
+    messages = _validation_messages(node)
+
+    assert len(messages) == 1
+    assert "must be 8 seconds when 'resolution' is 1080p" in messages[0]
+
+
+def test_validate_refuses_duration_changed_after_1080p() -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node.set_parameter_value("duration_seconds", "8")
+    node.set_parameter_value("resolution", "1080p")
+    node.set_parameter_value("duration_seconds", "4")
+
+    assert any("1080p" in message for message in _validation_messages(node))
+
+
+@pytest.mark.parametrize(("resolution", "duration"), [("1080p", "8"), ("720p", "4"), ("720p", "6"), ("720p", "8")])
+def test_validate_accepts_supported_resolution_and_duration(resolution: str, duration: str) -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node.set_parameter_value("resolution", resolution)
+    node.set_parameter_value("duration_seconds", duration)
+
+    assert _validation_messages(node) == []
+
+
+def test_validate_refuses_reference_images_below_8_seconds() -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node.set_parameter_value("reference_images", ["https://example.com/ref.png"])
+    node.set_parameter_value("duration_seconds", "6")
+
+    messages = _validation_messages(node)
+
+    assert len(messages) == 1
+    assert "'reference images'" in messages[0]
+
+
+def test_validate_refuses_reference_images_on_veo_3_1_fast() -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node.set_parameter_value("reference_images", ["https://example.com/ref.png"])
+    node.set_parameter_value("model_id", "veo-3.1-fast-generate-001")
+
+    messages = _validation_messages(node)
+
+    assert len(messages) == 1
+    assert "only works with the Veo 3.1 model" in messages[0]
+
+
+def test_validate_reports_the_8_second_duration_once_for_1080p_and_reference_images() -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node.set_parameter_value("reference_images", ["https://example.com/ref.png"])
+    node.set_parameter_value("resolution", "1080p")
+    node.set_parameter_value("duration_seconds", "6")
+
+    messages = _validation_messages(node)
+
+    assert len(messages) == 1
+    assert "'resolution' is 1080p and 'reference images' are connected" in messages[0]
