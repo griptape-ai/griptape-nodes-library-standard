@@ -40,13 +40,27 @@ class LoadGLTF(DataNode):
         value: Any,
     ) -> None:
         if parameter.name == "gltf":
-            image_url = value.get("metadata", {}).get("imageUrl")
+            image_url = self._snapshot_url(value)
             if image_url:
                 image_artifact = ImageUrlArtifact(value=image_url)
                 self.set_parameter_value("image", image_artifact)
                 self.parameter_output_values["image"] = image_artifact
+            else:
+                self.set_parameter_value("image", None)
+                self.parameter_output_values["image"] = None
 
         return super().after_value_set(parameter, value)
+
+    @staticmethod
+    def _snapshot_url(value: Any) -> str | None:
+        """Return the snapshot image URL stored with a GLTF value, if it has one."""
+        if isinstance(value, dict):
+            metadata = value.get("metadata")
+        else:
+            metadata = getattr(value, "meta", None)
+        if not isinstance(metadata, dict):
+            return None
+        return metadata.get("imageUrl")
 
     def process(self) -> None:
         from griptape_nodes_library.utils.gltf_utils import dict_to_gltf_url_artifact
