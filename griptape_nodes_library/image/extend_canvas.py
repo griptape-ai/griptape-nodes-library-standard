@@ -214,7 +214,7 @@ class ExtendCanvas(ImagePreviewMixin, ControlNode):
         self.add_parameter(
             ParameterFloat(
                 name="upscale_factor",
-                tooltip="Factor to upscale the calculated dimensions",
+                tooltip="Factor to scale the image, the custom margins and the canvas by. Must be greater than 0",
                 default_value=1.0,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
             )
@@ -237,7 +237,7 @@ class ExtendCanvas(ImagePreviewMixin, ControlNode):
         self.add_parameter(
             ParameterImage(
                 name="canvas_mask",
-                tooltip="Mask where black = original image, the selected background color = extended canvas areas",
+                tooltip="Mask where black = original image, white = extended canvas areas (transparent when the background is transparent)",
                 ui_options={"expander": True},
                 allowed_modes={ParameterMode.OUTPUT},
             )
@@ -245,6 +245,14 @@ class ExtendCanvas(ImagePreviewMixin, ControlNode):
 
         self._mask_file = ProjectFileParameter(node=self, name="mask_file", default_filename="mask.png")
         self._mask_file.add_parameter()
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        exceptions = super().validate_before_node_run() or []
+        upscale_factor = self.get_parameter_value("upscale_factor")
+        if upscale_factor is not None and upscale_factor <= 0:
+            msg = f"{self.name}: 'Upscale Factor' must be greater than 0. It's set to {upscale_factor!r}."
+            exceptions.append(ValueError(msg))
+        return exceptions or None
 
     def process(self) -> None:
         input_image = self.get_parameter_value("input_image")
@@ -255,57 +263,27 @@ class ExtendCanvas(ImagePreviewMixin, ControlNode):
         if isinstance(input_image, dict):
             input_image = dict_to_image_url_artifact(input_image)
 
-        # Get parameters
-        aspect_ratio_preset = self.get_parameter_value("aspect_ratio_preset")
-        upscale_factor = self.get_parameter_value("upscale_factor")
+        original_image = load_pil_from_url(input_image.value)
+        new_image, mask_image = self._extend_image(original_image)
 
-        # Calculate target dimensions
-        if aspect_ratio_preset != "custom" and aspect_ratio_preset in ASPECT_RATIO_PRESETS:
-            # Get the ratio from preset
-            ratio_width, ratio_height = ASPECT_RATIO_PRESETS[aspect_ratio_preset]
+        # Save outputs
+        extended_bytes = image_to_bytes(new_image, "PNG")
+        extended_dest = self._output_file.build_file()
+        extended_saved = extended_dest.write_bytes(extended_bytes)
+        extended_artifact = ImageUrlArtifact(extended_saved.location)
 
-            # Load original image to get current dimensions
-            original_image = load_pil_from_url(input_image.value)
-            original_width, original_height = original_image.size
+        mask_bytes = image_to_bytes(mask_image, "PNG")
+        mask_dest = self._mask_file.build_file()
+        mask_saved = mask_dest.write_bytes(mask_bytes)
+        mask_artifact = ImageUrlArtifact(mask_saved.location)
 
-            # Calculate target dimensions based on original image size and ratio
-            # We'll maintain the larger dimension and calculate the other based on the ratio
-            if original_width / original_height > ratio_width / ratio_height:
-                # Original image is wider than target ratio, extend height
-                target_width = original_width
-                target_height = int(original_width * ratio_height / ratio_width)
-            else:
-                # Original image is taller than target ratio, extend width
-                target_height = original_height
-                target_width = int(original_height * ratio_width / ratio_height)
-        else:
-            # For custom mode, extend by explicit pixel margins
-            original_image = load_pil_from_url(input_image.value)
-            original_width, original_height = original_image.size
+        # Set outputs
+        self.set_parameter_value("extended_image", extended_artifact)
+        self.set_parameter_value("canvas_mask", mask_artifact)
 
-            top_ext = max(0, int(self.get_parameter_value("top") or 0))
-            bottom_ext = max(0, int(self.get_parameter_value("bottom") or 0))
-            left_ext = max(0, int(self.get_parameter_value("left") or 0))
-            right_ext = max(0, int(self.get_parameter_value("right") or 0))
-
-            target_width = original_width + left_ext + right_ext
-            target_height = original_height + top_ext + bottom_ext
-
-        # Apply upscale factor
-        if upscale_factor != 1.0:
-            target_width = int(target_width * upscale_factor)
-            target_height = int(target_height * upscale_factor)
-
-        # Calculate custom offsets if needed
-        custom_offsets = None
-        if aspect_ratio_preset == "custom":
-            custom_offsets = (
-                max(0, int(self.get_parameter_value("left") or 0)),
-                max(0, int(self.get_parameter_value("top") or 0)),
-            )
-
-        # Process the image
-        self._extend_image(input_image, target_width, target_height, custom_offsets)
+        # Publish updates
+        self.publish_update_to_parameter("extended_image", extended_artifact)
+        self.publish_update_to_parameter("canvas_mask", mask_artifact)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         # Show/hide parameters based on aspect ratio preset selection
@@ -328,20 +306,56 @@ class ExtendCanvas(ImagePreviewMixin, ControlNode):
         # Don't auto-process - let user run manually
         return super().after_value_set(parameter, value)
 
-    def _extend_image(
-        self,
-        image_artifact: ImageUrlArtifact,
-        target_width: int,
-        target_height: int,
-        custom_offsets: tuple[int, int] | None = None,
-    ) -> None:
-        """Extend the image and create the mask."""
+    def _extend_image(self, original_image: Image.Image) -> tuple[Image.Image, Image.Image]:
+        """Extend the canvas around the image and build its mask.
+
+        The upscale factor scales the image and the custom margins first, so the canvas, the image
+        and its offsets all grow together.
+        """
+        aspect_ratio_preset = self.get_parameter_value("aspect_ratio_preset")
+        upscale_factor = self.get_parameter_value("upscale_factor")
+        if upscale_factor is None:
+            upscale_factor = 1.0
+        if upscale_factor <= 0:
+            msg = f"{self.name}: 'Upscale Factor' must be greater than 0. It's set to {upscale_factor!r}."
+            raise ValueError(msg)
+
+        def scaled(value: int) -> int:
+            return int(value * upscale_factor + 0.5)
+
+        if upscale_factor != 1.0:
+            scaled_size = (max(1, scaled(original_image.width)), max(1, scaled(original_image.height)))
+            original_image = original_image.resize(scaled_size, Image.Resampling.LANCZOS)
+        original_width, original_height = original_image.size
+
+        # Calculate target dimensions
+        custom_offsets = None
+        if aspect_ratio_preset != "custom" and aspect_ratio_preset in ASPECT_RATIO_PRESETS:
+            ratio_width, ratio_height = ASPECT_RATIO_PRESETS[aspect_ratio_preset]
+
+            # Keep the image's size along one side and extend the other to reach the ratio
+            if original_width / original_height > ratio_width / ratio_height:
+                # Original image is wider than target ratio, extend height
+                target_width = original_width
+                target_height = int(original_width * ratio_height / ratio_width)
+            else:
+                # Original image is taller than target ratio, extend width
+                target_height = original_height
+                target_width = int(original_height * ratio_width / ratio_height)
+        else:
+            # For custom mode, extend by explicit pixel margins
+            top_ext = scaled(max(0, int(self.get_parameter_value("top") or 0)))
+            bottom_ext = scaled(max(0, int(self.get_parameter_value("bottom") or 0)))
+            left_ext = scaled(max(0, int(self.get_parameter_value("left") or 0)))
+            right_ext = scaled(max(0, int(self.get_parameter_value("right") or 0)))
+
+            target_width = original_width + left_ext + right_ext
+            target_height = original_height + top_ext + bottom_ext
+            if aspect_ratio_preset == "custom":
+                custom_offsets = (left_ext, top_ext)
+
         position_str = self.get_parameter_value("position") or ImagePosition.CENTER
         position = ImagePosition(position_str)
-
-        # Load original image
-        original_image = load_pil_from_url(image_artifact.value)
-        original_width, original_height = original_image.size
 
         # Ensure we're actually extending (target should be larger than original)
         # If target is smaller, we'll use the larger of the two dimensions
@@ -375,24 +389,7 @@ class ExtendCanvas(ImagePreviewMixin, ControlNode):
         # Create mask using foreground color for the original image area
         mask_image.paste(color_config.mask_fg_color, (x, y, x + original_width, y + original_height))
 
-        # Save outputs
-        extended_bytes = image_to_bytes(new_image, "PNG")
-        extended_dest = self._output_file.build_file()
-        extended_saved = extended_dest.write_bytes(extended_bytes)
-        extended_artifact = ImageUrlArtifact(extended_saved.location)
-
-        mask_bytes = image_to_bytes(mask_image, "PNG")
-        mask_dest = self._mask_file.build_file()
-        mask_saved = mask_dest.write_bytes(mask_bytes)
-        mask_artifact = ImageUrlArtifact(mask_saved.location)
-
-        # Set outputs
-        self.set_parameter_value("extended_image", extended_artifact)
-        self.set_parameter_value("canvas_mask", mask_artifact)
-
-        # Publish updates
-        self.publish_update_to_parameter("extended_image", extended_artifact)
-        self.publish_update_to_parameter("canvas_mask", mask_artifact)
+        return new_image, mask_image
 
     def _calculate_position(
         self, original_width: int, original_height: int, target_width: int, target_height: int, position: ImagePosition

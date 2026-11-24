@@ -330,12 +330,18 @@ const EXTEND_POSITIONS = {
   right: (dx, dy) => [dx, Math.floor(dy / 2)],
 };
 
-// Canvas size and where the original image goes. Presets are "W:H label"; anything else extends by
-// the pixel margins, which only "custom" also uses as the image's offset.
-function extendLayout(v, w, h) {
+// Canvas size, where the original image goes, and its size there. Presets are "W:H label"; anything
+// else extends by the pixel margins, which only "custom" also uses as the image's offset. The upscale
+// factor scales the image and the margins first, so the canvas, the image and its offsets grow together.
+function extendLayout(v, sourceW, sourceH) {
   const preset = v.aspect_ratio_preset ?? "1:1 square";
   const ratio = preset === "custom" ? null : /^(\d+):(\d+) /.exec(preset);
-  const margin = (name) => Math.max(0, Math.trunc(num(v[name], 0)));
+  const upscale = v.upscale_factor == null || v.upscale_factor === "" ? 1 : num(v.upscale_factor, 1);
+  if (upscale <= 0) return { error: "Upscale Factor must be greater than 0" };
+  const scaled = (value) => Math.round(value * upscale);
+  const margin = (name) => scaled(Math.max(0, Math.trunc(num(v[name], 0))));
+  const w = Math.max(1, scaled(sourceW));
+  const h = Math.max(1, scaled(sourceH));
   let targetW;
   let targetH;
   if (ratio) {
@@ -352,12 +358,6 @@ function extendLayout(v, w, h) {
     targetW = w + margin("left") + margin("right");
     targetH = h + margin("top") + margin("bottom");
   }
-  // The upscale factor grows the canvas; the image keeps its size.
-  const upscale = num(v.upscale_factor, 1);
-  if (upscale !== 1) {
-    targetW = Math.trunc(targetW * upscale);
-    targetH = Math.trunc(targetH * upscale);
-  }
   const width = Math.max(targetW, w);
   const height = Math.max(targetH, h);
   let x;
@@ -369,20 +369,20 @@ function extendLayout(v, w, h) {
     const place = EXTEND_POSITIONS[v.position || "center"] ?? EXTEND_POSITIONS.center;
     [x, y] = place(width - w, height - h);
   }
-  return { width, height, x, y };
+  return { width, height, x, y, imageWidth: w, imageHeight: h };
 }
 
 const extendCanvas = {
   size: (v, w, h) => extendLayout(v, w, h),
   label: (v) => v.aspect_ratio_preset ?? "1:1 square",
   draw(ctx, img, v, view) {
-    const { x, y } = extendLayout(v, view.sourceWidth, view.sourceHeight);
+    const { x, y, imageWidth, imageHeight } = extendLayout(v, view.sourceWidth, view.sourceHeight);
     const background = v.background_color || "black";
     if (background !== "transparent") {
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, view.width, view.height);
     }
-    ctx.drawImage(img, x * view.scale, y * view.scale, view.sourceWidth * view.scale, view.sourceHeight * view.scale);
+    ctx.drawImage(img, x * view.scale, y * view.scale, imageWidth * view.scale, imageHeight * view.scale);
   },
 };
 
