@@ -1,9 +1,10 @@
+import contextlib
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -76,7 +77,7 @@ class TempFilename(DataNode):
             ParameterString(
                 name="suffix",
                 default_value="",
-                tooltip="Optional suffix to append to the filename (e.g., '_backup' or '.old'). If extension is provided, suffix is appended after extension.",
+                tooltip="Optional suffix to append after the random part of the filename (e.g., '_backup' or '.old'). If extension is provided, suffix comes before the extension.",
                 placeholder_text="Example: _backup or .old",
             )
         )
@@ -117,7 +118,10 @@ class TempFilename(DataNode):
             directory: Directory path string or None
 
         Returns:
-            Cleaned directory path or None, or error message string
+            Cleaned directory path, or None to use the system temp directory
+
+        Raises:
+            NodeError: If the directory does not exist or is not a directory
         """
         if not directory:
             return None
@@ -130,10 +134,12 @@ class TempFilename(DataNode):
 
         dir_path = Path(cleaned_dir)
         if not dir_path.exists():
-            return f"Error: Directory does not exist: {cleaned_dir}"
+            msg = f"Directory does not exist: {cleaned_dir}"
+            raise NodeError(msg)
 
         if not dir_path.is_dir():
-            return f"Error: Path is not a directory: {cleaned_dir}"
+            msg = f"Path is not a directory: {cleaned_dir}"
+            raise NodeError(msg)
 
         return cleaned_dir
 
@@ -180,7 +186,10 @@ class TempFilename(DataNode):
         """Generate a temporary filename.
 
         Returns:
-            The temporary filename or absolute path as a string, or error message
+            The temporary filename or absolute path as a string
+
+        Raises:
+            NodeError: If the directory is invalid or the filename cannot be generated
         """
         # Get input values
         directory = self.get_parameter_value("directory")
@@ -191,10 +200,7 @@ class TempFilename(DataNode):
         separator = self.get_parameter_value("separator")
         return_absolute_path = self.get_parameter_value("return_absolute_path")
 
-        # Validate directory (failure case first)
         validated_dir = self._clean_and_validate_directory(directory)
-        if isinstance(validated_dir, str) and validated_dir.startswith("Error:"):
-            return validated_dir
 
         # Normalize extension and clean suffix/prefix/name/separator
         normalized_extension = self._normalize_extension(extension)
@@ -226,7 +232,6 @@ class TempFilename(DataNode):
         combined_suffix = cleaned_suffix + normalized_extension
 
         # Generate temporary filename using mkstemp (creates file, returns fd and path)
-        temp_path_obj: Path | None = None
         try:
             fd, temp_path = tempfile.mkstemp(suffix=combined_suffix, prefix=combined_prefix, dir=validated_dir)
             # Close the file descriptor immediately (we just want the filename)
@@ -236,11 +241,8 @@ class TempFilename(DataNode):
             # Delete the file since we only want the filename
             temp_path_obj.unlink()
         except OSError as e:
-            return f"Error: Failed to generate temporary filename: {e}"
-
-        # Return absolute path or just filename based on setting (success path at end)
-        if temp_path_obj is None:
-            return "Error: Failed to generate temporary filename"
+            msg = f"Failed to generate temporary filename: {e}"
+            raise NodeError(msg) from e
 
         if return_absolute_path:
             result = str(temp_path_obj.resolve())
@@ -259,14 +261,21 @@ class TempFilename(DataNode):
             "separator",
             "return_absolute_path",
         ):
-            self._update_output()
+            # An invalid setting while editing leaves the output empty; the error is raised when the node runs.
+            with contextlib.suppress(NodeError):
+                self._update_output()
         return super().after_value_set(parameter, value)
 
     def _update_output(self) -> None:
-        """Update the output parameter with the generated temp filename."""
-        temp_filename = self._generate_temp_filename()
+        """Update the output parameter with the generated temp filename, or clear it and raise on error."""
+        try:
+            temp_filename = self._generate_temp_filename()
+        except NodeError:
+            self._set_output("")
+            raise
+        self._set_output(temp_filename)
 
-        # Set the output value
+    def _set_output(self, temp_filename: str) -> None:
         self.set_parameter_value("filename", temp_filename)
         self.publish_update_to_parameter("filename", temp_filename)
         self.parameter_output_values["filename"] = temp_filename

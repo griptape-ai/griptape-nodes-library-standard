@@ -13,7 +13,7 @@ With `prefix` set to `render`, `name` set to `shot`, `suffix` empty and `extensi
 
 ### directory
 
-The folder to put the name in. If empty, the system temp folder is used. The folder must already exist, otherwise `filename` contains an error message.
+The folder to put the name in. If empty, the system temp folder is used. The folder must already exist, otherwise the node fails.
 
 ### name
 
@@ -35,5 +35,4 @@ On by default and returns the full path. Turn it off for the filename only.
 
 The generated name. A new random name is generated each time the node runs or an input changes, so save the value if you need it to stay the same.
 
-> [!WARNING]
-> If the name can't be generated, the error text is put in `filename` as `Error: ...` and the node does not fail. Check for this before using the value as a path.
+If the name can't be generated, the node fails and `filename` is left empty.
