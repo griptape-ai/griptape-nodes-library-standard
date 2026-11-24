@@ -59,6 +59,11 @@ STATUS_CONTENT_MODERATED = "Content Moderated"
 # Maximum number of images for editing
 MAX_IMAGES = 6
 
+# The node surfaces a single ``image_url``, so it asks for one output image. Provider docs:
+# "n: The number of output images. Value range: 1 to 6. Default: 1."
+# https://www.alibabacloud.com/help/en/model-studio/qwen-image-generation-and-editing-api-reference
+OUTPUT_IMAGE_COUNT = 1
+
 
 class QwenImageEdit(GriptapeProxyNode):
     """Edit images using Qwen image editing models via Griptape model proxy.
@@ -75,7 +80,6 @@ class QwenImageEdit(GriptapeProxyNode):
             Supports JPG, JPEG, PNG, BMP, TIFF, WEBP
             Resolution: 384-3072 pixels (width and height)
             Size: Max 10 MB per image
-            Note: The number of output images generated equals the number of input images (1-6)
         - negative_prompt (str): Description of content to avoid (max 500 characters)
         - watermark (bool): Add "Qwen-Image" watermark to bottom-right corner (default: False)
         - randomize_seed (bool): If true, randomize the seed on each run
@@ -84,7 +88,7 @@ class QwenImageEdit(GriptapeProxyNode):
     Outputs:
         - generation_id (str): Generation ID from the API
         - provider_response (dict): Verbatim provider response from the model proxy
-        - image_url (ImageUrlArtifact): Generated image as URL artifact
+        - image_url (ImageUrlArtifact): The edited image; one is generated per run, however many images are input
         - was_successful (bool): Whether the generation succeeded
         - result_details (str): Details about the generation result or error
     """
@@ -233,14 +237,10 @@ class QwenImageEdit(GriptapeProxyNode):
             msg = f"Maximum {MAX_IMAGES} images allowed for editing (got {len(images)})"
             raise ValueError(msg)
 
-        # Automatically set num_images to match the number of input images
-        num_images = len(images)
-
         return {
             "model": model,
             "editing_instruction": self.get_parameter_value("editing_instruction") or "",
             "images": images,
-            "num_images": num_images,
             "negative_prompt": self.get_parameter_value("negative_prompt") or "",
             "watermark": self.get_parameter_value("watermark") or False,
             "seed": self._seed_parameter.get_seed(),
@@ -266,7 +266,7 @@ class QwenImageEdit(GriptapeProxyNode):
         payload = {
             "model": self._get_selected_model_id(),
             "messages": [{"role": "user", "content": content}],
-            "n": params["num_images"],
+            "n": OUTPUT_IMAGE_COUNT,
             "watermark": params["watermark"],
             "seed": params["seed"],
         }
@@ -338,23 +338,6 @@ class QwenImageEdit(GriptapeProxyNode):
             media_kind="image",
             action="edited",
         )
-        await self._warn_on_unsurfaced_images(generation_id)
-
-    async def _warn_on_unsurfaced_images(self, generation_id: str) -> None:
-        """Log when Qwen produced more images than this node exposes.
-
-        The node asks for one edit per input image and has a single ``image_url``
-        output, so a multi-image edit is billed for images nothing can read. Saying so
-        beats dropping them in silence.
-        """
-        with suppress(Exception):
-            hosted = [a for a in await self._hosted_artifacts(generation_id) if a.kind == ArtifactKind.IMAGE]
-            if len(hosted) > 1:
-                logger.warning(
-                    "%s: the generation hosts %d images but this node surfaces one; the rest are unread",
-                    self.name,
-                    len(hosted),
-                )
 
     def _extract_error_message(self, response_json: dict[str, Any] | None) -> str:
         """Return the provider's reason for a failed request, or "" if it gave none.
