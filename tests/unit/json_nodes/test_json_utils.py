@@ -73,3 +73,13 @@ def test_to_json_value_passes_json_values_through(value: object) -> None:
 
 def test_to_json_value_parses_text() -> None:
     assert to_json_value("node", "[1, 2,") == [1, 2]
+
+
+def test_parse_or_repair_json_raises_value_error_when_repair_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise RecursionError
+
+    monkeypatch.setattr("griptape_nodes_library.json.json_utils.repair_json", fail)
+
+    with pytest.raises(ValueError, match="my_node: Failed to repair JSON"):
+        parse_or_repair_json("my_node", "{bad")

@@ -133,14 +133,15 @@ class DisplayJson(DataNode):
             elif format_type == FormatType.YAML:
                 result = self._validate_and_parse_yaml(extracted_content)
             else:
-                # Try JSON first, then YAML, then show the text as it is
+                # Try JSON first, then YAML as fallback
                 try:
                     result = self._validate_and_parse_json(extracted_content)
                 except ValueError:
                     try:
                         result = self._validate_and_parse_yaml(extracted_content)
-                    except ValueError:
-                        result = extracted_content
+                    except ValueError as e:
+                        msg = f"Failed to parse input as JSON or YAML: {e}. Input: {extracted_content[:200]!r}"
+                        raise ValueError(msg) from e
         else:
             result = to_json_value(self.name, json_data)
 

@@ -34,7 +34,11 @@ def parse_or_repair_json(node_name: str, text: str) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    repaired = repair_json(text, return_objects=True)
+    try:
+        repaired = repair_json(text, return_objects=True)
+    except Exception as e:
+        msg = f"{node_name}: Failed to repair JSON: {e}. Input was: {text[:200]!r}"
+        raise ValueError(msg) from e
     # repair_json gives back an empty string when nothing in the text is JSON.
     if repaired == "":
         msg = f"{node_name}: Could not read the input as JSON. Input was: {text[:200]!r}"

@@ -73,8 +73,6 @@ class TestDisplayJson:
         assert node.parameter_output_values["json"] == {"a": [1, 2]}
 
     @pytest.mark.parametrize("raw", ["@foo", "`x`"])
-    def test_text_that_is_not_json_or_yaml_shows_as_text(self, node: DisplayJson, raw: str) -> None:
-        node.set_parameter_value("json", raw)
-        node.process()
-
-        assert node.parameter_output_values["json"] == raw
+    def test_text_that_is_not_json_or_yaml_raises(self, node: DisplayJson, raw: str) -> None:
+        with pytest.raises(ValueError, match="Failed to parse input as JSON or YAML"):
+            node.set_parameter_value("json", raw)
