@@ -25,7 +25,7 @@ Goes between prefix, name and the random part. If you clear it, `_` is used.
 
 ### suffix
 
-Added after the random part and before the extension. The tooltip says the suffix is appended after the extension, but the code puts the suffix first, so `suffix` `_backup` with `extension` `txt` gives `..._backup.txt`.
+Added after the random part and before the extension, so `suffix` `_backup` with `extension` `txt` gives `..._backup.txt`.
 
 ### return_absolute_path
 

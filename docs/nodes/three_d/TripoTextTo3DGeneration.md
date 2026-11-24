@@ -12,9 +12,9 @@ The model is saved as GLB, or as FBX when `quad` is on. A preview image is saved
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Tripo 3D key (`TRIPO_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Texturing and detailed quality settings can use more credits. The status message reports the credits Tripo charged when Tripo returns them.
-- A prompt. The node tooltip gives a limit of 1024 characters. The node does not check this.
+- A prompt of up to 1024 characters. A longer one fails at the provider.
 
 ## Parameters
 

@@ -10,7 +10,7 @@ Describe the music, choose a length and run. The result is saved as an audio fil
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ElevenLabs key (`ELEVENLABS_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 
 ## Parameters
 

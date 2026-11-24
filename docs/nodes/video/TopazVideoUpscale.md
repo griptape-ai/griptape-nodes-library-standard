@@ -10,8 +10,7 @@ You want a bigger, cleaner version of an existing video. The Topaz models add ne
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Topaz Labs key (`TOPAZ_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
-- Set `timeout` to 0 to wait with no limit.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - The video is uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run.
 - The source must be mp4, mov or mkv. Other types such as webm or avi are rejected. A file with no extension is treated as mp4.
 - The node stops before upload if the clip is too long. Starlight allows up to 9000 frames. Astra 2 allows 9000, or 450 (about 15 seconds at 30 fps) if you set a `prompt`. To shorten a clip first, use [Trim Video](TrimVideo.md) or [Split Video](SplitVideo.md).

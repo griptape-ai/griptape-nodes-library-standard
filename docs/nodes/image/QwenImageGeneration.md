@@ -10,7 +10,7 @@ Write a prompt, pick one of five sizes and get one image back. To change an exis
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Workflows saved with the older Qwen Image or Qwen Image Plus models are migrated to `qwen-image-3.0`.
 
 ## Parameters

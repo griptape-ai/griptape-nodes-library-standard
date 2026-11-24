@@ -15,7 +15,7 @@ Get a random value to vary a prompt setting, pick an index, or add noise. Leave 
 
 ### minimum and maximum
 
-The range. Integers can land on either end. For floats the tooltip says the maximum is exclusive.
+The range. Integers can land on either end. A float is drawn between the two and can, in rare cases, equal the maximum.
 
 > [!WARNING]
 > A `maximum` of 0 is read as not set and becomes 100. A `minimum` of 0 is fine. If you need 0 as the top of a range, shift the range and subtract afterward.

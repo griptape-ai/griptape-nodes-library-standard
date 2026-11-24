@@ -10,7 +10,7 @@ Most of a clip is right and one moment needs to change. Connect the video to `vi
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 1200 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 1200 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - A local video is uploaded to Griptape Cloud as a short-lived public link, which is deleted after the run. A video that is already a public https link is sent as is. If the upload is not possible, the video is embedded in the request instead. That only works for files up to about 11 MB.
 - The clip can be up to 21 seconds long. The node checks the length before it submits.
 

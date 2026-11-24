@@ -1,17 +1,18 @@
 ---
-description: Turns speech in an audio file into text with OpenAI's Whisper model, through Griptape Cloud.
-when_to_use: Use it when you need a written transcript of a recording, such as a dailies review session or a director's voice notes.
+description: Turns speech in an audio file, or in a video's audio track, into text with OpenAI's Whisper model, through Griptape Cloud.
+when_to_use: Use it when you need a written transcript of a recording or a video, such as a dailies review session or a director's voice notes.
 ---
 
 ## When to use it
 
-You have a recording and want the words as text. For example, a supervisor's voice notes from a review session can become written notes that an [Agent](../agents/Agent.md) sorts by shot.
+You have a recording, or a video with someone talking, and want the words as text. For example, a supervisor's voice notes from a review session can become written notes that an [Agent](../agents/Agent.md) sorts by shot.
 
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own OpenAI key (`OPENAI_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
-- Audio in mp3, mp4, mpeg, mpga, m4a, wav, webm or flac, up to 25 MB. These limits come from the node tooltip. The node does not check them.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- Audio in mp3, mp4, mpeg, mpga, m4a, wav, webm or flac, up to 25 MB. A larger file fails at the provider.
+- Or a video. Its first audio track is transcribed, up to about 1 hour 45 minutes of audio. A video with no audio track, or one that is too long, stops the node with a message.
 
 ## Example
 
@@ -29,7 +30,7 @@ The only choice is `whisper-1`. Workflows saved with `gpt-4o-mini-transcribe` or
 
 ### audio
 
-The node does not check the size before it sends the request, so a file over 25 MB fails at the provider. Split a long recording first, for example with [Trim Audio](TrimAudio.md).
+Connect an audio file, or a video to transcribe its audio track. A video's audio is extracted as 16 kHz mono mp3, which stays under 25 MB for about 1 hour 45 minutes. Split a longer recording first, for example with [Trim Audio](TrimAudio.md).
 
 ### language
 

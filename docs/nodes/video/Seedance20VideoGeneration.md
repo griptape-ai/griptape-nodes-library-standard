@@ -10,7 +10,7 @@ You want a clip from a prompt, from start and end frames, or guided by reference
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ByteDance Seed key (`SEED_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Seedance does not accept video as base64. Local reference videos are uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run.
 - To use a human likeness or voice, pass the media through [Seedance Human Reference Asset](SeedanceHumanReferenceAsset.md). That needs a Griptape Nodes license or Griptape Cloud API key. The node stops with an error if a private-asset reference is connected while **API Key Provider** is set to **Customer**.
 

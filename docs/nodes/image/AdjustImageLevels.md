@@ -25,9 +25,6 @@ You want to control shadows, midtones and highlights separately. Use it to fix e
 
 0.1 to 10.0, default 1.0, which is no change. The node applies `output = input^(1/midtones)`, which matches Photoshop's gamma. Values above 1.0 brighten the midtones and values below 1.0 darken them.
 
-> [!NOTE]
-> The parameter tooltip says the opposite (below 1.0 lightens, above 1.0 darkens). The tooltip is wrong.
-
 ### highlights
 
 0 to 255, default 255. Pixels above this are mapped to `output_highlights`, so lower values clip more highlight detail.

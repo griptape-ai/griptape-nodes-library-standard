@@ -28,7 +28,7 @@ Use the file browser to pick a folder or a sequence.
 `Sequential` plays the frames in the order found. `Respect frame numbers` reads the number in each filename and repeats the previous frame to fill any gap. For example, frames 1, 2 and 5 play as 1, 2, 2, 2, 5.
 
 > [!NOTE]
-> The tooltip says this setting is not applied to sequences and patterns. In practice `Respect frame numbers` is applied to every input type.
+> `Respect frame numbers` is applied to every input type, including sequences and patterns.
 
 ### format
 

@@ -12,7 +12,7 @@ View the splats with [Load Splat](LoadSplat.md). To open one in Blender or Unrea
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own World Labs key (`WORLD_LABS_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - The input that matches `input_type`: text, one image, 2 to 4 images (up to 8 with `enable_reconstruction`), or a video. Each image or video must be 10 MB or smaller. `text_prompt` is optional guidance for every type except Text, where it is the input.
 
 ## Parameters

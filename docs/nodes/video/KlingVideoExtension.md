@@ -10,8 +10,7 @@ You made a clip with a Kling node and want more of it. Connect the `kling_video_
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Kling AI key (`KLING_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
-- Set `timeout` to 0 to wait with no limit.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Each run adds 4 to 5 seconds. The longest total video is 3 minutes.
 - It works on Kling's own ID, not on a video file, so a clip that did not come from Kling cannot be extended here. [Kling Text to Video Generation](KlingTextToVideoGeneration.md) and [Kling Image to Video Generation](KlingImageToVideoGeneration.md) both output the ID.
 

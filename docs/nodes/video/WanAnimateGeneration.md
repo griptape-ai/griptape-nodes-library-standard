@@ -10,9 +10,9 @@ You have a picture of a person and a video of someone moving, and you want the p
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - The image and video are uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run.
-- The node does not check the limits below, so an input outside them fails at the provider.
+- Inputs outside these limits fail at the provider.
 - Image: JPG, JPEG, PNG, BMP or WEBP, 200 to 4096 px, aspect ratio 1:3 to 3:1, up to 5 MB.
 - Video: MP4, AVI or MOV, 2 to 30 seconds, 200 to 2048 px, aspect ratio 1:3 to 3:1, up to 200 MB.
 - Both should show a single person facing the camera with the full face visible.

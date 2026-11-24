@@ -10,7 +10,7 @@ You want a 3D asset without modelling it. Write a prompt, connect reference imag
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Hyper3D Rodin key (`RODIN_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 1200 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 1200 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - A prompt, up to five images, or both. One of the two is required.
 
 ## Parameters
@@ -40,7 +40,7 @@ Sets the target face count: high is 50k, medium is 18k, low is 8k and extra-low 
 Hidden until you show them.
 
 - `use_original_alpha` keeps the transparency of the input images.
-- `quality_override` sets an exact poly count and overrides `quality`. The tooltip gives 1,000 to 200,000 for Quad and 500 to 1,000,000 for Raw.
+- `quality_override` sets an exact poly count and overrides `quality`. Use 1,000 to 200,000 for Quad and 500 to 1,000,000 for Raw.
 - `ta_pose` forces a T or A pose for human-like models.
 - `bbox_condition` limits the model's size as `Width(Y), Height(Z), Length(X)`, for example `1,2,3`. Values are rounded down to whole numbers. Anything other than three numbers is ignored without an error.
 - `high_pack` gives 4K textures instead of 2K and 16 times the face count in Quad mode.

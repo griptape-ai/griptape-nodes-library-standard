@@ -10,19 +10,18 @@ You want a character to copy a performance. Connect the character picture to `re
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Kling AI key (`KLING_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
-- Set `timeout` to 0 to wait with no limit.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - To give Kling access to the files, the node uploads both to Griptape Cloud as short-lived public links and deletes them after the run.
 
 ## Parameters
 
 ### reference_image
 
-Required. The character. The tooltip lists JPG, JPEG or PNG, up to 10 MB.
+Required. The character, as JPG, JPEG or PNG, up to 10 MB.
 
 ### reference_video
 
-Required. The action to copy. The tooltip lists MP4 or MOV, up to 100 MB.
+Required. The action to copy, as MP4 or MOV, up to 100 MB.
 
 ### character_orientation
 

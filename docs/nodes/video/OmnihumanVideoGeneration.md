@@ -10,7 +10,7 @@ You have an image of a person and a recording, and you want a video where the pe
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own ByteDance Seed key (`SEED_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Both `image_url` and `audio_url` are required. They are uploaded to Griptape Cloud storage as a short-lived public link, which is deleted after the run, because the service downloads them itself.
 - The image can be up to 5 MB and 4096 x 4096 pixels. See `auto_image_resize`.
 

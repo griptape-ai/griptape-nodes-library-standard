@@ -10,9 +10,9 @@ You want a short clip from a description alone, with generated or supplied audio
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Nothing is uploaded. Your own audio is sent inline in the request as base64 data.
-- The node does not check the audio limits: WAV or MP3, 3 to 30 seconds, up to 15 MB. See `audio and input_audio`.
+- Your own audio can be WAV or MP3, 3 to 30 seconds, up to 15 MB. Audio outside these limits fails at the provider. See `audio and input_audio`.
 
 ## Parameters
 

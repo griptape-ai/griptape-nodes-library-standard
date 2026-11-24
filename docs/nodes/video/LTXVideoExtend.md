@@ -10,10 +10,9 @@ You have a clip and want more of it. Connect the video to `video`, choose whethe
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own LTX Studio key (`LTX_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default. If a run times out, the **Refresh** button on the node fetches the result later.
-- Set `timeout` to 0 to wait with no limit.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - A local file is uploaded to Griptape Cloud as a short-lived public link, which is deleted after the run. A public link to another website is sent as it is. If the upload is not possible, the video is embedded in the request instead, which only works for files up to about 11 MB.
-- The tooltip on `video` lists the input limits: 16:9 or 9:16, at least 73 frames and up to 4K. LTX enforces them. The node does not check the frame count, shape or resolution.
+- The input must be 16:9 or 9:16, at least 73 frames and up to 4K. An input outside these fails at LTX.
 
 ## Parameters
 

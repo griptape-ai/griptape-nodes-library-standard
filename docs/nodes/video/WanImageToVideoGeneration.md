@@ -10,9 +10,9 @@ You have an image and want it to move. The image is the starting frame, and the 
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Alibaba Cloud Model Studio key (`DASHSCOPE_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Nothing is uploaded. The image and any audio are sent inline in the request as base64 data.
-- The node does not check the limits below.
+- Inputs outside these limits fail at the provider.
 - The image can be JPG, PNG, BMP or WEBP, 360 to 2000 px, up to 10 MB.
 - Your own audio can be WAV or MP3, 3 to 30 seconds, up to 15 MB. See `audio and input_audio`.
 

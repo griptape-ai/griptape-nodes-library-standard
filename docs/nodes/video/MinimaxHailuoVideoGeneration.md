@@ -10,7 +10,7 @@ You want a short clip from a prompt, or you want to animate a still. Hailuo 2.3 
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own MiniMax key (`MINIMAX_API_KEY`) instead, set **API Key Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 1200 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 1200 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - Frame images are sent inline in the request, not as links. MiniMax requires JPG, PNG or WebP, under 20 MB, with a short edge over 300 px and an aspect ratio between 2:5 and 5:2. The node does not check these limits, so MiniMax rejects an image that breaks them.
 
 ## Parameters

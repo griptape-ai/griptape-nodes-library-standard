@@ -79,7 +79,7 @@ On success, `result_details` is `Success`. If the folder cannot be listed, for e
 
 ### file_count
 
-The number of entries returned. Its tooltip says "files", but folders are counted too when `list_options` includes them.
+The number of entries returned. Folders count too when `list_options` includes them.
 
 ## Edge cases
 

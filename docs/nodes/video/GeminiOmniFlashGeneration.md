@@ -10,7 +10,7 @@ You want a short clip from a description. Write a `prompt` and run the node. `as
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own Google Cloud service account JSON (`GOOGLE_SERVICE_ACCOUNT_JSON`) instead, set **Credentials Provider** to **Customer**.
-- The node waits for the result. `timeout` sets how long, 600 seconds by default, and 0 means no limit. If a run times out, the **Refresh** button on the node fetches the result later.
+- The node waits for the result. `timeout` sets how long, 600 seconds by default, or 0 for no limit. If a run times out, the **Refresh** button on the node fetches the result later.
 - The output is 720p video with audio. The model chooses the clip length itself, between 3 and 10 seconds, so there is no duration setting.
 
 ## Parameters
