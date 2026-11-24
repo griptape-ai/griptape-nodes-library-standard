@@ -60,19 +60,7 @@ class ChangeSpeed(BaseVideoProcessor):
         ffmpeg_path, _ = self._get_ffmpeg_paths()
 
         if include_audio:
-            # Audio needs to be speed-adjusted to match the video speed change
-            # Use atempo filter with speed ratio calculation
-            # Note: atempo has limits (0.5x to 2.0x), so we may need to chain multiple filters
-            if speed >= self.ATEMPO_MIN_SPEED and speed <= self.ATEMPO_MAX_SPEED:
-                audio_filter = f"atempo={speed}"
-            else:
-                # For extreme speed changes, we'll need to chain atempo filters
-                # This is a simplified approach - in practice, you might want more sophisticated handling
-                audio_filter = (
-                    f"atempo={self.ATEMPO_MAX_SPEED},atempo={self.ATEMPO_MAX_SPEED}"
-                    if speed > self.ATEMPO_MAX_SPEED
-                    else f"atempo={self.ATEMPO_MIN_SPEED},atempo={self.ATEMPO_MIN_SPEED}"
-                )
+            audio_filter = self._build_atempo_filter(speed)
 
             # Get processing speed settings
             preset, pix_fmt, crf = self._get_processing_speed_settings()
@@ -127,6 +115,19 @@ class ChangeSpeed(BaseVideoProcessor):
             "-y",
             output_path,
         ]
+
+    def _build_atempo_filter(self, speed: float) -> str:
+        """Chain atempo filters, each within 0.5 to 2.0, whose product is the requested speed."""
+        factors = []
+        remaining = speed
+        while remaining > self.ATEMPO_MAX_SPEED:
+            factors.append(self.ATEMPO_MAX_SPEED)
+            remaining /= self.ATEMPO_MAX_SPEED
+        while remaining < self.ATEMPO_MIN_SPEED:
+            factors.append(self.ATEMPO_MIN_SPEED)
+            remaining /= self.ATEMPO_MIN_SPEED
+        factors.append(remaining)
+        return ",".join(f"atempo={factor}" for factor in factors)
 
     def _validate_custom_parameters(self) -> list[Exception] | None:
         """Validate speed parameters."""

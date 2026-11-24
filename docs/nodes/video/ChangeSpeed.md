@@ -21,7 +21,7 @@ From 0.1 to 10.0, default 1.0.
 
 On by default. When on, the audio is sped up or slowed down with the node's ffmpeg `atempo` filter and re-encoded to AAC at 192 kbps. When off, the output has no audio track.
 
-The audio is only matched correctly from 0.5 to 2.0. Outside that range the node does not compute the speed. Above 2.0 it always applies 4x, and below 0.5 it always applies 0.25x. At those speeds the audio will not line up with the picture unless the speed happens to be 4 or 0.25. Turn off `include_audio` for those speeds if you do not need sound.
+The audio matches the picture across the full range. `atempo` takes 0.5 to 2.0 per filter, so outside that range the node chains several, for example four for a `speed` of 10.
 
 ### output_frame_rate
 
