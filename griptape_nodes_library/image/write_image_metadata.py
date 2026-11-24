@@ -26,9 +26,10 @@ IMAGE_FORMAT_TO_EXTENSION = {
 class WriteImageMetadataNode(SuccessFailureNode):
     """Write custom key-value metadata to images.
 
-    Supports PNG (text chunks), JPEG/TIFF/MPO (EXIF UserComment field).
+    Supports PNG (text chunks) and JPEG/TIFF/MPO/WEBP (JSON in the EXIF UserComment field).
     Format is automatically detected and appropriate metadata mechanism is used.
-    Preserves existing metadata and merges with new values.
+    Preserves existing metadata and merges with new values; a new value replaces an existing
+    value with the same key.
     """
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -182,7 +183,8 @@ class WriteImageMetadataNode(SuccessFailureNode):
         # Get driver for this format
         driver = ImageMetadataDriverRegistry.get_driver_for_format(pil_image.format)
         if driver is None:
-            error_msg = f"Unsupported format '{pil_image.format}'. Supported formats: PNG, JPEG, TIFF, MPO."
+            supported_formats = ", ".join(sorted(ImageMetadataDriverRegistry.get_supported_formats()))
+            error_msg = f"Unsupported format '{pil_image.format}'. Supported formats: {supported_formats}."
             raise ValueError(error_msg)
 
         # Write metadata using driver

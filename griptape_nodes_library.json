@@ -5759,7 +5759,7 @@
       "file_path": "griptape_nodes_library/image/write_image_metadata.py",
       "metadata": {
         "category": "image",
-        "description": "Write custom key-value metadata to PNG images using PNG text chunks",
+        "description": "Write custom key-value metadata to images (PNG text chunks for PNG, EXIF UserComment for JPEG/TIFF/MPO/WEBP)",
         "display_name": "Write Image Metadata",
         "icon": "tag",
         "group": "Input/Output",
