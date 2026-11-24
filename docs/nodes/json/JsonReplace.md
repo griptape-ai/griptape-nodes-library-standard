@@ -60,7 +60,7 @@ Dot notation with list indexes, such as `user.profile.email`, `items[0].title` o
 - If `path` is empty, the output is the replacement value itself.
 
 > [!WARNING]
-> A list index in the path does not work as a way to set a value, whether it comes last or in the middle. This is a known bug.
+> A list index does not set a value when it ends the path or points past the end of the list. This is a known bug.
 >
 > - A path that ends in a list index does not set the value. `items[0]` leaves the list unchanged, and an index past the end pads the list with `null` without writing anything: `items[2]` on `{"items": ["a", "b"]}` gives `{"items": ["a", "b", null]}`.
 > - An index past the end anywhere in the path pads the same way. `items[3].t` on `{"items": ["a"]}` gives `{"items": ["a", null, null, null]}`, and `items[0].title` on `{}` gives `{"items": [null]}`.
