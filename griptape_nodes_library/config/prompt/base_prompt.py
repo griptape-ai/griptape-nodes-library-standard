@@ -12,6 +12,12 @@ from griptape_nodes_library.llm.model_config import (
     ModelProvider,
 )
 
+# Subclasses that sample with nucleus sampling rename `min_p` to `top_p` and pass this.
+TOP_P_TOOLTIP = (
+    "Nucleus sampling: the model picks only from the most likely tokens whose probabilities add up "
+    "to this value. Lower values give more focused, less random output."
+)
+
 
 class BasePrompt(BaseDriver):
     def __init__(self, **kwargs) -> None:

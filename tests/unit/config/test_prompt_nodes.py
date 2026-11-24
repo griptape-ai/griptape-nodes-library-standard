@@ -12,7 +12,7 @@ from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.models.cohere import CohereModel
 from pydantic_ai.models.openai import OpenAIChatModel
 
-from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.config.prompt.base_prompt import TOP_P_TOOLTIP, BasePrompt
 from griptape_nodes_library.llm.model_config import PROMPT_MODEL_CONFIG_TYPE, ModelConfig, ModelProvider
 from griptape_nodes_library.llm.models import build_model
 
@@ -192,6 +192,25 @@ def test_non_positive_max_tokens_is_omitted() -> None:
     node.set_parameter_value("max_tokens", -1)
 
     assert "max_tokens" not in _process(node).settings
+
+
+@pytest.mark.parametrize(
+    ("node_type", "param_name"),
+    [
+        ("OpenAiPrompt", "top_p"),
+        ("AnthropicPrompt", "top_p"),
+        ("CoherePrompt", "p"),
+        ("GrokPrompt", "top_p"),
+        ("GroqPrompt", "top_p"),
+        ("NimPrompt", "top_p"),
+        ("GriptapeCloudPrompt", "top_p"),
+    ],
+)
+def test_top_p_tooltip_describes_nucleus_sampling(node_type: str, param_name: str) -> None:
+    parameter = _create_node(node_type).get_parameter_by_name(param_name)
+
+    assert parameter is not None
+    assert parameter.tooltip == TOP_P_TOOLTIP
 
 
 def test_openai_seed_parameter_is_not_offered() -> None:

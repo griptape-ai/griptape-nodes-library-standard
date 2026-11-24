@@ -20,7 +20,7 @@ class FlipVideo(BaseVideoProcessor):
             direction_parameter = ParameterString(
                 name="direction",
                 default_value="horizontal",
-                tooltip="Flip direction: horizontal or vertical",
+                tooltip="Flip direction: horizontal, vertical, or both",
             )
             self.add_parameter(direction_parameter)
             direction_parameter.add_trait(Options(choices=["horizontal", "vertical", "both"]))

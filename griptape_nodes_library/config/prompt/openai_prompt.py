@@ -1,6 +1,6 @@
 from griptape_nodes.traits.options import Options
 
-from griptape_nodes_library.config.prompt.base_prompt import BasePrompt
+from griptape_nodes_library.config.prompt.base_prompt import TOP_P_TOOLTIP, BasePrompt
 from griptape_nodes_library.llm.model_config import ModelProvider
 
 # --- Constants ---
@@ -54,7 +54,9 @@ class OpenAiPrompt(BasePrompt):
 
         self.remove_parameter_element_by_name("top_k")
 
-        self._replace_param_by_name(param_name="min_p", new_param_name="top_p", default_value=0.9)
+        self._replace_param_by_name(
+            param_name="min_p", new_param_name="top_p", tooltip=TOP_P_TOOLTIP, default_value=0.9
+        )
 
     def process(self) -> None:
         config = self._build_model_config(

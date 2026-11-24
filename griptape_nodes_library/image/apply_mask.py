@@ -29,7 +29,7 @@ class ApplyMask(DataNode):
             ParameterImage(
                 name="input_image",
                 default_value=None,
-                tooltip="The image to display",
+                tooltip="Image to apply the mask to.",
                 hide_property=True,
                 allowed_modes={ParameterMode.INPUT},
             )
@@ -45,7 +45,7 @@ class ApplyMask(DataNode):
         )
         channel_param = ParameterString(
             name="channel",
-            tooltip="Generated mask image.",
+            tooltip="Channel of the mask image to use as the output's alpha.",
             default_value="red",
             ui_options={"expander": True, "edit_mask": True, "edit_mask_paint_mask": True},
         )
