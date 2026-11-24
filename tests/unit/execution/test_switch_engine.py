@@ -77,7 +77,7 @@ def test_a_bool_wired_in_hides_every_option_and_removing_it_brings_them_back(can
 @pytest.mark.parametrize(
     ("value_type", "hidden"),
     [
-        ("str", {"path"}),
+        ("str", set()),
         ("int", {"path", "case_sensitive", "pattern_matching"}),
         ("float", {"path", "case_sensitive", "pattern_matching"}),
         ("json", set()),

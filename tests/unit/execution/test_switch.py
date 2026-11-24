@@ -162,7 +162,7 @@ def test_an_empty_value_fails() -> None:
 
 def test_a_hidden_path_has_no_effect_and_comes_back_with_its_value() -> None:
     node = _switch("cartoon", ["cartoon"], path="department")
-    node._show_options_for("str")
+    node._show_options_for("int")
     assert _exit_label(node) == "cartoon"
 
     node._show_options_for("json")
@@ -170,12 +170,20 @@ def test_a_hidden_path_has_no_effect_and_comes_back_with_its_value() -> None:
         node.process()
 
 
+def test_json_text_from_a_text_output_can_be_switched_on_with_a_path() -> None:
+    node = _switch('{"department": "fx"}', ["layout", "fx"], path="department")
+    node._show_options_for("str")
+
+    assert node.path_param.hide is False
+    assert _exit_label(node) == "fx"
+
+
 def test_hidden_case_sensitivity_has_no_effect_on_a_bool() -> None:
     node = _switch(True, ["True"], case_sensitive=True)
     node._show_options_for("bool")
     assert _exit_label(node) == "True"
 
-    node._show_options_for("str")
+    node._show_options_for("any")
     assert _exit_label(node) == "Default"
 
 

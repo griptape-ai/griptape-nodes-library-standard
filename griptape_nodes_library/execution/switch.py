@@ -311,10 +311,8 @@ class Switch(RowOutputsMixin, ControlNode):
         match value_type:
             case ParameterTypeBuiltin.BOOL | ParameterTypeBuiltin.INT | ParameterTypeBuiltin.FLOAT:
                 show_path, show_text_options = False, False
-            case ParameterTypeBuiltin.STR:
-                show_path, show_text_options = False, True
             case _:
-                # json, dict, yaml, any and everything else: the field inside could be anything.
+                # Text can carry JSON or YAML from an upstream node, so Path stays; so do json, dict, yaml and any.
                 show_path, show_text_options = True, True
         for param, show in (
             (self.path_param, show_path),
