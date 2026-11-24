@@ -12,12 +12,7 @@ from griptape_nodes_library.utils.mcp_utils import (
 
 
 class MCPToolNode(BaseTool):
-    """A tool that can be used to call MCP tools.
-
-    TODO: (Jason) This tool is temporarily disabled, until we figure out how to
-    properly serialize connections for the MCPTool.
-    https://github.com/griptape-ai/griptape-nodes/issues/2368
-    """
+    """A tool that can be used to call MCP tools."""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
