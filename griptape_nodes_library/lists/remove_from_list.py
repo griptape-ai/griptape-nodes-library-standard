@@ -82,8 +82,19 @@ class RemoveFromList(ControlNode):
             index = len(list_values) - 1
         elif remove_item_by == "index":
             index = self.get_parameter_value("index")
+            if index is None:
+                msg = "Set 'index' to choose which item to remove."
+                raise ValueError(msg)
         elif remove_item_by == "item":
-            index = list_values.index(self.get_parameter_value("item"))
+            item = self.get_parameter_value("item")
+            if item is None:
+                msg = "Set 'item' to choose which item to remove."
+                raise ValueError(msg)
+            try:
+                index = list_values.index(item)
+            except ValueError:
+                self.parameter_output_values["output"] = deepcopy(list_values)
+                return
 
         new_list = deepcopy(list_values)
         new_list.pop(index)

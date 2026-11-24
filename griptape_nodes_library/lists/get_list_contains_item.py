@@ -39,7 +39,7 @@ class GetListContainsItem(ControlNode):
     def _contains_item(self) -> bool:
         list_items = self.get_parameter_value("items")
         item = self.get_parameter_value("item")
-        if not item or not list_items:
+        if item is None or not list_items:
             return False
         return item in list_items
 
