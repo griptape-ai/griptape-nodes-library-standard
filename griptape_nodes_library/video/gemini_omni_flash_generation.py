@@ -5,6 +5,7 @@ from contextlib import suppress
 from enum import StrEnum
 from typing import Any
 
+from griptape.artifacts.image_artifact import ImageArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode
@@ -214,26 +215,36 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         # Bare provider id; the base class builds POST /api/proxy/v2/models/{id}.
         return API_MODEL_ID
 
-    async def _image_to_base64(self, image_input: Any) -> tuple[str, str] | None:
-        """Load an image input and return (mime_type, base64_data), or None."""
+    async def _image_to_base64(self, image_input: Any, label: str) -> tuple[str, str] | None:
+        """Load an image input and return (mime_type, base64_data), or None when it is empty.
+
+        Raises:
+            ValueError: If the input is set but can't be loaded. Skipping it would send a
+                different request than the user built, and it would still be billed.
+        """
         if not image_input:
             return None
 
-        image_value = image_input
-        if not isinstance(image_input, str):
-            image_value = getattr(image_input, "value", None) or getattr(image_input, "base64", None)
-        if not isinstance(image_value, str) or not image_value:
+        if isinstance(image_input, ImageArtifact):
+            return image_input.mime_type, image_input.base64
+
+        image_value = image_input if isinstance(image_input, str) else getattr(image_input, "value", None)
+        if not image_value:
             return None
+        if not isinstance(image_value, str):
+            msg = f"Couldn't load {label}: {type(image_input).__name__} isn't an image."
+            raise ValueError(msg)  # noqa: TRY004
 
         try:
             data_uri = await File(image_value).aread_data_uri(fallback_mime="image/png")
-        except FileLoadError:
-            logger.debug("%s failed to load image value: %s", self.name, image_value)
-            return None
+        except FileLoadError as e:
+            msg = f"Couldn't load {label}: {e}"
+            raise ValueError(msg) from e
 
         parts = data_uri.split(",", 1)
         if len(parts) != 2:  # noqa: PLR2004
-            return None
+            msg = f"Couldn't load {label}: it isn't a valid image."
+            raise ValueError(msg)
         header, base64_data = parts
         mime_type = "image/png"
         if ";" in header:
@@ -251,21 +262,24 @@ class GeminiOmniFlashGeneration(GriptapeProxyNode):
         # Interactions `input` items are flat and type-discriminated:
         # {"type": "image", "data": ..., "mime_type": ...} / {"type": "text", "text": ...}
         reference_items = []
-        for reference in reference_images:
-            reference_b64 = await self._image_to_base64(reference)
+        for index, reference in enumerate(reference_images):
+            reference_b64 = await self._image_to_base64(
+                reference, f"reference image {index + 1} of {len(reference_images)}"
+            )
             if reference_b64 is None:
                 continue
             mime_type, base64_data = reference_b64
             reference_items.append({"type": "image", "data": base64_data, "mime_type": mime_type})
 
-        image_b64 = await self._image_to_base64(image_input)
+        # Only load the deprecated image when it will be sent, so an ignored one can't fail the run.
+        image_b64 = None if reference_items else await self._image_to_base64(image_input, "image")
 
         # The interactions `input` is either a plain prompt string (text_to_video) or a list of
         # content objects mixing text and images. Reference images and a starting frame mean
         # different things to the model, so they select different tasks rather than combining.
         model_input: Any
         if reference_items:
-            if image_b64 is not None:
+            if image_input:
                 logger.warning(
                     "%s received both 'image' and 'reference_images'. Using reference_images "
                     "(task %s) and ignoring 'image'.",
