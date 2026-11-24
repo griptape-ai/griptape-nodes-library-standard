@@ -48,12 +48,15 @@ class SeedanceVideoGeneration(GriptapeProxyNode):
         - last_frame (ImageArtifact|ImageUrlArtifact|str): Optional last frame image for 1.5 pro and 1.0 pro models (URL or base64 data URI)
         (Polls for the result every 5s until the `timeout` parameter elapses, 10 min by default)
 
-    Model capabilities (BytePlus ModelArk "Create a video generation task",
-    https://docs.byteplus.com/en/docs/ModelArk/1520757; 1.5 Pro is listed only in the archived
-    revision, https://web.archive.org/web/20260306062911/https://docs.byteplus.com/en/docs/ModelArk/1520757):
+    Model capabilities (durations are the dropdown's 4-12s, which every model supports):
         - seedance-1-5-pro-251215: 480p/720p/1080p, 4-12s duration, first+last frame, audio support
-        - seedance-1-0-pro-250528: 480p/720p/1080p, 2-12s duration, first+last frame
-        - seedance-1-0-pro-fast-251015: 480p/720p/1080p, 2-12s duration, first frame only
+        - seedance-1-0-pro-250528: 480p/720p/1080p, 4-12s duration, first+last frame
+        - seedance-1-0-pro-fast-251015: 480p/720p/1080p, 4-12s duration, first frame only
+
+    The 1.0 limits come from BytePlus ModelArk "Create a video generation task",
+    https://docs.byteplus.com/en/docs/ModelArk/1520757. The 1.5 Pro limits come from an archived
+    revision of that page, https://web.archive.org/web/20260306062911/https://docs.byteplus.com/en/docs/ModelArk/1520757,
+    because the current page doesn't list 1.5 Pro.
 
     Outputs:
         - generation_id (str): Griptape Cloud generation id
