@@ -28,7 +28,7 @@ class ResolveMacroPaths(BaseResolveMacroPath):
                 type="list",
                 allowed_modes={ParameterMode.OUTPUT},
                 default_value=[],
-                tooltip="All resolved absolute paths, in the same order as the inputs.",
+                tooltip="All resolved absolute paths, in the same order as the inputs. URLs and filenames with braces come back unchanged.",
             )
         )
 

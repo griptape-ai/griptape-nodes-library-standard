@@ -28,7 +28,7 @@ class ResolveMacroPath(BaseResolveMacroPath):
                 allow_input=False,
                 allow_property=False,
                 default_value="",
-                tooltip="The resolved absolute path.",
+                tooltip="The resolved absolute path. URLs and filenames with braces come back unchanged.",
                 placeholder_text="Example: /Users/me/project/inputs/my_file.png",
             )
         )
