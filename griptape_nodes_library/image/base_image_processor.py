@@ -314,28 +314,15 @@ class BaseImageProcessor(ImagePreviewMixin, SuccessFailureNode, ABC):
 
     def _save_image_artifact(self, pil_image: Image.Image, format_extension: str) -> ImageUrlArtifact:
         """Save PIL image and return ImageUrlArtifact."""
-        # Check if image needs conversion for the target format.
-        # This will create a copy in the new format ONLY if the source image required a conversion
-        # (does not alter the original).
-        converted_image = self._create_converted_image_for_format_if_necessary(pil_image, format_extension)
-        image_to_save = converted_image if converted_image is not None else pil_image
-
-        # Convert PIL image to bytes
-        buffer = io.BytesIO()
-        image_to_save.save(buffer, format=format_extension.upper())
-        image_bytes = buffer.getvalue()
+        image_bytes = self._pil_to_bytes(pil_image, format_extension)
 
         dest = self._output_file.build_file()
         saved = dest.write_bytes(image_bytes)
         return ImageUrlArtifact(saved.location)
 
     def _pil_to_bytes(self, pil_image: Image.Image, format_extension: str) -> bytes:
-        """Convert PIL image to bytes in the specified format."""
-        # Use existing utility for basic conversion
-        # Note: This utility doesn't support quality settings, so we keep this method
-        # for cases where we need quality control
+        """Convert PIL image to bytes in the specified format, applying the quality setting to lossy formats."""
         output_format = format_extension.upper()
-        quality = self._get_quality_setting()
 
         # Check if image needs conversion for the target format.
         # This will create a copy in the new format ONLY if the source image required a conversion
@@ -347,13 +334,11 @@ class BaseImageProcessor(ImagePreviewMixin, SuccessFailureNode, ABC):
         save_kwargs = {}
 
         if output_format in ["JPEG", "JPG"]:
-            save_kwargs["quality"] = quality
+            save_kwargs["quality"] = self._get_quality_setting()
             save_kwargs["optimize"] = True
         elif output_format == "WEBP":
-            save_kwargs["quality"] = quality
+            save_kwargs["quality"] = self._get_quality_setting()
             save_kwargs["lossless"] = False
-        elif output_format == "PNG":
-            save_kwargs["optimize"] = True
 
         # Convert to bytes
         buffer = io.BytesIO()
