@@ -137,7 +137,7 @@ def test_validate_refuses_1080p_below_8_seconds(duration: str) -> None:
     messages = _validation_messages(node)
 
     assert len(messages) == 1
-    assert "1080p needs a duration of 8 seconds" in messages[0]
+    assert "must be 8 seconds when 'resolution' is 1080p" in messages[0]
 
 
 def test_validate_refuses_duration_changed_after_1080p() -> None:
@@ -178,3 +178,15 @@ def test_validate_refuses_reference_images_on_veo_3_1_fast() -> None:
 
     assert len(messages) == 1
     assert "only works with the Veo 3.1 model" in messages[0]
+
+
+def test_validate_reports_the_8_second_duration_once_for_1080p_and_reference_images() -> None:
+    node = Veo3VideoGeneration(name="Veo3")
+    node.set_parameter_value("reference_images", ["https://example.com/ref.png"])
+    node.set_parameter_value("resolution", "1080p")
+    node.set_parameter_value("duration_seconds", "6")
+
+    messages = _validation_messages(node)
+
+    assert len(messages) == 1
+    assert "'resolution' is 1080p and 'reference images' are connected" in messages[0]

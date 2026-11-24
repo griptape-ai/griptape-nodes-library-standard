@@ -53,11 +53,11 @@ LEGACY_MODEL_VALUES: dict[str, str] = {
     "veo-3.0-generate-001": ModelId.VEO_3_1_GENERATE_001.value,
 }
 
-# The resolution tooltip: "1080p only supports 8 second duration".
 FULL_HD_RESOLUTION = "1080p"
-FULL_HD_DURATION = "8"
-# The class docstring: duration_seconds "must be 8 when referenceImages provided".
-REFERENCE_IMAGES_DURATION = "8"
+# The only duration 1080p and reference images allow. The resolution tooltip: "1080p only
+# supports 8 second duration"; the class docstring: duration_seconds "must be 8 when
+# referenceImages provided".
+REQUIRED_DURATION = "8"
 
 
 class Veo3VideoGeneration(GriptapeProxyNode):
@@ -325,10 +325,13 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             self._update_parameter_visibility_for_model(value)
         elif parameter.name in {"resolution", "duration_seconds"}:
             # An immediate hint; validate_before_node_run refuses the run.
-            resolution = self.get_parameter_value("resolution")
-            duration = self.get_parameter_value("duration_seconds")
-            if resolution == FULL_HD_RESOLUTION and duration != FULL_HD_DURATION:
-                logger.warning("%s: 1080p resolution only supports %s second duration", self.name, FULL_HD_DURATION)
+            duration_error = self._duration_error(
+                self.get_parameter_value("resolution"),
+                self.get_parameter_value("duration_seconds"),
+                has_reference_images=bool(self.get_parameter_value("reference_images")),
+            )
+            if duration_error:
+                logger.warning("%s: %s", self.name, duration_error)
         elif parameter.name == "reference_images":
             self._handle_reference_images_change(value)
 
@@ -357,7 +360,7 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             self.hide_parameter_by_name("reference_type")
 
     def _handle_reference_images_change(self, reference_images: Any) -> None:
-        """Handle reference images changes - enforce duration=8 when reference images are provided."""
+        """Handle reference images changes - enforce REQUIRED_DURATION when reference images are provided."""
         has_reference_images = False
         if isinstance(reference_images, list):
             has_reference_images = len(reference_images) > 0
@@ -365,13 +368,14 @@ class Veo3VideoGeneration(GriptapeProxyNode):
             has_reference_images = True
 
         if has_reference_images:
-            # When reference images are provided, duration must be 8 seconds
             current_duration = self.get_parameter_value("duration_seconds")
-            if current_duration != "8":
+            if current_duration != REQUIRED_DURATION:
                 logger.warning(
-                    "%s: Setting duration to 8 seconds (required when reference images are provided)", self.name
+                    "%s: Setting duration to %s seconds (required when reference images are provided)",
+                    self.name,
+                    REQUIRED_DURATION,
                 )
-                self.set_parameter_value("duration_seconds", "8")
+                self.set_parameter_value("duration_seconds", REQUIRED_DURATION)
 
     def _show_video_output_parameters(self, count: int) -> None:
         """Show/hide video output parameters based on how many videos were generated.
@@ -453,7 +457,6 @@ class Veo3VideoGeneration(GriptapeProxyNode):
         model_id = params["model_id"]
         # Map friendly name to API model ID for validation
         api_model_id = self._map_api_model_id(model_id)
-        duration = params.get("duration_seconds", "6")
 
         # lastFrame is only supported by veo-3.1-generate-001 and veo-3.1-fast-generate-001
         if params.get("last_frame") and api_model_id not in {
@@ -471,21 +474,30 @@ class Veo3VideoGeneration(GriptapeProxyNode):
                 msg = "'reference images' only works with the Veo 3.1 model. Pick it or disconnect 'reference images'."
                 errors.append(ValueError(msg))
 
-            if duration != REFERENCE_IMAGES_DURATION:
-                msg = (
-                    f"The duration must be {REFERENCE_IMAGES_DURATION} seconds when 'reference images' are "
-                    f"connected (currently {duration} seconds)."
-                )
-                errors.append(ValueError(msg))
-
-        if params.get("resolution") == FULL_HD_RESOLUTION and duration != FULL_HD_DURATION:
-            msg = (
-                f"1080p needs a duration of {FULL_HD_DURATION} seconds (currently {duration} seconds). "
-                f"Set 'duration_seconds' to {FULL_HD_DURATION} or pick 720p."
-            )
-            errors.append(ValueError(msg))
+        duration_error = self._duration_error(
+            params.get("resolution"),
+            params.get("duration_seconds", "6"),
+            has_reference_images=bool(has_reference_images),
+        )
+        if duration_error:
+            errors.append(ValueError(duration_error))
 
         return errors
+
+    @staticmethod
+    def _duration_error(resolution: str | None, duration: str | None, *, has_reference_images: bool) -> str | None:
+        """Explain why `duration` is not allowed with this resolution and these reference images, if it isn't."""
+        reasons: list[str] = []
+        if resolution == FULL_HD_RESOLUTION:
+            reasons.append("'resolution' is 1080p")
+        if has_reference_images:
+            reasons.append("'reference images' are connected")
+        if not reasons or duration == REQUIRED_DURATION:
+            return None
+        return (
+            f"The duration must be {REQUIRED_DURATION} seconds when {' and '.join(reasons)} "
+            f"(currently {duration} seconds). Set 'duration_seconds' to {REQUIRED_DURATION}."
+        )
 
     def _convert_image_to_base64_dict(self, image_input: Any) -> dict[str, str] | None:
         """Convert image input to base64 format required by Google's API.
