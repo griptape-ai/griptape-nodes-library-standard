@@ -44,9 +44,24 @@ The node returned these answers:
 ```json
 {
   "director_clarity": { "answer": true, "probability": 0.85 },
-  "department": { "label": "Animation", "description": "", "confidence": 1, "probabilities": { "Animation": 1 } }
+  "department": {
+    "label": "Animation",
+    "description": "",
+    "confidence": 1,
+    "probabilities": { "Animation": 1, "FX": 0, "Layout": 0 }
+  },
+  "size": {
+    "level": 3,
+    "score": 2.8,
+    "label": "large",
+    "description": "major change",
+    "confidence": 0.8,
+    "probabilities": { "1": 0, "2": 0.2, "3": 0.8 }
+  }
 }
 ```
+
+The numbers for `size` are an example of the shape. A rating's `score` is the average of the levels weighted by their probabilities, counting from 1, so it falls between levels. `level` is the score rounded to the nearest level, and `probabilities` is keyed by level number.
 
 ## What it needs
 
