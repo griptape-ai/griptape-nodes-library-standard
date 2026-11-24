@@ -16,6 +16,7 @@ from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.retained_mode.griptape_nodes import logger
 
 from griptape_nodes_library.media import resolve_media_location
+from griptape_nodes_library.utils.ffmpeg_utils import describe_ffmpeg_failure, get_ffprobe_path
 
 
 class AudioDetails(DataNode):
@@ -128,47 +129,51 @@ class AudioDetails(DataNode):
         )
 
         if param_name == "audio":
-            self._update_audio_details(value)
+            # Setting a value must not raise: the engine would skip pushing the value downstream.
+            # A failure here is logged, and process() reports it when the node runs.
+            try:
+                self._update_audio_details(value)
+            except Exception as e:
+                logger.error(f"{self.name}: {e}")
+                self._set_default_values()
 
     def _update_audio_details(self, audio: AudioUrlArtifact | AudioArtifact | None) -> None:
-        """Update all output values based on the audio."""
-        # FAILURE CASES FIRST
-        if audio is None:
-            self._set_default_values()
-            return
+        """Update all output values based on the audio.
 
-        # Get audio URL
+        Raises ValueError or RuntimeError when the audio can't be read, rather than
+        reporting defaults that look like a real zero-length clip.
+        """
         audio_url = self._get_audio_url(audio)
         if not audio_url:
             self._set_default_values()
             return
 
-        # Analyze audio with ffprobe
         audio_info = self._analyze_audio_with_ffprobe(audio_url)
-        if not audio_info:
-            self._set_default_values()
-            return
 
-        # SUCCESS PATH AT END - Set all output values
-        self.parameter_output_values["duration"] = audio_info.get("duration", 0.0)
-        self.parameter_output_values["format"] = audio_info.get("format", "UNKNOWN")
-        self.parameter_output_values["file_size"] = audio_info.get("file_size", 0)
-        self.parameter_output_values["sample_rate"] = audio_info.get("sample_rate", 0)
-        self.parameter_output_values["channels"] = audio_info.get("channels", 0)
-        self.parameter_output_values["bitrate"] = audio_info.get("bitrate", 0)
-        self.parameter_output_values["codec"] = audio_info.get("codec", "UNKNOWN")
+        self.parameter_output_values["duration"] = audio_info["duration"]
+        self.parameter_output_values["format"] = audio_info["format"]
+        self.parameter_output_values["file_size"] = audio_info["file_size"]
+        self.parameter_output_values["sample_rate"] = audio_info["sample_rate"]
+        self.parameter_output_values["channels"] = audio_info["channels"]
+        self.parameter_output_values["bitrate"] = audio_info["bitrate"]
+        self.parameter_output_values["codec"] = audio_info["codec"]
 
     def process(self) -> None:
         """Extract and output all audio details.
 
-        Note: The actual extraction happens in set_parameter_value when the audio
-        parameter is set, so this method just refreshes the outputs.
+        The extraction also runs in set_parameter_value when the audio parameter is
+        set; running it here refreshes the outputs and fails the node with the reason
+        if the audio can't be read.
         """
         audio = self.get_parameter_value("audio")
         self._update_audio_details(audio)
 
-    def _get_audio_url(self, audio: AudioUrlArtifact | AudioArtifact | dict | str) -> str | None:
-        """Extract URL from audio artifact or save bytes to temp file."""
+    def _get_audio_url(self, audio: AudioUrlArtifact | AudioArtifact | dict | str | None) -> str | None:
+        """Extract URL from audio artifact or save bytes to temp file.
+
+        Returns None when there is no audio. Raises ValueError when a location or
+        bytes are present but can't be turned into something ffprobe can open.
+        """
         # FAILURE CASES FIRST
         if not audio:
             return None
@@ -190,8 +195,8 @@ class AudioDetails(DataNode):
             try:
                 return resolve_media_location(location)
             except FileLoadError as e:
-                logger.error(f"{self.name}: Failed to resolve audio path {location}: {e}")
-                return None
+                msg = f"Failed to resolve audio path {location}: {e}"
+                raise ValueError(msg) from e
 
         if isinstance(audio, AudioArtifact):
             # For AudioArtifact with bytes, save to temp file and return path
@@ -199,114 +204,58 @@ class AudioDetails(DataNode):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
                     temp_file.write(audio.value)
                     return str(Path(temp_file.name).absolute())
-            except Exception as e:
-                logger.error(f"{self.name}: Failed to create temp file for AudioArtifact: {e}")
-                return None
+            except OSError as e:
+                msg = f"Failed to create temp file for AudioArtifact: {e}"
+                raise ValueError(msg) from e
 
         return None
 
-    def _analyze_audio_with_ffprobe(self, audio_url: str) -> dict[str, Any] | None:  # noqa: PLR0911
-        """Analyze audio file using ffprobe to extract detailed information."""
-        # FAILURE CASES FIRST
-        try:
-            # Get ffprobe path
-            ffprobe_path = self._get_ffprobe_path()
-        except Exception as e:
-            logger.error(f"{self.name}: Failed to get ffprobe path: {e}")
-            return None
+    def _analyze_audio_with_ffprobe(self, audio_url: str) -> dict[str, Any]:
+        """Analyze audio file using ffprobe to extract detailed information.
+
+        Raises ValueError with ffprobe's reason when the audio can't be read, and
+        RuntimeError when the bundled ffprobe can't be found.
+        """
+        ffprobe_path = get_ffprobe_path()
+
+        # "-v error" rather than "quiet" so a failure below can report why ffprobe
+        # failed; the JSON stays on stdout either way.
+        cmd = [ffprobe_path, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", audio_url]
 
         try:
-            # Build ffprobe command to get comprehensive audio information
-            # "-v error" rather than "quiet" so the CalledProcessError handler below can
-            # report why ffprobe failed; the JSON stays on stdout either way.
-            cmd = [ffprobe_path, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", audio_url]
+            result = subprocess.run(cmd, capture_output=True, encoding="utf-8", timeout=30, check=True)  # noqa: S603
+        except subprocess.TimeoutExpired as e:
+            msg = "ffprobe timed out after 30s reading the audio"
+            raise ValueError(msg) from e
+        except (subprocess.CalledProcessError, OSError) as e:
+            msg = f"ffprobe failed to read the audio: {describe_ffmpeg_failure(e)}"
+            raise ValueError(msg) from e
 
-            # Run ffprobe command
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)  # noqa: S603
+        try:
             data = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            msg = f"Failed to parse ffprobe output: {e}"
+            raise ValueError(msg) from e
 
-        except subprocess.TimeoutExpired:
-            logger.error(f"{self.name}: ffprobe timed out analyzing audio")
-            return None
-        except subprocess.CalledProcessError as e:
-            logger.error(f"{self.name}: ffprobe failed: {e.stderr}")
-            return None
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"{self.name}: Failed to parse ffprobe output: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"{self.name}: Unexpected error during audio analysis: {e}")
-            return None
+        format_info = data.get("format", {})
+        audio_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
+        if audio_stream is None:
+            msg = "No audio stream found in file"
+            raise ValueError(msg)
 
-        # FAILURE CASES FIRST - Parse data
         try:
-            # Get format information
-            format_info = data.get("format", {})
-            duration = float(format_info.get("duration", 0))
-            file_size = int(format_info.get("size", 0))
-            bitrate = int(format_info.get("bit_rate", 0))
-
-            # Get audio stream information
-            streams = data.get("streams", [])
-            audio_stream = None
-            for stream in streams:
-                if stream.get("codec_type") == "audio":
-                    audio_stream = stream
-                    break
-
-            if not audio_stream:
-                logger.warning(f"{self.name}: No audio stream found in file")
-                return None
-
+            return {
+                "duration": float(format_info.get("duration", 0)),
+                "format": format_info.get("format_name", "UNKNOWN"),
+                "file_size": int(format_info.get("size", 0)),
+                "sample_rate": int(audio_stream.get("sample_rate", 0)),
+                "channels": int(audio_stream.get("channels", 0)),
+                "bitrate": int(format_info.get("bit_rate", 0)),
+                "codec": audio_stream.get("codec_name", "UNKNOWN"),
+            }
         except (ValueError, TypeError) as e:
-            logger.error(f"{self.name}: Failed to parse audio properties: {e}")
-            return None
-
-        # SUCCESS PATH AT END - Extract audio properties
-        sample_rate = int(audio_stream.get("sample_rate", 0))
-        channels = int(audio_stream.get("channels", 0))
-        codec = audio_stream.get("codec_name", "UNKNOWN")
-        format_name = format_info.get("format_name", "UNKNOWN")
-
-        return {
-            "duration": duration,
-            "format": format_name,
-            "file_size": file_size,
-            "sample_rate": sample_rate,
-            "channels": channels,
-            "bitrate": bitrate,
-            "codec": codec,
-        }
-
-    def _get_ffprobe_path(self) -> str:
-        """Get the path to ffprobe executable."""
-        # FAILURE CASES FIRST
-        try:
-            # Try to find ffprobe in PATH
-            result = subprocess.run(["which", "ffprobe"], capture_output=True, text=True, check=True)  # noqa: S607
-            return result.stdout.strip()
-        except subprocess.CalledProcessError:
-            pass
-
-        # Try common installation paths
-        common_paths = [
-            "/usr/bin/ffprobe",
-            "/usr/local/bin/ffprobe",
-            "/opt/homebrew/bin/ffprobe",
-            "ffprobe",  # Fallback to PATH
-        ]
-
-        for path in common_paths:
-            try:
-                subprocess.run([path, "-version"], capture_output=True, text=True, check=True, timeout=5)  # noqa: S603
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-            else:
-                return path
-
-        # SUCCESS PATH AT END
-        error_msg = "ffprobe was not found. Install FFmpeg, which includes ffprobe, and try again."
-        raise RuntimeError(error_msg)
+            msg = f"Failed to parse audio properties: {e}"
+            raise ValueError(msg) from e
 
     def _set_default_values(self) -> None:
         """Set all output values to defaults."""
