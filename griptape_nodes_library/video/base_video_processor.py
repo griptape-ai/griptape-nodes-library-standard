@@ -98,12 +98,7 @@ class BaseVideoProcessor(ImagePreviewMixin, SuccessFailureNode, ABC):
 
         self._register_primary_output_parameter()
 
-        self._output_file = ProjectFileParameter(
-            node=self,
-            name="output_file",
-            default_filename=self._get_output_file_default_filename(),
-        )
-        self._output_file.add_parameter()
+        self._setup_output_file_parameter()
 
         self._setup_logging_group()
 
@@ -127,6 +122,22 @@ class BaseVideoProcessor(ImagePreviewMixin, SuccessFailureNode, ABC):
                 ui_options={"pulse_on_run": True, "expander": True, "display_name": "Processed Video"},
             )
         )
+
+    def _setup_output_file_parameter(self) -> None:
+        """Add the project file path that _save_video_artifact writes to."""
+        self._output_file = ProjectFileParameter(
+            node=self,
+            name="output_file",
+            default_filename=self._get_output_file_default_filename(),
+        )
+        self._output_file.add_parameter()
+
+    @staticmethod
+    def _swap_filename_extension(filename: Any, new_extension: str) -> str:
+        if not isinstance(filename, str) or not filename:
+            return f"output.{new_extension}"
+        path = Path(filename)
+        return str(path.with_suffix(f".{new_extension}"))
 
     def _get_output_file_default_filename(self) -> str:
         """Default filename for the project file save path; subclasses may set OUTPUT_FILE_DEFAULT_FILENAME."""

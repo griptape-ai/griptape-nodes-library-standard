@@ -19,7 +19,7 @@ Shown as "Videos to Concatenate". Accepts individual videos, lists of videos or 
 
 ### output_format
 
-`mp4` (default), `avi`, `mov`, `mkv` or `webm`.
+`mp4` (default), `avi`, `mov`, `mkv` or `webm`. Changing it also changes the extension of `output_file`.
 
 ### video_codec
 
@@ -39,4 +39,4 @@ Trades encode time against quality: `fast`, `balanced` or `quality`. Not used wi
 
 ### output
 
-The joined video.
+The joined video. It is saved to the project using the `output_file` setting, whose default name is `concatenated.mp4`.
