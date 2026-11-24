@@ -389,7 +389,6 @@ class CropImage(ControlNode):
             save_options["optimize"] = True
         elif save_format == "WEBP":
             save_options["quality"] = int(output_quality * 100)
-            save_options["lossless"] = True
 
         # Save result using context manager to ensure proper cleanup
         img_data = None
