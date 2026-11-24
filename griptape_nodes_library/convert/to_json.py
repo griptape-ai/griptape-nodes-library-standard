@@ -1,8 +1,12 @@
+import logging
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import BaseNode, DataNode
-from json_repair import repair_json
+
+from griptape_nodes_library.json.json_utils import to_json_value
+
+logger = logging.getLogger("griptape_nodes")
 
 
 class ToJson(DataNode):
@@ -47,30 +51,23 @@ class ToJson(DataNode):
         """Convert the input value to JSON and update output."""
         input_value = self.get_parameter_value("from")
 
-        # Convert to normalized JSON
-        if isinstance(input_value, dict):
-            # Dict stays as dict - already proper JSON structure
-            result = input_value
-        elif isinstance(input_value, str):
-            # Parse JSON string to object for better downstream handling
-            try:
-                result = repair_json(input_value)
-            except Exception as e:
-                msg = f"Failed to repair and parse JSON string: {e}. Input: {input_value[:200]!r}"
-                raise ValueError(msg) from e
-        else:
-            # For other types, convert to string and try to repair
-            try:
-                result = repair_json(str(input_value))
-            except Exception as e:
-                msg = f"Failed to convert input of type {type(input_value).__name__} to a JSON object: {e}"
-                raise ValueError(msg) from e
+        self.parameter_output_values["output"] = to_json_value(self.name, input_value)
 
-        self.parameter_output_values["output"] = result
+    def _preview_json(self) -> None:
+        """Update the output while the input changes. Input that cannot be parsed clears the output.
+
+        Raising here would leave the new input stored on a node that still looks resolved, so parse
+        errors are caught. process() raises the same error on a real run.
+        """
+        try:
+            self._convert_to_json()
+        except ValueError as e:
+            self.parameter_output_values["output"] = None
+            logger.debug("%s: skipped preview: %s", self.name, e)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "from":
-            self._convert_to_json()
+            self._preview_json()
         return super().after_value_set(parameter, value)
 
     def process(self) -> None:

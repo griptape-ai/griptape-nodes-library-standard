@@ -1,4 +1,3 @@
-import json
 import re
 from enum import StrEnum
 from typing import Any
@@ -8,7 +7,8 @@ from griptape_nodes.exe_types.core_types import (
     Parameter,
 )
 from griptape_nodes.exe_types.node_types import DataNode
-from json_repair import repair_json
+
+from griptape_nodes_library.json.json_utils import parse_or_repair_json, to_json_value
 
 KEY_VALUE_PARTS = 2
 MIN_YAML_LINES = 2
@@ -99,15 +99,7 @@ class DisplayJson(DataNode):
 
     def _validate_and_parse_json(self, json_str: str) -> Any:
         """Validate and parse JSON string, with repair if needed."""
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError:
-            # Try to repair the JSON
-            try:
-                return repair_json(json_str)
-            except Exception as e:
-                msg = f"Failed to repair JSON string: {e}. Input: {json_str[:200]!r}"
-                raise ValueError(msg) from e
+        return parse_or_repair_json(self.name, json_str)
 
     def _validate_and_parse_yaml(self, yaml_str: str) -> Any:
         """Validate and parse YAML string."""
@@ -151,12 +143,7 @@ class DisplayJson(DataNode):
                         msg = f"Failed to parse input as JSON or YAML: {e}. Input: {extracted_content[:200]!r}"
                         raise ValueError(msg) from e
         else:
-            # For other types, convert to string and try to repair
-            try:
-                result = repair_json(str(json_data))
-            except Exception as e:
-                msg = f"Failed to convert input of type {type(json_data).__name__} to JSON: {e}"
-                raise ValueError(msg) from e
+            result = to_json_value(self.name, json_data)
 
         self.parameter_output_values["json"] = result
         self.publish_update_to_parameter("json", result)

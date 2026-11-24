@@ -10,7 +10,8 @@ from griptape_nodes.exe_types.core_types import (
 from griptape_nodes.exe_types.node_types import ControlNode
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.traits.options import Options
-from json_repair import repair_json
+
+from griptape_nodes_library.json.json_utils import parse_or_repair_json
 
 
 class _SortKey(NamedTuple):
@@ -157,17 +158,11 @@ class SortList(ControlNode):
             return None
         if isinstance(list_values, str):
             try:
-                parsed = json.loads(list_values)
-                if isinstance(parsed, list):
-                    return parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
-            try:
-                parsed = repair_json(list_values)
-                if isinstance(parsed, list):
-                    return parsed
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
+                parsed = parse_or_repair_json(self.name, list_values)
+            except ValueError:
+                return None
+            if isinstance(parsed, list):
+                return parsed
             return None
         if isinstance(list_values, list):
             return list_values
