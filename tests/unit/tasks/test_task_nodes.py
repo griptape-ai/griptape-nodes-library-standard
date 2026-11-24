@@ -281,6 +281,24 @@ class TestEvaluateTextResult:
         assert "['Compare meaning', 'Check facts']" in results_instructions
         assert "Input: the input\n\nActual Output: the actual\n\nExpected Output: the expected" in results_instructions
 
+    @pytest.mark.parametrize(("model_score", "expected"), [(15, 1.0), (-3, 0.0), (10, 1.0), (5, 0.5)])
+    def test_score_is_clamped_to_zero_to_one(self, model_score: float, expected: float) -> None:
+        def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:  # noqa: ARG001
+            tool = info.output_tools[0]
+            if "steps" in tool.parameters_json_schema["properties"]:
+                args: dict[str, Any] = {"steps": ["Check facts"]}
+            else:
+                args = {"score": model_score, "reason": "Out of range."}
+            return ModelResponse(parts=[ToolCallPart(tool.name, args)])
+
+        node = _create_node("EvaluateTextResult")
+        node.set_parameter_value("criteria", "Is it correct?")
+
+        with override_model(fake_model(respond)):
+            _run(node)
+
+        assert node.parameter_output_values["score"] == pytest.approx(expected)
+
     def test_empty_criteria_is_rejected(self) -> None:
         node = _create_node("EvaluateTextResult")
         node.set_parameter_value("criteria", "")

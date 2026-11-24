@@ -82,7 +82,7 @@ class EvaluateTextResult(BaseTask):
                 name="Examples",
                 type="str",
                 default_value=EXAMPLE_OPTIONS[0],
-                tooltip="Whether to automatically provide evaluation steps",
+                tooltip="Fill criteria, input, expected_output and actual_output from a preset example",
                 traits={Options(choices=EXAMPLE_OPTIONS)},
                 allowed_modes={ParameterMode.PROPERTY},
             )
@@ -211,7 +211,8 @@ class EvaluateTextResult(BaseTask):
             output_type=EvaluationResults,
         )
         # The model scores 0-10 to avoid floating point ambiguity; the node reports 0-1.
-        return results.score / 10, results.reason
+        # The model can still answer outside that range, so clamp the result.
+        return min(max(results.score / 10, 0.0), 1.0), results.reason
 
     def process(self) -> AsyncResult[None]:
         criteria = self.get_parameter_value("criteria")

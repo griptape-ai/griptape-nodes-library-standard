@@ -50,7 +50,7 @@ Offers `gpt-4.1` (default), `gpt-4.1-mini`, `gpt-4.1-nano` and `gpt-5`. The para
 
 ### score
 
-A number from 0 to 1, where 1 means the criteria are fully met. The model scores from 0 to 10 and the node divides by 10.
+A number from 0 to 1, where 1 means the criteria are fully met. The model scores from 0 to 10 and the node divides by 10, clamping anything outside 0 to 1.
 
 ### reason
 
