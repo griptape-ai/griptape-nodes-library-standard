@@ -328,8 +328,9 @@ class RandomText(DataNode):
         # Handle seed parameter component
         self._seed_parameter.after_value_set(parameter, value)
 
-        # A connected input_text is only known once the run reaches this node, so process() picks then
-        if parameter.name != "output" and not self._input_text_is_connected():
+        # A value arriving on a connected input_text comes from the run, and process() picks then
+        arrived_from_connection = parameter.name == "input_text" and self._input_text_is_connected()
+        if parameter.name != "output" and not arrived_from_connection:
             # Only trigger node execution if we need to generate content with the agent
             if self._generates_with_model() and parameter.name in ["selection_type", "seed", "randomize_seed"]:
                 # Trigger node execution

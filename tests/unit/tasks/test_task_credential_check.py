@@ -161,3 +161,18 @@ def test_random_text_does_not_generate_when_a_connected_input_arrives(monkeypatc
     node.set_parameter_value("input_text", "")
 
     _assert_names_both_credentials(node.validate_before_node_run())
+
+
+@pytest.mark.usefixtures("open_workflow")
+@pytest.mark.parametrize(("parameter_name", "value"), [("selection_type", "word"), ("seed", 7)])
+def test_random_text_picks_again_when_a_setting_changes_with_a_connected_input(
+    parameter_name: str, value: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_secrets(monkeypatch, {})
+    node = _create_connected_random_text()
+    node.parameter_values["selection_type"] = "word"
+    node.parameter_values["input_text"] = "alpha beta"
+
+    node.set_parameter_value(parameter_name, value)
+
+    assert node.parameter_output_values.get("output") in {"alpha", "beta"}
