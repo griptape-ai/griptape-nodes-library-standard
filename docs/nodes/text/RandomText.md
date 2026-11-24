@@ -50,4 +50,4 @@ When `input_text` is empty:
 - `character` is a random letter, digit or punctuation mark.
 - `word` is a random common English word.
 - `sentence` and `paragraph` are written by the `gpt-4.1-nano` model through Griptape Cloud. The seed is only mentioned in the prompt, so the model may not repeat itself for the same seed. Changing `selection_type`, `seed` or `randomize_seed` starts a run immediately.
-- Generated characters and words ignore the seed, so they differ on every run.
+- Generated characters and words follow the seed, so the same seed gives the same result.

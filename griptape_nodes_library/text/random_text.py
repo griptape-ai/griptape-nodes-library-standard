@@ -1,6 +1,5 @@
 import random
 import re
-import secrets
 import string
 from typing import Any
 
@@ -222,7 +221,7 @@ class RandomText(DataNode):
             self.parameter_output_values["output"] = "[Generating sentence]"
         else:
             # For character and word, fall back to simple random generation
-            return self._generate_simple_content(selection_type)
+            return self._generate_simple_content(selection_type, seed)
 
         # License-policy gate immediately before the model call. RandomText has
         # no user-facing model selection (MODEL is a fixed constant), so there is no
@@ -231,12 +230,13 @@ class RandomText(DataNode):
 
         return output_to_text(prompt_model(cloud_model_config(MODEL), prompt))
 
-    def _generate_simple_content(self, selection_type: str) -> str:
+    def _generate_simple_content(self, selection_type: str, seed: int | None) -> str:
         """Generate simple random content for characters and words."""
+        rng = random.Random(seed)  # noqa: S311
         if selection_type == "character":
-            return secrets.choice(string.ascii_letters + string.digits + string.punctuation)
+            return rng.choice(string.ascii_letters + string.digits + string.punctuation)
         # word
-        return secrets.choice(COMMON_WORDS)
+        return rng.choice(COMMON_WORDS)
 
     def _get_random_selection(self) -> str:
         """Get a random selection from the input text based on the selection type."""
@@ -245,8 +245,7 @@ class RandomText(DataNode):
         seed = self._seed_parameter.get_seed()
         selection_type = self.parameter_values.get("selection_type", "word")
 
-        # Set the random seed
-        random.seed(seed)
+        rng = random.Random(seed)  # noqa: S311
 
         try:
             # If input text is empty, generate random content
@@ -269,7 +268,7 @@ class RandomText(DataNode):
                 return self._generate_with_agent(selection_type, seed)
 
             # Select random item
-            return random.choice(items)  # noqa: S311
+            return rng.choice(items)
 
         except Exception:
             return self._generate_with_agent(selection_type, seed)
