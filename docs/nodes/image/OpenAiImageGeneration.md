@@ -18,20 +18,18 @@ You want an image from OpenAI's GPT Image models, from a prompt alone or built f
 
 ### model
 
-The default is `gpt-image-2.5-flare`. Other choices are `gpt-image-1`, `gpt-image-1.5`, `gpt-image-2`, `gpt-image-2.5-sunburst`, `gpt-image-2.6-sunburst` and `gpt-image-2.6-flare`.
+The default is `gpt-image-2.5-flare`. Other choices are `gpt-image-2`, `gpt-image-2.5-sunburst`, `gpt-image-2.6-sunburst` and `gpt-image-2.6-flare`. Workflows saved with `gpt-image-1` or `gpt-image-1.5`, which Griptape Cloud no longer serves, load as `gpt-image-2`.
 
-| Setting | gpt-image-1 | gpt-image-1.5 | gpt-image-2 and 2.5 | gpt-image-2.6 |
-| --- | --- | --- | --- | --- |
-| Size | Three fixed sizes | Three fixed sizes | Presets or `custom` | Presets or `custom` |
-| Transparent background | Yes | No | No | No |
-| `complexity` | No | No | No | Yes |
-| GIF output | No | No | No | Yes |
+| Setting | gpt-image-2 and 2.5 | gpt-image-2.6 |
+| --- | --- | --- |
+| `complexity` | No | Yes |
+| GIF output | No | Yes |
 
-Switching model changes the choices for `size`, `background` and `output_format`. A value the new model doesn't support is reset.
+Switching model changes the choices for `output_format`. A value the new model doesn't support is reset.
 
 ### size
 
-Fixed sizes are `1024x1024`, `1024x1536` and `1536x1024`. The 2 family adds presets up to `3840x2160` and `custom`.
+Presets up to `3840x2160`, or `custom`.
 
 ### custom_width and custom_height
 
@@ -39,7 +37,7 @@ Each snaps to the nearest multiple of 16, up to 3840. For still images the aspec
 
 ### background
 
-`transparent` works only on `gpt-image-1` and needs `png` or `webp` output.
+`auto` or `opaque`. No offered model supports a transparent background.
 
 ### moderation
 

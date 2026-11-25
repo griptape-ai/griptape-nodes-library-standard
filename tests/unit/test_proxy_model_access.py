@@ -95,7 +95,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("Flux3VideoUpscale", "gtc_flux_video_upscale_v1", "flux-video-upscale-v1", "model"),  # only declared model
     ("WanImageGeneration", "gtc_wan_2_7_image", "wan2.7-image", "model"),
     ("GoogleImageGeneration", "gtc_gemini_3_1_flash_image", "gemini-3.1-flash-image", "model"),
-    ("OpenAiImageGeneration", "gtc_gpt_image_1", "gpt-image-1", "model"),
+    ("OpenAiImageGeneration", "gtc_gpt_image_2", "gpt-image-2", "model"),
     ("WorldLabsWorldGeneration", "gtc_marble_1_0_draft", "marble-1.0-draft", "model"),
     ("SeedanceVideoGeneration", "gtc_seedance_1_0_pro_fast", "seedance-1-0-pro-fast-251015", "model_id"),
     ("Seedance20VideoGeneration", "gtc_seedance_2_0_fast", "dreamina-seedance-2-0-fast-260128", "model_id"),
