@@ -10,11 +10,13 @@ check each node's own table, so that divergence would pass green.
 
 from collections.abc import Sequence
 
+from griptape_nodes.drivers.cloud_models import DEPRECATED_MODELS
+
 # Migrates values saved before the dropdown stored the provider's own model id. Folds in
 # both display labels once shown in the dropdown, catalog keys saved during the interval
 # the dropdown stored those instead, and the nodes' former DEPRECATED_MODELS dicts
 # (provider ids for models Griptape Cloud has fully retired, mapped to their replacement).
-CLOUD_LEGACY_MODEL_VALUES: dict[str, str] = {
+_SAVED_MODEL_VALUES: dict[str, str] = {
     "Claude Haiku 4.5": "claude-haiku-4-5",
     "Claude Opus 4.7": "claude-opus-5",
     "Claude Sonnet 4.5": "claude-sonnet-5",
@@ -89,6 +91,25 @@ CLOUD_LEGACY_MODEL_VALUES: dict[str, str] = {
     "o4 mini": "gpt-5-mini",
     "o4-mini": "gpt-5-mini",
 }
+
+
+def _current(model: str) -> str:
+    """``model`` followed through the installed engine's retirements to one it still offers.
+
+    The engine can retire a model before this table is updated (``gtc_o3`` -> ``o3`` ->
+    ``gpt-5``); following its aliases keeps every target a current choice meanwhile.
+    """
+    seen = [model]
+    while (replacement := DEPRECATED_MODELS.get(model)) is not None:
+        if replacement in seen:
+            msg = f"The engine's retired models replace each other in a cycle: {' -> '.join([*seen, replacement])}"
+            raise ValueError(msg)
+        seen.append(replacement)
+        model = replacement
+    return model
+
+
+CLOUD_LEGACY_MODEL_VALUES: dict[str, str] = {legacy: _current(target) for legacy, target in _SAVED_MODEL_VALUES.items()}
 
 
 def cloud_legacy_values_for(model_choices: Sequence[str]) -> dict[str, str]:
