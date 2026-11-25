@@ -63,8 +63,8 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
 
     # Migrates values saved before the dropdown stored the provider's own model id (old
     # display labels and catalog keys), plus models Kling has discontinued. Kling returns
-    # 404 for kling-v1-6, kling-v2-master, and kling-v2-1-master, so a saved workflow
-    # referencing one migrates to kling-v2-6 rather than calling through.
+    # 404 for kling-v1, kling-v1-6, kling-v2-master, and kling-v2-1-master, so a saved
+    # workflow referencing one migrates to kling-v2-6 rather than calling through.
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
         "Kling v1.6": "kling-v2-6",
         "Kling v2 Master": "kling-v2-6",
@@ -78,6 +78,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         "gtc_kling_v2_6": "kling-v2-6",
         "gtc_kling_v2_master": "kling-v2-6",
         "gtc_kling_v3": "kling-v3",
+        "kling-v1": "kling-v2-6",
         "kling-v1-6": "kling-v2-6",
         "kling-v2-1-master": "kling-v2-6",
         "kling-v2-master": "kling-v2-6",

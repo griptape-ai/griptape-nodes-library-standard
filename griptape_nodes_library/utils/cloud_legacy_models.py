@@ -77,10 +77,11 @@ CLOUD_LEGACY_MODEL_VALUES: dict[str, str] = {
     "gtc_llama_3_1_70b": "llama3-1-70b-instruct-v1",
     "gtc_llama_3_3_70b": "llama3-3-70b-instruct-v1",
     "gtc_o1": "o1",
-    "gtc_o3": "o3",
+    "gtc_o3": "gpt-5",
     "gtc_o3_mini": "o3-mini",
     "gtc_o4_mini": "o4-mini",
     "o1-mini": "o3-mini",
+    "o3": "gpt-5",
     "o3 mini": "o3-mini",
     "o4 mini": "o4-mini",
 }
