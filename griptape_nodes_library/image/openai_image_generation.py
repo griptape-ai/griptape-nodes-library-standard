@@ -61,6 +61,16 @@ GPT_IMAGE_2_FAMILY = frozenset(
 # with `frame_count` and `frame_duration_ms`). No other model offers either.
 GPT_IMAGE_2_6_MODELS = frozenset({GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, GPT_IMAGE_2_6_FLARE_MODEL_KEY})
 GIF_OUTPUT_FORMAT = "gif"
+# Only the GPT Image 2.5 and 2.6 models accept the `xhigh` and `max` quality levels; OpenAI rejects
+# them for GPT Image 1, 1.5 and 2.
+GPT_IMAGE_EXTENDED_QUALITY_MODELS = frozenset(
+    {
+        GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
+        GPT_IMAGE_2_5_FLARE_MODEL_KEY,
+        GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
+        GPT_IMAGE_2_6_FLARE_MODEL_KEY,
+    }
+)
 # The family in dropdown order, for building per-model tables deterministically.
 _GPT_IMAGE_2_FAMILY_ORDERED = [model_key for model_key in MODEL_CHOICES if model_key in GPT_IMAGE_2_FAMILY]
 
@@ -95,6 +105,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     GPT_IMAGE_2_DEFAULT_CUSTOM_WIDTH: ClassVar[int] = 1024
     GPT_IMAGE_2_DEFAULT_CUSTOM_HEIGHT: ClassVar[int] = 1024
     QUALITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
+    EXTENDED_QUALITY_OPTIONS: ClassVar[list[str]] = [*QUALITY_OPTIONS, "xhigh", "max"]
+    # What a quality the new model doesn't offer falls back to: the best level every model has.
+    FALLBACK_QUALITY: ClassVar[str] = "high"
     BACKGROUND_OPTIONS: ClassVar[list[str]] = ["auto", "opaque", "transparent"]
     # Only gpt-image-1 supports transparent backgrounds; gpt-image-1.5 and the gpt-image-2 family
     # reject background="transparent" at the API level.
@@ -245,9 +258,9 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             ParameterString(
                 name="quality",
                 default_value="medium",
-                tooltip="Output quality",
+                tooltip="Output quality. xhigh and max are only available on the GPT Image 2.5 and 2.6 models.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=self.QUALITY_OPTIONS)},
+                traits={Options(choices=self._quality_choices_for_model(self.DEFAULT_MODEL))},
             )
 
             ParameterString(
@@ -396,6 +409,12 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     def _background_choices_for_model(cls, model_name: str) -> list[str]:
         return list(cls.BACKGROUND_OPTIONS_BY_MODEL.get(model_name, cls.BACKGROUND_OPTIONS))
 
+    @classmethod
+    def _quality_choices_for_model(cls, model_name: str) -> list[str]:
+        if model_name in GPT_IMAGE_EXTENDED_QUALITY_MODELS:
+            return list(cls.EXTENDED_QUALITY_OPTIONS)
+        return list(cls.QUALITY_OPTIONS)
+
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, self.MAX_IMAGES + 1):
             param_name = "image_url" if i == 1 else f"image_url_{i}"
@@ -450,6 +469,26 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
         self.set_parameter_value("background", choices[0])
         self.publish_update_to_parameter("background", choices[0])
+
+    def _sync_quality_options_for_model(self, model_name: str) -> None:
+        quality_param = self.get_parameter_by_name("quality")
+        if quality_param is None:
+            return
+
+        choices = self._quality_choices_for_model(model_name)
+
+        existing_traits = quality_param.find_elements_by_type(Options)
+        if existing_traits:
+            quality_param.remove_trait(trait_type=existing_traits[0])
+        quality_param.add_trait(Options(choices=choices))
+
+        current_quality = self.get_parameter_value("quality")
+        if current_quality in choices:
+            return
+
+        # Dropping `xhigh` or `max` to `low` (the first choice) would silently cut quality by a lot.
+        self.set_parameter_value("quality", self.FALLBACK_QUALITY)
+        self.publish_update_to_parameter("quality", self.FALLBACK_QUALITY)
 
     def _sync_output_format_options_for_model(self, model_name: str) -> None:
         output_format_param = self.get_parameter_by_name("output_format")
@@ -556,6 +595,7 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if param_name == "model" and isinstance(value, str):
             self._sync_size_options_for_model(value)
             self._sync_background_options_for_model(value)
+            self._sync_quality_options_for_model(value)
             self._sync_output_format_options_for_model(value)
             self._sync_gif_settings_visibility(value, self.get_parameter_value("output_format"))
             self._sync_complexity_visibility(value)
@@ -626,6 +666,16 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         n_value = self.get_parameter_value("n")
         if n_value is None or not self.MIN_IMAGES <= int(n_value) <= self.MAX_IMAGES:
             exceptions.append(ValueError(f"'n' must be between {self.MIN_IMAGES} and {self.MAX_IMAGES}."))
+
+        # The dropdown can't enforce this when `quality` arrives through its input connection.
+        quality = self.get_parameter_value("quality") or "medium"
+        quality_choices = self._quality_choices_for_model(model_name)
+        if quality not in quality_choices:
+            exceptions.append(
+                ValueError(
+                    f"Quality '{quality}' isn't available for this model. Choose one of: {', '.join(quality_choices)}."
+                )
+            )
 
         background = self.get_parameter_value("background") or "auto"
         if background == "transparent" and output_format not in {"png", "webp"}:

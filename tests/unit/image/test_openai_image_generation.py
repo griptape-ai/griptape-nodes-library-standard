@@ -1161,3 +1161,112 @@ def test_custom_size_badge_says_aspect_ratio_and_pixel_rules_skip_gif_frames(nod
     assert badge is not None
     assert "(still images)" in badge.message
     assert "They don't apply to GIF frames." in badge.message
+
+
+def _quality_choices(node: OpenAiImageGeneration) -> list[str]:
+    quality_param = node.get_parameter_by_name("quality")
+    assert quality_param is not None
+    options_traits = quality_param.find_elements_by_type(Options)
+    assert options_traits, "quality parameter is missing an Options trait"
+    return list(options_traits[0].choices)
+
+
+EXTENDED_QUALITY_CHOICES = ["low", "medium", "high", "xhigh", "max"]
+STANDARD_QUALITY_CHOICES = ["low", "medium", "high"]
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected_choices"),
+    [
+        (GPT_IMAGE_1_MODEL_KEY, STANDARD_QUALITY_CHOICES),
+        ("gpt-image-1.5", STANDARD_QUALITY_CHOICES),
+        (GPT_IMAGE_2_MODEL_KEY, STANDARD_QUALITY_CHOICES),
+        (GPT_IMAGE_2_5_SUNBURST_MODEL_KEY, EXTENDED_QUALITY_CHOICES),
+        (GPT_IMAGE_2_5_FLARE_MODEL_KEY, EXTENDED_QUALITY_CHOICES),
+        (GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, EXTENDED_QUALITY_CHOICES),
+        (GPT_IMAGE_2_6_FLARE_MODEL_KEY, EXTENDED_QUALITY_CHOICES),
+    ],
+)
+def test_quality_options_update_when_model_changes(
+    node: OpenAiImageGeneration, model_name: str, expected_choices: list[str]
+) -> None:
+    node.set_parameter_value("model", model_name)
+
+    assert _quality_choices(node) == expected_choices
+
+
+def test_default_model_offers_xhigh_and_max(node: OpenAiImageGeneration) -> None:
+    assert _quality_choices(node) == EXTENDED_QUALITY_CHOICES
+
+
+@pytest.mark.parametrize("quality", ["xhigh", "max"])
+@pytest.mark.parametrize("model_name", [GPT_IMAGE_1_MODEL_KEY, "gpt-image-1.5", GPT_IMAGE_2_MODEL_KEY])
+def test_switching_to_unsupported_model_resets_extended_quality_to_high(
+    node: OpenAiImageGeneration, model_name: str, quality: str
+) -> None:
+    node.set_parameter_value("quality", quality)
+
+    node.set_parameter_value("model", model_name)
+
+    assert node.get_parameter_value("quality") == "high"
+
+
+@pytest.mark.parametrize("quality", ["low", "medium", "high"])
+def test_switching_to_unsupported_model_preserves_standard_quality(node: OpenAiImageGeneration, quality: str) -> None:
+    node.set_parameter_value("quality", quality)
+
+    node.set_parameter_value("model", GPT_IMAGE_1_MODEL_KEY)
+
+    assert node.get_parameter_value("quality") == quality
+
+
+@pytest.mark.parametrize("quality", ["xhigh", "max"])
+def test_switching_between_extended_quality_models_preserves_quality(node: OpenAiImageGeneration, quality: str) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_5_SUNBURST_MODEL_KEY)
+    node.set_parameter_value("quality", quality)
+
+    node.set_parameter_value("model", GPT_IMAGE_2_6_FLARE_MODEL_KEY)
+
+    assert node.get_parameter_value("quality") == quality
+
+
+@pytest.mark.parametrize("quality", ["xhigh", "max"])
+@pytest.mark.parametrize("model_name", [GPT_IMAGE_1_MODEL_KEY, GPT_IMAGE_2_MODEL_KEY])
+def test_validate_rejects_extended_quality_on_unsupported_model(
+    node: OpenAiImageGeneration, model_name: str, quality: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A red circle")
+    # Bypass the dropdown, as a value arriving through the input connection does.
+    node.parameter_values["quality"] = quality
+
+    exceptions = node.validate_before_node_run()
+
+    assert exceptions is not None
+    assert any(f"Quality '{quality}' isn't available" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.parametrize("quality", ["xhigh", "max"])
+@pytest.mark.parametrize("model_name", sorted(GPT_IMAGE_2_6_MODELS | {GPT_IMAGE_2_5_FLARE_MODEL_KEY}))
+def test_validate_accepts_extended_quality_on_supported_model(
+    node: OpenAiImageGeneration, model_name: str, quality: str
+) -> None:
+    node.set_parameter_value("model", model_name)
+    node.set_parameter_value("prompt", "A red circle")
+    node.set_parameter_value("quality", quality)
+
+    exceptions = node.validate_before_node_run() or []
+
+    assert not any("Quality" in str(exception) for exception in exceptions)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quality", ["xhigh", "max"])
+async def test_build_payload_sends_extended_quality(node: OpenAiImageGeneration, quality: str) -> None:
+    node.set_parameter_value("model", GPT_IMAGE_2_6_SUNBURST_MODEL_KEY)
+    node.set_parameter_value("prompt", "A red circle")
+    node.set_parameter_value("quality", quality)
+
+    payload = await node._build_payload()
+
+    assert payload["quality"] == quality
