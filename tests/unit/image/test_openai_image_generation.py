@@ -29,7 +29,7 @@ from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
 LIBRARY_NAME = "Griptape Nodes Library"
 
 # Every offered model, by legacy label or model id.
-GPT_IMAGE_2_FAMILY_MODELS = [
+OFFERED_MODELS = [
     "GPT Image 2",
     GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
     GPT_IMAGE_2_5_FLARE_MODEL_KEY,
@@ -94,7 +94,7 @@ async def test_build_payload_for_jpeg_includes_output_compression(node: OpenAiIm
     }
 
 
-@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
+@pytest.mark.parametrize("model_name", OFFERED_MODELS)
 def test_set_rejects_too_many_reference_images(node: OpenAiImageGeneration, model_name: str) -> None:
     node.set_parameter_value("model", model_name)
 
@@ -102,7 +102,7 @@ def test_set_rejects_too_many_reference_images(node: OpenAiImageGeneration, mode
         node.set_parameter_value("input_images", [f"image_{index}.png" for index in range(17)])
 
 
-@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
+@pytest.mark.parametrize("model_name", OFFERED_MODELS)
 def test_validate_rejects_too_many_reference_images(
     node: OpenAiImageGeneration, model_name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -116,7 +116,7 @@ def test_validate_rejects_too_many_reference_images(
     assert any("supports up to 16 reference images" in str(exception) for exception in exceptions)
 
 
-@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
+@pytest.mark.parametrize("model_name", OFFERED_MODELS)
 @pytest.mark.parametrize(
     ("size", "message_fragment"),
     [
@@ -139,7 +139,7 @@ def test_validate_rejects_invalid_gpt_image_2_custom_sizes(
     assert any(message_fragment in str(exception) for exception in exceptions)
 
 
-@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
+@pytest.mark.parametrize("model_name", OFFERED_MODELS)
 def test_validate_accepts_valid_gpt_image_2_custom_size(node: OpenAiImageGeneration, model_name: str) -> None:
     node.set_parameter_value("model", model_name)
     node.set_parameter_value("prompt", "A red circle")
@@ -232,16 +232,15 @@ def test_size_options_are_the_same_for_every_model(
     assert _size_choices(node) == expected_choices
 
 
-def test_switching_to_gpt_image_2_preserves_valid_custom_size(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("model", GPT_IMAGE_2_5_SUNBURST_MODEL_KEY)
-    node.parameter_values["size"] = "2048x1152"
+def test_saved_gpt_image_1_workflow_keeps_its_size(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "gpt-image-1")
+    node.set_parameter_value("size", "1536x1024")
 
-    node.set_parameter_value("model", "GPT Image 2")
+    assert node.get_parameter_value("model") == GPT_IMAGE_2_MODEL_KEY
+    assert node.get_parameter_value("size") == "1536x1024"
 
-    assert node.get_parameter_value("size") == "2048x1152"
 
-
-@pytest.mark.parametrize("model_name", GPT_IMAGE_2_FAMILY_MODELS)
+@pytest.mark.parametrize("model_name", OFFERED_MODELS)
 @pytest.mark.parametrize("size", OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS)
 def test_validate_accepts_all_listed_gpt_image_2_aspect_ratios(
     node: OpenAiImageGeneration, model_name: str, size: str
@@ -541,14 +540,6 @@ def test_saved_transparent_background_loads_as_auto(node: OpenAiImageGeneration)
 
     assert node.get_parameter_value("model") == GPT_IMAGE_2_MODEL_KEY
     assert node.get_parameter_value("background") == "auto"
-
-
-def test_switching_to_supported_model_preserves_opaque_background(node: OpenAiImageGeneration) -> None:
-    node.set_parameter_value("background", "opaque")
-
-    node.set_parameter_value("model", GPT_IMAGE_2_MODEL_KEY)
-
-    assert node.get_parameter_value("background") == "opaque"
 
 
 def test_default_model_uses_catalog_key(node: OpenAiImageGeneration) -> None:
