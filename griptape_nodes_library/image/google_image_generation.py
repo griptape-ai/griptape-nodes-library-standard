@@ -38,6 +38,24 @@ MAX_HUMAN_IMAGES = 5
 # Maximum image size in bytes (7MB)
 MAX_IMAGE_SIZE_BYTES = 7 * 1024 * 1024
 
+# Aspect ratios of the Flash image models, which add the 1:4, 4:1, 1:8 and 8:1 extremes.
+EXTENDED_ASPECT_RATIOS = [
+    "1:1",
+    "1:4",
+    "1:8",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:1",
+    "4:3",
+    "4:5",
+    "5:4",
+    "8:1",
+    "9:16",
+    "16:9",
+    "21:9",
+]
+
 
 @dataclass
 class _SavedImages:
@@ -56,7 +74,9 @@ class GoogleImageGeneration(GriptapeProxyNode):
     SERVICE_NAME = "Griptape"
     API_KEY_NAME = "GT_CLOUD_API_KEY"
     DEFAULT_MODEL: ClassVar[str] = "gemini-3-pro-image"
-    MODEL_OPTIONS: ClassVar[list[str]] = ["gemini-3-pro-image", "gemini-3.1-flash-image"]
+    MODEL_OPTIONS: ClassVar[list[str]] = ["gemini-3-pro-image", "gemini-nano-banana-2.1", "gemini-3.1-flash-image"]
+    # Models that can ground on Google Image Search as well as web search.
+    IMAGE_SEARCH_MODELS: ClassVar[frozenset[str]] = frozenset({"gemini-nano-banana-2.1", "gemini-3.1-flash-image"})
     # Migrates values saved before this dropdown stored the provider's own model id
     # (friendly labels and catalog keys alike).
     LEGACY_MODEL_VALUES: ClassVar[dict[str, str]] = {
@@ -69,26 +89,13 @@ class GoogleImageGeneration(GriptapeProxyNode):
     }
     IMAGE_SIZE_OPTIONS: ClassVar[dict[str, list[str]]] = {
         "gemini-3-pro-image": ["1K", "2K", "4K"],
+        "gemini-nano-banana-2.1": ["1K", "2K", "4K"],
         "gemini-3.1-flash-image": ["512", "1K", "2K", "4K"],
     }
     ASPECT_RATIO_OPTIONS: ClassVar[dict[str, list[str]]] = {
         "gemini-3-pro-image": ["1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
-        "gemini-3.1-flash-image": [
-            "1:1",
-            "1:4",
-            "1:8",
-            "2:3",
-            "3:2",
-            "3:4",
-            "4:1",
-            "4:3",
-            "4:5",
-            "5:4",
-            "8:1",
-            "9:16",
-            "16:9",
-            "21:9",
-        ],
+        "gemini-nano-banana-2.1": EXTENDED_ASPECT_RATIOS,
+        "gemini-3.1-flash-image": EXTENDED_ASPECT_RATIOS,
     }
 
     def __init__(self, **kwargs: Any) -> None:
@@ -241,7 +248,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
             ParameterBool(
                 name="use_google_image_search",
                 default_value=False,
-                tooltip="Enable grounding with Google Image Search (Nano Banana 2 only)",
+                tooltip="Enable grounding with Google Image Search (Nano Banana 2.1 and Nano Banana 2 only)",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 hide=True,
             )
@@ -323,8 +330,7 @@ class GoogleImageGeneration(GriptapeProxyNode):
             default_ratio = current_ratio if current_ratio in new_ratios else "16:9"
             self._update_option_choices("aspect_ratio", new_ratios, default_ratio)
 
-            # Show Google Image Search only for Nano Banana 2
-            if value == "gemini-3.1-flash-image":
+            if value in self.IMAGE_SEARCH_MODELS:
                 self.show_parameter_by_name("use_google_image_search")
             else:
                 self.hide_parameter_by_name("use_google_image_search")
