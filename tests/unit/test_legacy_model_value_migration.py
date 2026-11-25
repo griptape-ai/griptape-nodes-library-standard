@@ -24,9 +24,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from griptape_nodes.drivers.cloud_models import DEPRECATED_MODELS
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.node_library.library_registry import LibraryRegistry
 from griptape_nodes.traits.options import Options
+
+from griptape_nodes_library.utils import cloud_legacy_models
 
 if TYPE_CHECKING:
     from griptape_nodes.exe_types.core_types import Parameter
@@ -132,6 +135,12 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
         "gemini-2.5-pro-preview-06-05": "gemini-2.5-pro",
         "gemini-3-pro": "gemini-3.1-pro",
         "gemini-3-pro-preview": "gemini-3.1-pro",
+        "o4-mini": "gpt-5-mini",
+        "gtc_o4_mini": "gpt-5-mini",
+        "gpt-5.2-chat": "gpt-5.2",
+        "gtc_gpt_5_2_chat": "gpt-5.2",
+        "gemini-3.5-flash": "gemini-3.6-flash",
+        "gtc_gemini_3_5_flash": "gemini-3.6-flash",
         "o3": "gpt-5",
         "gtc_o3": "gpt-5",
     },
@@ -321,3 +330,42 @@ def test_kling_image_retired_model_repairs_saved_dropdown(saved_model: str) -> N
     assert parameter.ui_options["simple_dropdown"] == initial_choices
     assert parameter.find_elements_by_type(Options)[0].choices == initial_choices
     assert len(parameter.find_elements_by_type(Options)) == 1
+
+
+@pytest.mark.parametrize("node_type", ["Agent", "GriptapeCloudPrompt"])
+def test_every_engine_retirement_of_a_cloud_model_migrates(node_type: str) -> None:
+    """A saved value the installed engine retires migrates to the model the engine names.
+
+    The engine retires a model by moving it to `DEPRECATED_MODELS`; a saved workflow holding
+    that model only migrates if the library's table carries it too.
+    """
+    node = _create_node(node_type)
+    component = _model_access_component(node)
+    parameter = cast("Any", component)._parameter
+    offered_names = _offered_choice_names(parameter)
+
+    for retired, replacement in DEPRECATED_MODELS.items():
+        current = cloud_legacy_models._current(replacement)
+        if current not in offered_names:
+            continue
+        node.set_parameter_value(parameter.name, retired)
+        assert node.get_parameter_value(parameter.name) == current, (
+            f"{node_type}: the engine retires {retired!r} for {current!r}, but the library's table doesn't migrate it"
+        )
+
+
+def test_a_target_the_engine_retires_follows_its_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A target the engine retires before the table is updated moves to the engine's replacement."""
+    monkeypatch.setitem(DEPRECATED_MODELS, "gpt-5", "gpt-5.2")
+    monkeypatch.setitem(DEPRECATED_MODELS, "gpt-5.2", "gpt-5.5")
+
+    assert cloud_legacy_models._current("gpt-5") == "gpt-5.5"
+    assert cloud_legacy_models._current("gpt-5.5") == "gpt-5.5"
+
+
+def test_a_cycle_in_the_engine_retirements_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(DEPRECATED_MODELS, "gpt-5", "gpt-5.2")
+    monkeypatch.setitem(DEPRECATED_MODELS, "gpt-5.2", "gpt-5")
+
+    with pytest.raises(ValueError, match="cycle"):
+        cloud_legacy_models._current("gpt-5")

@@ -49,7 +49,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_error,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
+from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
 from griptape_nodes_library.utils.model_invocation import require_model_invocation_sync
 from griptape_nodes_library.utils.provider_selection_component import ProviderSelectionComponent
 
@@ -121,7 +121,7 @@ class Agent(ControlNode):
             parameter=model_param,
             model_choices=MODEL_CHOICES,
             default_model=DEFAULT_MODEL,
-            deprecated_values=cloud_legacy_values_for(MODEL_CHOICES),
+            deprecated_values=CLOUD_LEGACY_MODEL_VALUES,
         )
 
         self._provider = ProviderSelectionComponent(

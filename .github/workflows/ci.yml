@@ -37,3 +37,31 @@ jobs:
 
       - name: Run unit tests
         run: make test/unit
+
+  model-tables-on-engine-main:
+    # The check job installs the engine uv.lock pins, so it can't see an engine change before
+    # it's released. This runs the model-table tests against engine main to flag a retired
+    # model early. Non-blocking: engine main also carries unrelated changes.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      UV_PROJECT_ENVIRONMENT: .venv-dev
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies with engine main
+        run: |
+          make install/dev
+          uv pip install --python .venv-dev "griptape-nodes-engine @ git+https://github.com/griptape-ai/griptape-nodes-engine@main"
+
+      - name: Run the model-table tests
+        run: uv run --no-sync pytest tests/unit/test_legacy_model_value_migration.py tests/unit/test_model_catalog_consistency.py
