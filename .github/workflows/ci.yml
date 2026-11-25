@@ -21,6 +21,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # `check (3.12)` is a required status, so a docs-only change skips steps, not the job.
+      - name: Detect code changes
+        id: changes
+        uses: ./.github/actions/detect-code-changes
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -30,10 +35,17 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
         run: make install/dev
 
       - name: Run checks
+        if: steps.changes.outputs.code == 'true'
         run: make check
 
+      - name: Check changelog
+        if: steps.changes.outputs.code != 'true'
+        run: make check/changelog
+
       - name: Run unit tests
+        if: steps.changes.outputs.code == 'true'
         run: make test/unit
