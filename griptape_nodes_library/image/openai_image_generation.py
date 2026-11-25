@@ -667,16 +667,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         if n_value is None or not self.MIN_IMAGES <= int(n_value) <= self.MAX_IMAGES:
             exceptions.append(ValueError(f"'n' must be between {self.MIN_IMAGES} and {self.MAX_IMAGES}."))
 
-        # The dropdown can't enforce this when `quality` arrives through its input connection.
-        quality = self.get_parameter_value("quality") or "medium"
-        quality_choices = self._quality_choices_for_model(model_name)
-        if quality not in quality_choices:
-            exceptions.append(
-                ValueError(
-                    f"Quality '{quality}' isn't available for this model. Choose one of: {', '.join(quality_choices)}."
-                )
-            )
-
         background = self.get_parameter_value("background") or "auto"
         if background == "transparent" and output_format not in {"png", "webp"}:
             exceptions.append(ValueError("Transparent backgrounds require output_format to be png or webp."))

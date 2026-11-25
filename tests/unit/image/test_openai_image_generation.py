@@ -1230,36 +1230,6 @@ def test_switching_between_extended_quality_models_preserves_quality(node: OpenA
     assert node.get_parameter_value("quality") == quality
 
 
-@pytest.mark.parametrize("quality", ["xhigh", "max"])
-@pytest.mark.parametrize("model_name", [GPT_IMAGE_1_MODEL_KEY, GPT_IMAGE_2_MODEL_KEY])
-def test_validate_rejects_extended_quality_on_unsupported_model(
-    node: OpenAiImageGeneration, model_name: str, quality: str
-) -> None:
-    node.set_parameter_value("model", model_name)
-    node.set_parameter_value("prompt", "A red circle")
-    # Bypass the dropdown, as a value arriving through the input connection does.
-    node.parameter_values["quality"] = quality
-
-    exceptions = node.validate_before_node_run()
-
-    assert exceptions is not None
-    assert any(f"Quality '{quality}' isn't available" in str(exception) for exception in exceptions)
-
-
-@pytest.mark.parametrize("quality", ["xhigh", "max"])
-@pytest.mark.parametrize("model_name", sorted(GPT_IMAGE_2_6_MODELS | {GPT_IMAGE_2_5_FLARE_MODEL_KEY}))
-def test_validate_accepts_extended_quality_on_supported_model(
-    node: OpenAiImageGeneration, model_name: str, quality: str
-) -> None:
-    node.set_parameter_value("model", model_name)
-    node.set_parameter_value("prompt", "A red circle")
-    node.set_parameter_value("quality", quality)
-
-    exceptions = node.validate_before_node_run() or []
-
-    assert not any("Quality" in str(exception) for exception in exceptions)
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("quality", ["xhigh", "max"])
 async def test_build_payload_sends_extended_quality(node: OpenAiImageGeneration, quality: str) -> None:
