@@ -346,7 +346,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
         super().after_value_set(parameter, value)
 
         if parameter.name == "resolution":
-            self._update_dynamic_range(str(self.get_parameter_value("model_name")))
+            kling_4.sync_dynamic_range(self, str(self.get_parameter_value("model_name")))
 
         if parameter.name == "model_name":
             self._update_parameter_visibility_for_model(value)
@@ -383,7 +383,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             return
 
         self.hide_parameter_by_name("resolution")
-        self._update_dynamic_range(model_id)
+        kling_4.sync_dynamic_range(self, model_id)
         self.show_parameter_by_name(["cfg_scale", "negative_prompt"])
 
         if not modes:
@@ -430,16 +430,7 @@ class KlingTextToVideoGeneration(GriptapeProxyNode):
             "resolution", capabilities.resolutions, kling_4.resolution_choice(model_id, current)
         )
         self.show_parameter_by_name("resolution")
-        self._update_dynamic_range(model_id)
-
-    def _update_dynamic_range(self, model_id: str) -> None:
-        """Offer HDR only where the model renders it at the chosen resolution; otherwise hide it and reset to SDR."""
-        if kling_4.is_kling_4(model_id) and kling_4.supports_hdr(model_id, self.get_parameter_value("resolution")):
-            self.show_parameter_by_name("dynamic_range")
-            return
-        self.hide_parameter_by_name("dynamic_range")
-        if self.get_parameter_value("dynamic_range") != kling_4.DYNAMIC_RANGE_SDR:
-            self.set_parameter_value("dynamic_range", kling_4.DYNAMIC_RANGE_SDR)
+        kling_4.sync_dynamic_range(self, model_id)
 
     def _hide_multi_shot_inputs(self) -> None:
         self.hide_parameter_by_name(["multi_shot", "shot_type", "shot_count", "shots"])

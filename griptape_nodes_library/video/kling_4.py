@@ -9,9 +9,12 @@ https://kling.ai/document-api/api/video/4-0/video-omni
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from griptape_nodes_library import media
+
+if TYPE_CHECKING:
+    from griptape_nodes.exe_types.node_types import BaseNode
 
 KLING_4_0 = "kling-4.0"
 KLING_4_0_FLASH = "kling-4.0-flash"
@@ -143,6 +146,25 @@ def dynamic_range_choice(model_id: str, resolution: Any, current: Any) -> str:
     if current == DYNAMIC_RANGE_HDR and supports_hdr(model_id, resolution):
         return DYNAMIC_RANGE_HDR
     return DYNAMIC_RANGE_SDR
+
+
+def sync_dynamic_range(node: BaseNode, model_id: str) -> None:
+    """Show `dynamic_range` only where `model_id` renders HDR at the node's resolution.
+
+    Everywhere else it is hidden and reset to SDR, so a stale HDR choice never reaches the request.
+    """
+    if is_kling_4(model_id):
+        resolution = node.get_parameter_value("resolution")
+        choice = dynamic_range_choice(model_id, resolution, node.get_parameter_value("dynamic_range"))
+        offered = supports_hdr(model_id, resolution)
+    else:
+        choice, offered = DYNAMIC_RANGE_SDR, False
+    if node.get_parameter_value("dynamic_range") != choice:
+        node.set_parameter_value("dynamic_range", choice)
+    if offered:
+        node.show_parameter_by_name("dynamic_range")
+    else:
+        node.hide_parameter_by_name("dynamic_range")
 
 
 def dynamic_range_error(model_id: str, resolution: Any, dynamic_range: Any) -> str | None:
