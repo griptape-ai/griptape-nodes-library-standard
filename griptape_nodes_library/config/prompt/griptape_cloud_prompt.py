@@ -64,7 +64,9 @@ class GriptapeCloudPrompt(BasePrompt):
 
         # Offer Griptape Cloud's models as a license-filtered dropdown.
         self._install_model_access(
-            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=cloud_legacy_values_for(MODEL_CHOICES)
+            model_choices=MODEL_CHOICES,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=cloud_legacy_values_for(MODEL_CHOICES),
         )
 
         self.remove_parameter_element_by_name("seed")
