@@ -37,7 +37,7 @@ Each snaps to the nearest multiple of 16, up to 3840. For still images the aspec
 
 ### background
 
-`auto` or `opaque`. No offered model supports a transparent background.
+`auto` or `opaque`. No offered model supports a transparent background; a workflow saved with `transparent` loads as `auto`.
 
 ### moderation
 

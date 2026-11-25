@@ -20,7 +20,6 @@ from griptape_nodes_library.image.openai_image_generation import (
     GPT_IMAGE_2_6_FLARE_MODEL_KEY,
     GPT_IMAGE_2_6_MODELS,
     GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
-    GPT_IMAGE_2_FAMILY,
     GPT_IMAGE_2_MODEL_KEY,
     OpenAiImageGeneration,
 )
@@ -29,7 +28,7 @@ from griptape_nodes_library.proxy.hosted_artifacts import HostedArtifact
 
 LIBRARY_NAME = "Griptape Nodes Library"
 
-# Models that share GPT Image 2's size, background and reference-image rules.
+# Every offered model, by legacy label or model id.
 GPT_IMAGE_2_FAMILY_MODELS = [
     "GPT Image 2",
     GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
@@ -151,17 +150,6 @@ def test_validate_accepts_valid_gpt_image_2_custom_size(node: OpenAiImageGenerat
     assert exceptions is None
 
 
-@pytest.mark.parametrize("model_name", sorted(GPT_IMAGE_2_FAMILY))
-def test_family_tables_cover_every_family_member(model_name: str) -> None:
-    assert OpenAiImageGeneration.BACKGROUND_OPTIONS_BY_MODEL[model_name] == ["auto", "opaque"]
-    assert OpenAiImageGeneration.MAX_REFERENCE_IMAGES_BY_MODEL[model_name] == OpenAiImageGeneration.MAX_REFERENCE_IMAGES
-
-
-def test_family_background_options_are_not_shared_between_models() -> None:
-    option_lists = [OpenAiImageGeneration.BACKGROUND_OPTIONS_BY_MODEL[model] for model in GPT_IMAGE_2_FAMILY]
-    assert len({id(options) for options in option_lists}) == len(option_lists)
-
-
 @pytest.mark.parametrize(
     ("model_name", "display_name"),
     [
@@ -236,7 +224,7 @@ def test_gpt_image_2_dropdown_surfaces_4k_presets(node: OpenAiImageGeneration) -
         (GPT_IMAGE_2_6_FLARE_MODEL_KEY, OpenAiImageGeneration.GPT_IMAGE_2_SIZE_OPTIONS),
     ],
 )
-def test_size_options_update_when_model_changes(
+def test_size_options_are_the_same_for_every_model(
     node: OpenAiImageGeneration, model_name: str, expected_choices: list[str]
 ) -> None:
     node.set_parameter_value("model", model_name)
@@ -535,7 +523,7 @@ def _background_choices(node: OpenAiImageGeneration) -> list[str]:
         (GPT_IMAGE_2_6_FLARE_MODEL_KEY, ["auto", "opaque"]),
     ],
 )
-def test_background_options_update_when_model_changes(
+def test_background_options_are_the_same_for_every_model(
     node: OpenAiImageGeneration, model_name: str, expected_choices: list[str]
 ) -> None:
     node.set_parameter_value("model", model_name)
@@ -545,6 +533,14 @@ def test_background_options_update_when_model_changes(
 
 def test_default_model_omits_transparent_background(node: OpenAiImageGeneration) -> None:
     assert "transparent" not in _background_choices(node)
+
+
+def test_saved_transparent_background_loads_as_auto(node: OpenAiImageGeneration) -> None:
+    node.set_parameter_value("model", "GPT Image 1")
+    node.set_parameter_value("background", "transparent")
+
+    assert node.get_parameter_value("model") == GPT_IMAGE_2_MODEL_KEY
+    assert node.get_parameter_value("background") == "auto"
 
 
 def test_switching_to_supported_model_preserves_opaque_background(node: OpenAiImageGeneration) -> None:
@@ -756,7 +752,6 @@ def _output_format_choices(node: OpenAiImageGeneration) -> list[str]:
 
 def test_gpt_image_2_6_models_are_the_2_6_pair() -> None:
     assert set(GPT_IMAGE_2_6_MODEL_KEYS) == GPT_IMAGE_2_6_MODELS
-    assert GPT_IMAGE_2_6_MODELS <= GPT_IMAGE_2_FAMILY
 
 
 @pytest.mark.parametrize(

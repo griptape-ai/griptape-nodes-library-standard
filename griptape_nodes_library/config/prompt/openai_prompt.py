@@ -23,8 +23,6 @@ MODEL_CHOICES = [
     "gpt-4.1-mini",
     "gpt-4.1-nano",
     "gpt-4o",
-    "o4-mini",
-    "o3",
     "o3-mini",
     "o1",
 ]

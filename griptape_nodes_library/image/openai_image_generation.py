@@ -42,23 +42,10 @@ MODEL_CHOICES = [
     GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
     GPT_IMAGE_2_6_FLARE_MODEL_KEY,
 ]
-# Models sharing GPT Image 2's parameters: flexible sizes (presets or custom WIDTHxHEIGHT)
-# and the same background and reference-image limits.
-GPT_IMAGE_2_FAMILY = frozenset(
-    {
-        GPT_IMAGE_2_MODEL_KEY,
-        GPT_IMAGE_2_5_SUNBURST_MODEL_KEY,
-        GPT_IMAGE_2_5_FLARE_MODEL_KEY,
-        GPT_IMAGE_2_6_SUNBURST_MODEL_KEY,
-        GPT_IMAGE_2_6_FLARE_MODEL_KEY,
-    }
-)
 # GPT Image 2.6 adds a `complexity` setting and animated GIF output (`gif` as an output format,
 # with `frame_count` and `frame_duration_ms`). No other model offers either.
 GPT_IMAGE_2_6_MODELS = frozenset({GPT_IMAGE_2_6_SUNBURST_MODEL_KEY, GPT_IMAGE_2_6_FLARE_MODEL_KEY})
 GIF_OUTPUT_FORMAT = "gif"
-# The family in dropdown order, for building per-model tables deterministically.
-_GPT_IMAGE_2_FAMILY_ORDERED = [model_key for model_key in MODEL_CHOICES if model_key in GPT_IMAGE_2_FAMILY]
 
 
 class OpenAiImageGeneration(GriptapeProxyNode):
@@ -77,7 +64,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         "gtc_gpt_image_1_5": GPT_IMAGE_2_MODEL_KEY,
         "gtc_gpt_image_2": GPT_IMAGE_2_MODEL_KEY,
     }
-    GPT_IMAGE_SIZE_OPTIONS: ClassVar[list[str]] = ["1024x1024", "1024x1536", "1536x1024"]
     GPT_IMAGE_2_CUSTOM_SIZE: ClassVar[str] = "custom"
     GPT_IMAGE_2_SIZE_OPTIONS: ClassVar[list[str]] = [
         "1024x1024",
@@ -94,11 +80,8 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     GPT_IMAGE_2_DEFAULT_CUSTOM_WIDTH: ClassVar[int] = 1024
     GPT_IMAGE_2_DEFAULT_CUSTOM_HEIGHT: ClassVar[int] = 1024
     QUALITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
-    BACKGROUND_OPTIONS: ClassVar[list[str]] = ["auto", "opaque", "transparent"]
-    # The gpt-image-2 family rejects background="transparent" at the API level.
-    BACKGROUND_OPTIONS_BY_MODEL: ClassVar[dict[str, list[str]]] = {
-        **{model_key: ["auto", "opaque"] for model_key in _GPT_IMAGE_2_FAMILY_ORDERED},
-    }
+    # Every offered model rejects background="transparent" at the API level.
+    BACKGROUND_OPTIONS: ClassVar[list[str]] = ["auto", "opaque"]
     MODERATION_OPTIONS: ClassVar[list[str]] = ["auto", "low"]
     OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = ["png", "jpeg", "webp"]
     GIF_OUTPUT_FORMAT_OPTIONS: ClassVar[list[str]] = [*OUTPUT_FORMAT_OPTIONS, GIF_OUTPUT_FORMAT]
@@ -111,9 +94,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
     COMPLEXITY_OPTIONS: ClassVar[list[str]] = ["low", "medium", "high"]
     DEFAULT_COMPLEXITY: ClassVar[str] = "high"
     MAX_REFERENCE_IMAGES: ClassVar[int] = 16
-    MAX_REFERENCE_IMAGES_BY_MODEL: ClassVar[dict[str, int]] = {
-        **dict.fromkeys(_GPT_IMAGE_2_FAMILY_ORDERED, MAX_REFERENCE_IMAGES),
-    }
     MIN_IMAGES: ClassVar[int] = 1
     MAX_IMAGES: ClassVar[int] = 10
     MAX_PROMPT_LENGTH: ClassVar[int] = 32_000
@@ -165,18 +145,17 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             )
         )
 
-        initial_size_choices = self._size_choices_for_model(self.DEFAULT_MODEL)
         self.add_parameter(
             ParameterString(
                 name="size",
-                default_value=initial_size_choices[0],
+                default_value=self.GPT_IMAGE_2_SIZE_OPTIONS[0],
                 tooltip=("Output image size. Choose 'custom' to enter any width and height within the model's limits."),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=initial_size_choices)},
+                traits={Options(choices=self.GPT_IMAGE_2_SIZE_OPTIONS)},
             )
         )
 
-        initial_size = initial_size_choices[0]
+        initial_size = self.GPT_IMAGE_2_SIZE_OPTIONS[0]
         is_initial_custom = initial_size == self.GPT_IMAGE_2_CUSTOM_SIZE
         custom_dimension_tooltip = (
             f"Custom {{dimension}} in pixels. Constraints:\n"
@@ -257,13 +236,12 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 ui_options={"hide": self.DEFAULT_MODEL not in GPT_IMAGE_2_6_MODELS},
             )
 
-            initial_background_choices = self._background_choices_for_model(self.DEFAULT_MODEL)
             ParameterString(
                 name="background",
-                default_value=initial_background_choices[0],
+                default_value=self.BACKGROUND_OPTIONS[0],
                 tooltip="Background handling.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=initial_background_choices)},
+                traits={Options(choices=self.BACKGROUND_OPTIONS)},
             )
 
             ParameterString(
@@ -372,20 +350,10 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         return f"{cls.DEFAULT_OUTPUT_FILENAME_BASE}.{extension}"
 
     @classmethod
-    def _size_choices_for_model(cls, model_name: str) -> list[str]:
-        if model_name in GPT_IMAGE_2_FAMILY:
-            return list(cls.GPT_IMAGE_2_SIZE_OPTIONS)
-        return list(cls.GPT_IMAGE_SIZE_OPTIONS)
-
-    @classmethod
     def _output_format_choices_for_model(cls, model_name: str) -> list[str]:
         if model_name in GPT_IMAGE_2_6_MODELS:
             return list(cls.GIF_OUTPUT_FORMAT_OPTIONS)
         return list(cls.OUTPUT_FORMAT_OPTIONS)
-
-    @classmethod
-    def _background_choices_for_model(cls, model_name: str) -> list[str]:
-        return list(cls.BACKGROUND_OPTIONS_BY_MODEL.get(model_name, cls.BACKGROUND_OPTIONS))
 
     def _show_image_output_parameters(self, count: int) -> None:
         for i in range(1, self.MAX_IMAGES + 1):
@@ -394,53 +362,6 @@ class OpenAiImageGeneration(GriptapeProxyNode):
                 self.show_parameter_by_name(param_name)
             else:
                 self.hide_parameter_by_name(param_name)
-
-    def _sync_size_options_for_model(self, model_name: str) -> None:
-        size_param = self.get_parameter_by_name("size")
-        if size_param is None:
-            return
-
-        choices = self._size_choices_for_model(model_name)
-
-        existing_traits = size_param.find_elements_by_type(Options)
-        if existing_traits:
-            size_param.remove_trait(trait_type=existing_traits[0])
-        size_param.add_trait(Options(choices=choices))
-
-        current_size = self.get_parameter_value("size")
-        if current_size in choices:
-            self._sync_custom_size_visibility(model_name, current_size)
-            return
-
-        # The GPT Image 2 family accepts any in-range WIDTHxHEIGHT, so don't clobber a custom size.
-        if model_name in GPT_IMAGE_2_FAMILY and isinstance(current_size, str):
-            match = self.GPT_IMAGE_2_SIZE_PATTERN.fullmatch(current_size.strip())
-            if match is not None and not self._validate_gpt_image_2_size(current_size.strip(), model_name):
-                self._sync_custom_size_visibility(model_name, current_size)
-                return
-
-        self.set_parameter_value("size", choices[0])
-        self.publish_update_to_parameter("size", choices[0])
-        self._sync_custom_size_visibility(model_name, choices[0])
-
-    def _sync_background_options_for_model(self, model_name: str) -> None:
-        background_param = self.get_parameter_by_name("background")
-        if background_param is None:
-            return
-
-        choices = self._background_choices_for_model(model_name)
-
-        existing_traits = background_param.find_elements_by_type(Options)
-        if existing_traits:
-            background_param.remove_trait(trait_type=existing_traits[0])
-        background_param.add_trait(Options(choices=choices))
-
-        current_background = self.get_parameter_value("background")
-        if current_background in choices:
-            return
-
-        self.set_parameter_value("background", choices[0])
-        self.publish_update_to_parameter("background", choices[0])
 
     def _sync_output_format_options_for_model(self, model_name: str) -> None:
         output_format_param = self.get_parameter_by_name("output_format")
@@ -478,8 +399,8 @@ class OpenAiImageGeneration(GriptapeProxyNode):
         else:
             self.hide_parameter_by_name("complexity")
 
-    def _sync_custom_size_visibility(self, model_name: str, size_value: Any) -> None:
-        show_custom = model_name in GPT_IMAGE_2_FAMILY and size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
+    def _sync_custom_size_visibility(self, size_value: Any) -> None:
+        show_custom = size_value == self.GPT_IMAGE_2_CUSTOM_SIZE
         for param_name in ("custom_width", "custom_height"):
             if show_custom:
                 self.show_parameter_by_name(param_name)
@@ -545,15 +466,12 @@ class OpenAiImageGeneration(GriptapeProxyNode):
 
     def _react_to_parameter_change(self, param_name: str, value: Any, *, sync_only: bool) -> None:
         if param_name == "model" and isinstance(value, str):
-            self._sync_size_options_for_model(value)
-            self._sync_background_options_for_model(value)
             self._sync_output_format_options_for_model(value)
             self._sync_gif_settings_visibility(value, self.get_parameter_value("output_format"))
             self._sync_complexity_visibility(value)
 
         if param_name == "size" and isinstance(value, str):
-            current_model = self.get_parameter_value("model") or self.DEFAULT_MODEL
-            self._sync_custom_size_visibility(current_model, value)
+            self._sync_custom_size_visibility(value)
 
         if not sync_only and param_name in {"custom_width", "custom_height"}:
             self._snap_custom_dimension(param_name, value)
@@ -598,25 +516,21 @@ class OpenAiImageGeneration(GriptapeProxyNode):
             exceptions.append(ValueError("'Size' is empty. Choose an image size."))
         elif model_name in GPT_IMAGE_2_6_MODELS and output_format == GIF_OUTPUT_FORMAT:
             exceptions.extend(self._validate_gif_frame_size(size, model_name))
-        elif model_name in GPT_IMAGE_2_FAMILY:
+        else:
             exceptions.extend(self._validate_gpt_image_2_size(size, model_name))
 
         input_images = self._get_input_images_value()
-        max_reference_images = self.MAX_REFERENCE_IMAGES_BY_MODEL.get(model_name, self.MAX_REFERENCE_IMAGES)
-        if len(input_images) > max_reference_images:
+        if len(input_images) > self.MAX_REFERENCE_IMAGES:
             exceptions.append(
                 ValueError(
-                    f"This model supports up to {max_reference_images} reference images; received {len(input_images)}."
+                    f"This model supports up to {self.MAX_REFERENCE_IMAGES} reference images; "
+                    f"received {len(input_images)}."
                 )
             )
 
         n_value = self.get_parameter_value("n")
         if n_value is None or not self.MIN_IMAGES <= int(n_value) <= self.MAX_IMAGES:
             exceptions.append(ValueError(f"'n' must be between {self.MIN_IMAGES} and {self.MAX_IMAGES}."))
-
-        background = self.get_parameter_value("background") or "auto"
-        if background == "transparent" and output_format not in {"png", "webp"}:
-            exceptions.append(ValueError("Transparent backgrounds require output_format to be png or webp."))
 
         if output_format == GIF_OUTPUT_FORMAT:
             if model_name not in GPT_IMAGE_2_6_MODELS:

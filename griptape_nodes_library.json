@@ -3275,7 +3275,7 @@
         "icon": "Sparkles",
         "group": "create",
         "deprecation": {
-          "deprecation_message": "Kling no longer serves video extension through Griptape Cloud, so this node can no longer run."
+          "deprecation_message": "Kling no longer serves video extension through Griptape Cloud, so this node can no longer run. To extend a clip, use LTX Video Extend, or Kling Omni Video Generation with the clip as a reference video."
         },
         "tags": [
           "video",
@@ -4888,7 +4888,6 @@
               "gtc_gpt_4_1_mini",
               "gtc_gpt_4_1_nano",
               "gtc_gpt_4o",
-              "gtc_o4_mini",
               "gtc_o3_mini",
               "gtc_o1"
             ]
