@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,7 @@ __all__ = [
     "read_score",
     "read_yes_no",
     "score_question",
+    "structured",
     "yes_no_question",
 ]
 
@@ -40,18 +42,29 @@ class QuestionKind(StrEnum):
     SCORE = "score"
 
 
+def structured(text: str) -> str | dict | list:
+    """Parse text that holds a JSON object or array, so JEV reads it as structured. Anything else stays text."""
+    stripped = text.strip()
+    if stripped[:1] in ("{", "["):
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+    return text
+
+
 def yes_no_question(question: str, yes_means: str = "", no_means: str = "") -> dict[str, Any]:
     """Build a JEV yes/no ("noul") question."""
     question = (question or "").strip()
     if not question:
         raise ValueError("'Question' is empty. Write a yes/no question about the context.")
 
-    noul: dict[str, Any] = {"type": "noul", "instructions": question}
-    criteria: dict[str, str] = {}
+    noul: dict[str, Any] = {"type": "noul", "instructions": structured(question)}
+    criteria: dict[str, Any] = {}
     if yes_means := (yes_means or "").strip():
-        criteria["true"] = yes_means
+        criteria["true"] = structured(yes_means)
     if no_means := (no_means or "").strip():
-        criteria["false"] = no_means
+        criteria["false"] = structured(no_means)
     if criteria:
         noul["criteria"] = criteria
     return noul
@@ -59,9 +72,12 @@ def yes_no_question(question: str, yes_means: str = "", no_means: str = "") -> d
 
 def choice_question(question: str, criteria: dict[str, str | None]) -> dict[str, Any]:
     """Build a JEV pick-one ("choice") question. A label with no description stands in for its own."""
-    choice: dict[str, Any] = {"type": "choice", "criteria": {k: v or k for k, v in criteria.items()}}
+    choice: dict[str, Any] = {
+        "type": "choice",
+        "criteria": {k: structured(v) if v else k for k, v in criteria.items()},
+    }
     if question := (question or "").strip():
-        choice["instructions"] = question
+        choice["instructions"] = structured(question)
     return choice
 
 
@@ -72,9 +88,9 @@ def score_question(question: str, descriptions: list[str]) -> dict[str, Any]:
     if len(descriptions) > MAX_LEVELS:
         raise ValueError(f"'Levels' has {len(descriptions)} rows. JEV accepts up to {MAX_LEVELS}; remove some.")
 
-    score: dict[str, Any] = {"type": "score", "criteria": descriptions}
+    score: dict[str, Any] = {"type": "score", "criteria": [structured(d) for d in descriptions]}
     if question := (question or "").strip():
-        score["instructions"] = question
+        score["instructions"] = structured(question)
     return score
 
 
@@ -82,6 +98,8 @@ def parse_options(rows: list[str]) -> dict[str, str | None]:
     """Turn 'Label: description' rows into {label: description}, skipping empty rows."""
     criteria: dict[str, str | None] = {}
     for row in rows:
+        if not isinstance(structured(row), str):
+            raise ValueError(f"An option in 'Options' is all JSON. Give it a label: 'Label: {row.strip()}'.")
         label, description = parse_row(row)
         if not label:
             continue
@@ -95,12 +113,16 @@ def parse_options(rows: list[str]) -> dict[str, str | None]:
 
 def level_label(index: int, text: str) -> str:
     """The label of a rating level: the text before the colon, or 'Level N' (from 1) for a level with none."""
+    if not isinstance(structured(text), str):
+        return f"Level {index + 1}"
     label, description = parse_row(text)
     return label if description else f"Level {index + 1}"
 
 
 def level_description(text: str) -> str:
     """The description of a rating level: the text after the colon, or the whole row if there is no label."""
+    if not isinstance(structured(text), str):
+        return text
     return parse_row(text)[1] or text
 
 

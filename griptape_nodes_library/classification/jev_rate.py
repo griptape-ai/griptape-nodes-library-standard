@@ -87,6 +87,7 @@ class JevRate(RowOutputsMixin, GriptapeProxyNode):
                 display_name="Levels",
                 tooltip="One level per row, lowest first, up to 10. Describe the situation at each level. "
                 "To name a level, put a label before a colon: 'Minor: broken but a workaround exists'. "
+                "The description can be JSON. "
                 "Each level gets its own flow output.",
                 type="str",
                 ui_options={"placeholder_text": "Describe this level"},

@@ -29,6 +29,8 @@ Optional. Tells JEV what to rate, for example `How big is this note?`.
 
 Empty rows are ignored.
 
+A level can be a JSON rubric, such as `Hero: {"what": "visible in a close-up on the hero", "not_for": ["background elements"]}`. A level that is all JSON is called `Level N`, so add a label and a colon to name it. See [Writing options as JSON](JevPickOne.md#writing-options-as-json).
+
 ### Question (output)
 
 The question, for the `questions` list of a Questions (JEV) node.
