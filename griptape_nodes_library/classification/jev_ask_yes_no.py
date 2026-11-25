@@ -84,7 +84,7 @@ class JevAskYesNo(GriptapeProxyNode):
                 name="question",
                 display_name="Question",
                 tooltip="A yes/no question about the context. "
-                "Ask one narrow thing, for example 'Does the customer ask for a refund?'",
+                "Ask one narrow thing, for example 'Does the customer ask for a refund?' JSON works too.",
                 default_value="",
                 multiline=True,
                 placeholder_text="Does the text ...?",
@@ -96,7 +96,7 @@ class JevAskYesNo(GriptapeProxyNode):
             ParameterString(
                 name="yes_means",
                 display_name="Yes means",
-                tooltip="Optional. Describe what should count as Yes.",
+                tooltip="Optional. Describe what should count as Yes. JSON works too.",
                 default_value="",
                 multiline=True,
                 placeholder_text="What should count as Yes?",
@@ -105,7 +105,7 @@ class JevAskYesNo(GriptapeProxyNode):
             ParameterString(
                 name="no_means",
                 display_name="No means",
-                tooltip="Optional. Describe what should count as No.",
+                tooltip="Optional. Describe what should count as No. JSON works too.",
                 default_value="",
                 multiline=True,
                 placeholder_text="What should count as No?",

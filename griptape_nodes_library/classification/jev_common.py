@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import math
 from io import BytesIO
 from typing import TYPE_CHECKING, Any
@@ -14,7 +13,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.files.file import File, FileLoadError
 from PIL import Image, ImageOps
 
-from griptape_nodes_library.classification.jev_questions import QUESTION_TYPE
+from griptape_nodes_library.classification.jev_questions import QUESTION_TYPE, structured
 from griptape_nodes_library.utils.image_utils import grayscale_to_eight_bit
 
 if TYPE_CHECKING:
@@ -63,12 +62,7 @@ def to_state(text: str | None) -> str | dict | list | None:
     text = (text or "").strip()
     if not text:
         return None
-    if text[0] in "{[":
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-    return text
+    return structured(text)
 
 
 def image_reference(index: int) -> str:

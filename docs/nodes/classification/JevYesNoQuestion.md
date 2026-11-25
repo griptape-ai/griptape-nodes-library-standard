@@ -30,6 +30,8 @@ In a collapsed group.
 - **Yes means:** optional. Describes what should count as Yes.
 - **No means:** optional. Describes what should count as No.
 
+Both fields, and the question, accept JSON. For example, set Yes means to `{"what": "visible to the audience on screen", "not_for": ["artifacts hidden behind a wipe or a cut"]}`. See [Writing options as JSON](JevPickOne.md#writing-options-as-json).
+
 ### Say Yes at or above
 
 JEV returns the probability that the answer is yes. The answer is `true` when the probability is at least this value, from 0 to 1. The default is 0.5. Raise it to require more certainty, and lower it to accept weaker signals.
