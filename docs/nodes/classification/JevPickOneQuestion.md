@@ -27,6 +27,7 @@ Optional. Tells JEV what to decide, for example `What department does this belon
 
 One option per row, up to 255. Write a label, or `Label: description` to tell JEV what the option means. The text before the first colon is the label. Without a colon, the whole row is the label and JEV decides from the label alone.
 
+- A description can be a JSON rubric, such as `FX: {"what": "simulation, smoke, fire", "not_for": ["comp edge fixes"]}`. See [Writing options as JSON](JevPickOne.md#writing-options-as-json).
 - You need at least two options, and each label must be unique.
 - Empty rows are ignored.
 

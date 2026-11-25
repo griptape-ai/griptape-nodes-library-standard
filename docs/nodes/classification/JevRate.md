@@ -37,6 +37,7 @@ Optional. Tells JEV what to rate, for example `How urgent is this message?`.
 
 One level per row, lowest first. Describe the situation at each level. To name a level, put a label before a colon, as in `Minor: broken but a workaround exists`.
 
+- A level can be a JSON rubric, for example `Critical: {"what": "the shot cannot be delivered", "not_for": ["cosmetic issues"]}`. A row that is all JSON has no label, so it is named `Level N`. Put a label and a colon in front to name it. See [Writing options as JSON](JevPickOne.md#writing-options-as-json) for how JSON is read.
 - A row with a colon is named by its label. A row without one is named `Level N`, counting non-empty rows from 1, and the whole row is its description.
 - Empty rows are ignored.
 - Deleting a row, or clearing its text, removes its output and any wires on it. Renaming a row keeps its output and wires and only changes the label. Reordering keeps wires on their rows.

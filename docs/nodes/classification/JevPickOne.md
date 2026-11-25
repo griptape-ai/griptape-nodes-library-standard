@@ -42,6 +42,32 @@ One option per row, up to 255. Write a label, or `Label: description` to tell JE
 - Empty rows are ignored.
 - The outputs follow the list as you edit it. Deleting a row, or clearing its text, removes its output and any wires on it. Renaming a row keeps its output and wires and only changes the label. Reordering keeps wires on their rows.
 
+### Writing options as JSON
+
+A plain description works when the options are easy to tell apart. When two options overlap, give each one a JSON rubric after its label. JEV reads a JSON object or array as structured instructions, so you can say what an option is for and what it is not for.
+
+Take a shot note from a supervisor. Put this in `context`:
+
+```
+The smoke plate has a hard edge around the hero's shoulder, and the sim pops at frame 112.
+```
+
+Set `question` to `Which department owns this fix?` and write the options like this:
+
+```
+FX: {"what": "simulation, particles, smoke, fire, destruction", "not_for": ["edges, mattes or color matching in the final comp"]}
+Comp: {"what": "merging plates, edges, mattes, color matching, final integration", "not_for": ["fixing the simulation itself"]}
+Lighting: {"what": "light setup, shadows, reflections, render look", "not_for": ["compositing fixes after render"]}
+```
+
+The note names both a sim problem and an edge problem. The `not_for` lines tell JEV that the edge belongs to Comp and the pop belongs to FX, so the options no longer compete for the same words. Compare `probabilities` with and without the rubrics to see the difference.
+
+- The text before the first colon is still the label. Everything after it is the description, and a description that is valid JSON object or array text is sent as structured JSON.
+- The key names are up to you. `what` and `not_for` are only a convention.
+- A description that is not valid JSON is sent as plain text, so a typo does not stop the run.
+- `question` and `context` accept JSON the same way.
+- Keep each row on one line. A row is one option.
+
 ### label and description
 
 The label and description of the picked option. `description` is empty if the option had none.
