@@ -63,7 +63,9 @@
         "color-matcher",
         "zstandard>=0.22.0",
         "tokenizers>=0.22.0,<0.23",
-        "lxml>=5.0.0"
+        "lxml>=5.0.0",
+        "usd-core>=25.5",
+        "pygltflib>=1.16"
       ]
     },
     "declarations": [
@@ -7126,6 +7128,31 @@
             "model_ids": [
               "gtc_tripo_multiview_to_3d"
             ]
+          }
+        ]
+      }
+    },
+    {
+      "class_name": "GlbToUsd",
+      "file_path": "griptape_nodes_library/three_d/glb_to_usd.py",
+      "metadata": {
+        "category": "3D",
+        "description": "Convert a GLB/glTF model (e.g. Tripo or Rodin output) to usdz, usdc or usda with UsdPreviewSurface, MaterialX or both",
+        "display_name": "GLB to USD",
+        "group": "Transform",
+        "tags": [
+          "3d",
+          "usd",
+          "gltf",
+          "glb",
+          "materialx",
+          "convert",
+          "beta"
+        ],
+        "declarations": [
+          {
+            "type": "lifecycle_stage",
+            "stage": "BETA"
           }
         ]
       }
