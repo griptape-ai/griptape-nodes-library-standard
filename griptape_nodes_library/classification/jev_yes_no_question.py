@@ -43,7 +43,7 @@ class JevYesNoQuestion(DataNode):
             ParameterString(
                 name="question_text",
                 display_name="Question",
-                tooltip="A yes/no question about the context.",
+                tooltip="A yes/no question about the context. JSON works too.",
                 default_value="",
                 multiline=True,
                 placeholder_text="Is this a truck?",
@@ -55,7 +55,7 @@ class JevYesNoQuestion(DataNode):
             ParameterString(
                 name="yes_means",
                 display_name="Yes means",
-                tooltip="Optional. Describe what should count as Yes.",
+                tooltip="Optional. Describe what should count as Yes. JSON works too.",
                 default_value="",
                 multiline=True,
                 placeholder_text="What should count as Yes?",
@@ -64,7 +64,7 @@ class JevYesNoQuestion(DataNode):
             ParameterString(
                 name="no_means",
                 display_name="No means",
-                tooltip="Optional. Describe what should count as No.",
+                tooltip="Optional. Describe what should count as No. JSON works too.",
                 default_value="",
                 multiline=True,
                 placeholder_text="What should count as No?",

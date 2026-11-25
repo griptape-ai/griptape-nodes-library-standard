@@ -57,7 +57,8 @@ class JevRateQuestion(DataNode):
                 name="levels",
                 display_name="Levels",
                 tooltip="One level per row, lowest first, up to 10. Describe the situation at each level. "
-                "To name a level, put a label before a colon: 'Minor: broken but a workaround exists'.",
+                "To name a level, put a label before a colon: 'Minor: broken but a workaround exists'. "
+                "The description can be JSON.",
                 type="str",
                 ui_options={"placeholder_text": "Describe this level"},
                 max_items=MAX_LEVELS,
