@@ -98,6 +98,8 @@ def parse_options(rows: list[str]) -> dict[str, str | None]:
     """Turn 'Label: description' rows into {label: description}, skipping empty rows."""
     criteria: dict[str, str | None] = {}
     for row in rows:
+        if not isinstance(structured(row), str):
+            raise ValueError(f"An option in 'Options' is all JSON. Give it a label: 'Label: {row.strip()}'.")
         label, description = parse_row(row)
         if not label:
             continue

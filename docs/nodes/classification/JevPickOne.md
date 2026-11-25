@@ -63,6 +63,7 @@ Lighting: {"what": "light setup, shadows, reflections, render look", "not_for": 
 The note names both a sim problem and an edge problem. The `not_for` lines tell JEV that the edge belongs to Comp and the pop belongs to FX, so the options no longer compete for the same words. Compare `probabilities` with and without the rubrics to see the difference.
 
 - The text before the first colon is still the label. Everything after it is the description, and a description that is a valid JSON object or array is sent as structured JSON.
+- Every option needs a label. A row that is all JSON, with no `Label:` in front, fails the run with a message that says so.
 - The key names are up to you. `what` and `not_for` are only a convention.
 - A description that is not valid JSON is sent as plain text, so a typo does not stop the run.
 - `question` and `context` accept JSON the same way.

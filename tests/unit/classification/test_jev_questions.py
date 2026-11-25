@@ -184,6 +184,11 @@ def test_parse_options_keeps_a_json_description_whole_under_its_label() -> None:
     assert choice_question("", options)["criteria"]["Lighting"] == RUBRIC_VALUE
 
 
+def test_parse_options_rejects_an_all_json_option() -> None:
+    with pytest.raises(ValueError, match="Give it a label"):
+        parse_options([RUBRIC, "Layout"])
+
+
 @pytest.mark.parametrize(
     ("row", "label", "description"),
     [
