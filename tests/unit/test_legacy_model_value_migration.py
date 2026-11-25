@@ -132,6 +132,8 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
         "gemini-2.5-pro-preview-06-05": "gemini-2.5-pro",
         "gemini-3-pro": "gemini-3.1-pro",
         "gemini-3-pro-preview": "gemini-3.1-pro",
+        "o3": "gpt-5",
+        "gtc_o3": "gpt-5",
     },
     "GriptapeCloudImage": {
         "dall-e-3": "gpt-image-1-mini",
