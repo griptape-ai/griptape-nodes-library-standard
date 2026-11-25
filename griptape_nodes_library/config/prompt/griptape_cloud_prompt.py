@@ -22,7 +22,7 @@ from griptape_nodes_library.utils.cloud_credential_utils import (
     missing_credential_message,
     resolve_cloud_api_key,
 )
-from griptape_nodes_library.utils.cloud_legacy_models import CLOUD_LEGACY_MODEL_VALUES
+from griptape_nodes_library.utils.cloud_legacy_models import cloud_legacy_values_for
 
 # --- Constants ---
 
@@ -64,7 +64,7 @@ class GriptapeCloudPrompt(BasePrompt):
 
         # Offer Griptape Cloud's models as a license-filtered dropdown.
         self._install_model_access(
-            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=CLOUD_LEGACY_MODEL_VALUES
+            model_choices=MODEL_CHOICES, default_model=DEFAULT_MODEL, deprecated_values=cloud_legacy_values_for(MODEL_CHOICES)
         )
 
         self.remove_parameter_element_by_name("seed")
