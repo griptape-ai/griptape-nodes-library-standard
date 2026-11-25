@@ -394,6 +394,15 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P, kling_4.RESOLUTION_4K])},
                 ui_options={"hide": True},
             )
+
+            ParameterString(
+                name="dynamic_range",
+                default_value=kling_4.DYNAMIC_RANGE_SDR,
+                tooltip="Dynamic range (Kling 4.0 at 1080p and 4k). HDR renders 10-bit HDR video for an extra per-second fee.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=kling_4.DYNAMIC_RANGES)},
+                ui_options={"hide": True},
+            )
             ParameterString(
                 name="audio",
                 default_value="native",
@@ -465,6 +474,9 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes to normalize image inputs."""
         super().after_value_set(parameter, value)
+
+        if parameter.name == "resolution":
+            self._update_dynamic_range(self._selected_model())
 
         if parameter.name in {"model_name", "reference_video", "end_frame_image"}:
             self._update_mode_choices()
@@ -562,6 +574,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
         aspect_ratios = list(kling_4.GENERATED_ASPECT_RATIOS)
         if not kling_4.is_kling_4(model_id):
             self.hide_parameter_by_name("resolution")
+            self._update_dynamic_range(model_id)
             # Audio always holds a mode, so only 'original' (which v1-v3 can't honour) counts as set.
             self._update_advanced_reference_visibility(voices_supported=False)
             for name, populated in (
@@ -606,6 +619,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             capabilities.resolutions,
             kling_4.resolution_choice(model_id, self.get_parameter_value("resolution")),
         )
+        self._update_dynamic_range(model_id)
         aspect_ratios.append(kling_4.ASPECT_RATIO_ADAPTIVE)
         current = self.get_parameter_value("aspect_ratio")
         # The v1-v3 default, 16:9, would override the framing of a first frame or
@@ -628,6 +642,15 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             supported_modes = [mode for mode in supported_modes if mode != MODE_4K]
 
         return supported_modes
+
+    def _update_dynamic_range(self, model_id: str) -> None:
+        """Offer HDR only where the model renders it at the chosen resolution; otherwise hide it and reset to SDR."""
+        if kling_4.is_kling_4(model_id) and kling_4.supports_hdr(model_id, self.get_parameter_value("resolution")):
+            self.show_parameter_by_name("dynamic_range")
+            return
+        self.hide_parameter_by_name("dynamic_range")
+        if self.get_parameter_value("dynamic_range") != kling_4.DYNAMIC_RANGE_SDR:
+            self.set_parameter_value("dynamic_range", kling_4.DYNAMIC_RANGE_SDR)
 
     def _update_mode_choices(self) -> None:
         """Keep the mode dropdown aligned with the selected model and inputs."""
@@ -940,6 +963,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
                 duration=int(self.get_parameter_value("duration") or 5),
                 aspect_ratio=self.get_parameter_value("aspect_ratio") or kling_4.ASPECT_RATIO_ADAPTIVE,
                 audio=self.get_parameter_value("audio") or "native",
+                dynamic_range=self.get_parameter_value("dynamic_range"),
             ),
         }
 
@@ -950,6 +974,7 @@ class KlingOmniVideoGeneration(GriptapeProxyNode):
             prompt=self.get_parameter_value("prompt"),
             resolution=self.get_parameter_value("resolution"),
             duration=self.get_parameter_value("duration"),
+            dynamic_range=self.get_parameter_value("dynamic_range"),
         )
 
         has_end_frame = bool(self.get_parameter_value("end_frame_image"))

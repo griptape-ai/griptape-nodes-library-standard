@@ -20,6 +20,9 @@ KLING_4_MODELS = (KLING_4_0, KLING_4_0_FLASH)
 RESOLUTION_720P = "720p"
 RESOLUTION_1080P = "1080p"
 RESOLUTION_4K = "4k"
+DYNAMIC_RANGE_SDR = "sdr"
+DYNAMIC_RANGE_HDR = "hdr"
+DYNAMIC_RANGES = [DYNAMIC_RANGE_SDR, DYNAMIC_RANGE_HDR]
 ASPECT_RATIO_ADAPTIVE = "adaptive"
 GENERATED_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "21:9"]
 AUDIO_MODES = ["native", "original"]
@@ -47,6 +50,8 @@ class Kling4Capabilities:
     max_duration: int
     supports_keyframes: bool
     supports_voices: bool
+    # Resolutions Kling can render in HDR (`settings.dynamic_range: "hdr"`), for an extra per-second fee.
+    hdr_resolutions: tuple[str, ...] = ()
 
     @property
     def durations(self) -> list[int]:
@@ -60,6 +65,7 @@ KLING_4_CAPABILITIES: dict[str, Kling4Capabilities] = {
         max_duration=KLING_4_0_MAX_DURATION_SECONDS,
         supports_keyframes=True,
         supports_voices=True,
+        hdr_resolutions=(RESOLUTION_1080P, RESOLUTION_4K),
     ),
     KLING_4_0_FLASH: Kling4Capabilities(
         resolutions=[RESOLUTION_720P],
@@ -99,6 +105,7 @@ def build_settings(
     duration: int | None,
     aspect_ratio: str | None = None,
     audio: str | None = None,
+    dynamic_range: str | None = None,
 ) -> dict[str, Any]:
     settings: dict[str, Any] = {"resolution": resolution}
     if duration:
@@ -107,6 +114,9 @@ def build_settings(
         settings["aspect_ratio"] = aspect_ratio
     if audio:
         settings["audio"] = audio
+    # sdr is Kling's default, so only an HDR request sends the field.
+    if dynamic_range == DYNAMIC_RANGE_HDR:
+        settings["dynamic_range"] = dynamic_range
     return settings
 
 
@@ -123,6 +133,31 @@ def resolution_choice(model_id: str, current: Any) -> str:
     return current if current in capabilities.resolutions else capabilities.default_resolution
 
 
+def supports_hdr(model_id: str, resolution: Any) -> bool:
+    """Whether `model_id` can render HDR at `resolution`."""
+    return resolution in KLING_4_CAPABILITIES[model_id].hdr_resolutions
+
+
+def dynamic_range_choice(model_id: str, resolution: Any, current: Any) -> str:
+    """`current` when HDR is offered at this model and resolution, else SDR."""
+    if current == DYNAMIC_RANGE_HDR and supports_hdr(model_id, resolution):
+        return DYNAMIC_RANGE_HDR
+    return DYNAMIC_RANGE_SDR
+
+
+def dynamic_range_error(model_id: str, resolution: Any, dynamic_range: Any) -> str | None:
+    if dynamic_range in (None, "", DYNAMIC_RANGE_SDR):
+        return None
+    if dynamic_range != DYNAMIC_RANGE_HDR:
+        return f"Unknown dynamic range '{dynamic_range}'. Use {', '.join(DYNAMIC_RANGES)}."
+    if supports_hdr(model_id, resolution):
+        return None
+    offered = KLING_4_CAPABILITIES[model_id].hdr_resolutions
+    if not offered:
+        return f"{model_id} does not support HDR. Set 'dynamic_range' to {DYNAMIC_RANGE_SDR}."
+    return f"{model_id} supports HDR only at {', '.join(offered)} (got '{resolution}'). Set 'dynamic_range' to {DYNAMIC_RANGE_SDR} or pick a higher resolution."
+
+
 def resolution_error(model_id: str, resolution: Any) -> str | None:
     supported = KLING_4_CAPABILITIES[model_id].resolutions
     if resolution in supported:
@@ -130,8 +165,10 @@ def resolution_error(model_id: str, resolution: Any) -> str | None:
     return f"{model_id} does not support resolution '{resolution}'. Use {', '.join(supported)}."
 
 
-def validate_common(model_id: str, *, prompt: Any, resolution: Any, duration: Any) -> list[ValueError]:
-    """The checks every Kling 4.0 node shares: a prompt within Kling's limit, resolution and duration."""
+def validate_common(
+    model_id: str, *, prompt: Any, resolution: Any, duration: Any, dynamic_range: Any = None
+) -> list[ValueError]:
+    """The checks every Kling 4.0 node shares: a prompt within Kling's limit, resolution, HDR and duration."""
     errors: list[ValueError] = []
     text = str(prompt or "").strip()
     if not text:
@@ -142,6 +179,9 @@ def validate_common(model_id: str, *, prompt: Any, resolution: Any, duration: An
     error = resolution_error(model_id, resolution)
     if error:
         errors.append(ValueError(error))
+    hdr_error = dynamic_range_error(model_id, resolution, dynamic_range)
+    if hdr_error:
+        errors.append(ValueError(hdr_error))
     capabilities = KLING_4_CAPABILITIES[model_id]
     if duration not in capabilities.durations:
         errors.append(
