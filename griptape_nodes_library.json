@@ -349,12 +349,6 @@
                 "provider_model_id": "gpt-4o",
                 "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
               },
-              "gtc_o3": {
-                "display_name": "o3",
-                "family": "o-series",
-                "provider_model_id": "o3",
-                "key_support": "SUPPORTS_CUSTOMER_KEY_OR_GRIPTAPE_KEY"
-              },
               "gtc_o3_mini": {
                 "display_name": "o3 mini",
                 "family": "o-series",
@@ -2253,7 +2247,6 @@
               "gtc_gpt_4_1_mini",
               "gtc_gpt_4_1_nano",
               "gtc_gpt_4o",
-              "gtc_o3",
               "gtc_o3_mini",
               "gtc_o1",
               "gtc_deepseek_v3",
@@ -3260,6 +3253,9 @@
         "display_name": "Kling Video Extension",
         "icon": "Sparkles",
         "group": "create",
+        "deprecation": {
+          "deprecation_message": "Kling no longer serves video extension through Griptape Cloud, so this node can no longer run. To extend a clip, use LTX Video Extend, or Kling Omni Video Generation with the clip as a reference video."
+        },
         "tags": [
           "video",
           "extend",
@@ -4679,7 +4675,6 @@
               "gtc_gpt_4_1_mini",
               "gtc_gpt_4_1_nano",
               "gtc_gpt_4o",
-              "gtc_o3",
               "gtc_o3_mini",
               "gtc_o1",
               "gtc_deepseek_v3",
@@ -4869,7 +4864,6 @@
               "gtc_gpt_4_1_mini",
               "gtc_gpt_4_1_nano",
               "gtc_gpt_4o",
-              "gtc_o3",
               "gtc_o3_mini",
               "gtc_o1"
             ]
@@ -4951,8 +4945,7 @@
               "gtc_gpt_4_1",
               "gtc_gpt_4_1_mini",
               "gtc_gpt_4_1_nano",
-              "gtc_gpt_4o",
-              "gtc_o3"
+              "gtc_gpt_4o"
             ]
           }
         ]
@@ -5955,16 +5948,12 @@
           "api",
           "openai",
           "gpt-image",
-          "gpt-image-2",
-          "gpt-image-1",
-          "gpt-image-1.5"
+          "gpt-image-2"
         ],
         "declarations": [
           {
             "type": "model_usage",
             "model_ids": [
-              "gtc_gpt_image_1",
-              "gtc_gpt_image_1_5",
               "gtc_gpt_image_2",
               "gtc_gpt_image_2_5_sunburst",
               "gtc_gpt_image_2_5_flare",

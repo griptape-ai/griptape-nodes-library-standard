@@ -138,6 +138,8 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
         "gtc_gpt_5_2_chat": "gpt-5.2",
         "gemini-3.5-flash": "gemini-3.6-flash",
         "gtc_gemini_3_5_flash": "gemini-3.6-flash",
+        "o3": "gpt-5",
+        "gtc_o3": "gpt-5",
     },
     "GriptapeCloudImage": {
         "dall-e-3": "gpt-image-1-mini",
@@ -170,6 +172,7 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
         "kling-v1-6": "kling-v2-6",
         "kling-v2-master": "kling-v2-6",
         "kling-v2-1-master": "kling-v2-6",
+        "kling-v1": "kling-v2-6",
     },
     "KlingImageToVideoGeneration": {
         "Kling v1": "kling-v2-6",
@@ -190,6 +193,14 @@ EXPLICIT_LEGACY_VALUES: dict[str, dict[str, str]] = {
         "kling-v2-1": "kling-v2-6",
         "kling-v2-master": "kling-v2-6",
         "kling-v2-1-master": "kling-v2-6",
+    },
+    "OpenAiImageGeneration": {
+        "GPT Image 1": "gpt-image-2",
+        "GPT Image 1.5": "gpt-image-2",
+        "gtc_gpt_image_1": "gpt-image-2",
+        "gtc_gpt_image_1_5": "gpt-image-2",
+        "gpt-image-1": "gpt-image-2",
+        "gpt-image-1.5": "gpt-image-2",
     },
     "QwenImageGeneration": {
         "Qwen Image": "qwen-image-3.0",
