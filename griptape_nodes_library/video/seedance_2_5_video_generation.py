@@ -10,6 +10,7 @@ from griptape.artifacts import AudioArtifact, ImageArtifact, ImageUrlArtifact
 from griptape.artifacts.audio_url_artifact import AudioUrlArtifact
 from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
@@ -40,9 +41,15 @@ logger = logging.getLogger("griptape_nodes")
 __all__ = ["Seedance25VideoGeneration"]
 
 SEEDANCE_2_5_MODEL_ID = "dreamina-seedance-2-5-260628"
+SEEDANCE_2_5_FLASH_MODEL_ID = "dreamina-seedance-2-5-flash-261115"
+MODEL_DISPLAY_NAMES = {
+    SEEDANCE_2_5_MODEL_ID: "Seedance 2.5",
+    SEEDANCE_2_5_FLASH_MODEL_ID: "Seedance 2.5 Flash",
+}
 
-# Reference asset limits, per the BytePlus Seedance 2.5 docs. Each kind has its own cap and the
-# combined count across all three kinds is capped separately.
+# Reference asset limits for Seedance 2.5, per the BytePlus docs. Each kind has its own cap and the
+# combined count across all three kinds is capped separately. The list inputs are sized to these;
+# a model with lower caps is held to them at validation.
 MAX_REFERENCE_IMAGES = 30
 MAX_REFERENCE_VIDEOS = 10
 MAX_REFERENCE_AUDIO = 10
@@ -53,6 +60,7 @@ MAX_DURATION = 30
 SMART_DURATION = -1
 
 RESOLUTION_CHOICES = ["480p", "720p", "1080p", "4k"]
+DEFAULT_RESOLUTION = "720p"
 # The provider accepts only 480p for a Draft and only 1080p or 4K for its Final.
 DRAFT_RESOLUTION = "480p"
 FINAL_RESOLUTION_CHOICES = ["1080p", "4k"]
@@ -85,6 +93,58 @@ class GenerationMode(StrEnum):
     NORMAL = "Normal"
     DRAFT = "Draft"
     FINAL = "Final"
+
+
+@dataclass(frozen=True)
+class SeedanceModelCapabilities:
+    """What one Seedance 2.5 series model accepts, per the BytePlus model docs.
+
+    Args:
+        resolutions: The ``resolution`` values the model accepts in Normal mode.
+        max_reference_images: Cap on the reference image list.
+        max_reference_videos: Cap on the reference video list.
+        max_reference_audio: Cap on the reference audio list.
+        supports_draft: Whether the model offers the Draft and Final modes.
+    """
+
+    resolutions: tuple[str, ...]
+    max_reference_images: int
+    max_reference_videos: int
+    max_reference_audio: int
+    supports_draft: bool
+
+
+# Single source of truth for per-model capabilities, keyed by provider model id. Adding a model is
+# one row here. Task types, ratios, durations, and audio generation are shared across the series.
+SEEDANCE_MODEL_CAPABILITIES: dict[str, SeedanceModelCapabilities] = {
+    SEEDANCE_2_5_MODEL_ID: SeedanceModelCapabilities(
+        resolutions=tuple(RESOLUTION_CHOICES),
+        max_reference_images=MAX_REFERENCE_IMAGES,
+        max_reference_videos=MAX_REFERENCE_VIDEOS,
+        max_reference_audio=MAX_REFERENCE_AUDIO,
+        supports_draft=True,
+    ),
+    SEEDANCE_2_5_FLASH_MODEL_ID: SeedanceModelCapabilities(
+        resolutions=("480p", "720p"),
+        max_reference_images=10,
+        max_reference_videos=5,
+        max_reference_audio=5,
+        supports_draft=False,
+    ),
+}
+
+
+def _get_model_capabilities(model_id: str) -> SeedanceModelCapabilities:
+    """Return the capability record for a model id, defaulting to Seedance 2.5.
+
+    A model value can arrive over a connection, so an unrecognized value must not raise here —
+    ``_validate_parameters`` reports it with an actionable message instead.
+    """
+    return SEEDANCE_MODEL_CAPABILITIES.get(model_id, SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_5_MODEL_ID])
+
+
+def _model_display_name(model_id: str) -> str:
+    return MODEL_DISPLAY_NAMES.get(model_id, model_id)
 
 
 class SeedanceTask(StrEnum):
@@ -227,7 +287,10 @@ def _get_task_constraints(task: str) -> TaskConstraints:
 
 
 class Seedance25VideoGeneration(SeedanceProxyNode):
-    """Generate a video using Dreamina Seedance 2.5 via the Griptape Cloud model proxy.
+    """Generate a video using Dreamina Seedance 2.5 or 2.5 Flash via the Griptape Cloud model proxy.
+
+    Flash is the faster, cheaper model. It supports 480p and 720p only, takes fewer references
+    (10 images, 5 videos, 5 audio clips), and has no Draft or Final mode.
 
     Seedance 2.5 classifies each request into one of five task types from the media roles and the
     prompt's intent, and locks `ratio`/`duration` per task. The `task` parameter makes that choice
@@ -245,11 +308,12 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
     - Video Extension: extend a reference video (ratio locked to adaptive)
 
     Inputs:
+        - model_id (str): Seedance 2.5 or Seedance 2.5 Flash (default: Seedance 2.5)
         - prompt (str): Text prompt for the video
         - task (str): One of the five Seedance 2.5 task types (default: Text to Video)
-        - mode (str): Normal, Draft, or Final (default: Normal)
+        - mode (str): Normal, Draft, or Final (default: Normal; Normal only for Flash)
         - draft_task_id (str): Completed provider Draft task ID, required in Final mode
-        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p, 4k)
+        - resolution (str): Output resolution (default: 720p, options: 480p, 720p, 1080p, 4k; Flash: 480p, 720p)
         - final_resolution (str): Final mode output resolution (default: 1080p, options: 1080p, 4k)
         - ratio (str): Output aspect ratio (default: adaptive)
         - duration (int): Video duration in seconds (4-30, or -1 to let the model choose)
@@ -282,6 +346,26 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         self.category = "API Nodes"
         self.description = "Generate video via Seedance 2.5 through Griptape Cloud model proxy"
 
+        model_id_param = ParameterString(
+            name="model_id",
+            default_value=SEEDANCE_2_5_MODEL_ID,
+            tooltip=(
+                "Model to use. Seedance 2.5 Flash is faster and cheaper, supports 480p and 720p only, takes "
+                "fewer references, and has no Draft or Final mode."
+            ),
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Model"},
+        )
+        self.add_parameter(model_id_param)
+        # License-policy dropdown: the component adds Options + refresh Button traits and
+        # marks the models the license denies; the proxy base refuses a denied selection.
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_id_param,
+            model_choices=list(SEEDANCE_MODEL_CAPABILITIES),
+            default_model=SEEDANCE_2_5_MODEL_ID,
+        )
+
         self.add_parameter(
             ParameterString(
                 name="mode",
@@ -289,7 +373,8 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 tooltip=(
                     "Normal generates a video in one step. Draft generates a 480p preview. "
                     "Final generates a 1080p or 4k video from a completed Draft task ID using the same "
-                    "organisation and compatible credentials. Each step is billed separately; Draft IDs expire after 14 days."
+                    "organisation and compatible credentials. Each step is billed separately; Draft IDs expire after 14 days. "
+                    "Seedance 2.5 Flash supports Normal only."
                 ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 ui_options={"display_name": "Mode"},
@@ -369,8 +454,9 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 input_types=["ImageUrlArtifact", "ImageArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_IMAGE]],
                 default_value=[],
                 tooltip=(
-                    f"Optional reference images (up to {MAX_REFERENCE_IMAGES}). Connect a Seedance Human "
-                    "Reference Asset to register an image as a private asset."
+                    f"Optional reference images (up to {MAX_REFERENCE_IMAGES}, or "
+                    f"{SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_5_FLASH_MODEL_ID].max_reference_images} for Flash). "
+                    "Connect a Seedance Human Reference Asset to register an image as a private asset."
                 ),
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"display_name": "Reference Images", "expander": True, "hide_property": True},
@@ -385,8 +471,9 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             type="VideoUrlArtifact",
             default_value=[],
             tooltip=(
-                f"Optional reference videos (up to {MAX_REFERENCE_VIDEOS}, 2-30s each and no more than 30s "
-                "combined). Seedance only accepts public URLs or uploaded asset URLs for videos. Connect a "
+                f"Optional reference videos (up to {MAX_REFERENCE_VIDEOS}, or "
+                f"{SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_5_FLASH_MODEL_ID].max_reference_videos} for Flash; 2-30s "
+                "each and no more than 30s combined). Seedance only accepts public URLs or uploaded asset URLs for videos. Connect a "
                 "Seedance Human Reference Asset to register a video as a private asset."
             ),
             allowed_modes={ParameterMode.INPUT},
@@ -411,8 +498,9 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
                 input_types=["AudioArtifact", "AudioUrlArtifact", "str", ASSET_REFERENCE_TYPE_NAMES[ASSET_KIND_AUDIO]],
                 default_value=[],
                 tooltip=(
-                    f"Optional reference audio (up to {MAX_REFERENCE_AUDIO} clips, 2-30s each and no more than "
-                    "30s combined). URLs, asset:// IDs, or base64/data URIs are supported. Seedance 2.5 accepts "
+                    f"Optional reference audio (up to {MAX_REFERENCE_AUDIO} clips, or "
+                    f"{SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_5_FLASH_MODEL_ID].max_reference_audio} for Flash; "
+                    "2-30s each and no more than 30s combined). URLs, asset:// IDs, or base64/data URIs are supported. Seedance 2.5 accepts "
                     "audio without any image or video."
                 ),
                 allowed_modes={ParameterMode.INPUT},
@@ -426,8 +514,11 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         with ParameterGroup(name="Generation Settings") as settings_group:
             ParameterString(
                 name="resolution",
-                default_value="720p",
-                tooltip=f"Output resolution: 480p, 720p, 1080p, or 4k. {HEVC_TOOLTIP_NOTE}",
+                default_value=DEFAULT_RESOLUTION,
+                tooltip=(
+                    f"Output resolution: 480p, 720p, 1080p, or 4k. Seedance 2.5 Flash supports 480p and 720p only. "
+                    f"{HEVC_TOOLTIP_NOTE}"
+                ),
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
                 traits={Options(choices=list(RESOLUTION_CHOICES))},
             )
@@ -592,7 +683,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         return super().after_value_set(parameter, value)
 
     def _react_to_parameter_change(self, param_name: str, value: Any, *, sync_only: bool) -> None:
-        if param_name in {"mode", "task", "return_last_frame"}:
+        if param_name in {"model_id", "mode", "task", "return_last_frame"}:
             self._update_parameter_visibility()
 
         if param_name == "output_format" and isinstance(value, str):
@@ -618,7 +709,14 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         self.publish_update_to_parameter("output_file", updated_value)
 
     def _update_parameter_visibility(self) -> None:
-        """Show the inputs that belong to the selected task and lock the settings it constrains."""
+        """Show the inputs that belong to the selected model and task, and lock the settings they constrain."""
+        capabilities = _get_model_capabilities(self._get_api_model_id())
+        mode_choices = (
+            [mode.value for mode in GenerationMode] if capabilities.supports_draft else [GenerationMode.NORMAL.value]
+        )
+        self._update_option_choices_for_task("mode", mode_choices, fallback=GenerationMode.NORMAL)
+        self._update_option_choices_for_task("resolution", list(capabilities.resolutions), fallback=DEFAULT_RESOLUTION)
+
         mode = self.get_parameter_value("mode") or GenerationMode.NORMAL
         is_final = mode == GenerationMode.FINAL
         task = self.get_parameter_value("task") or SeedanceTask.TEXT_TO_VIDEO
@@ -663,7 +761,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             self.hide_parameter_by_name(["last_frame_url", "last_frame_file"])
 
     def _update_option_choices_for_task(self, parameter_name: str, choices: list[Any], *, fallback: Any) -> None:
-        """Narrow a parameter's Options to the task's accepted values, coercing an invalid current value."""
+        """Narrow a parameter's Options to the accepted values, coercing an invalid current value."""
         parameter = self.get_parameter_by_name(parameter_name)
         if parameter is None:
             return
@@ -680,9 +778,6 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
         if self.get_parameter_value(parameter_name) not in choices:
             self.set_parameter_value(parameter_name, fallback)
-
-    def _get_api_model_id(self) -> str:
-        return SEEDANCE_2_5_MODEL_ID
 
     async def _submit_generation(
         self, payload: dict[str, Any], headers: dict[str, str], api_model_id: str
@@ -719,6 +814,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         mode = self.get_parameter_value("mode") or GenerationMode.NORMAL
         if mode == GenerationMode.FINAL:
             return {
+                "model_id": self._get_api_model_id(),
                 "mode": mode,
                 "draft_task_id": self.get_parameter_value("draft_task_id"),
                 "final_resolution": self.get_parameter_value("final_resolution") or DEFAULT_FINAL_RESOLUTION,
@@ -752,11 +848,12 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         )
 
         return {
+            "model_id": self._get_api_model_id(),
             "mode": self.get_parameter_value("mode") or GenerationMode.NORMAL,
             "draft_task_id": self.get_parameter_value("draft_task_id"),
             "prompt": self.get_parameter_value("prompt") or "",
             "task": self.get_parameter_value("task") or SeedanceTask.TEXT_TO_VIDEO,
-            "resolution": self.get_parameter_value("resolution") or "720p",
+            "resolution": self.get_parameter_value("resolution") or DEFAULT_RESOLUTION,
             "ratio": self.get_parameter_value("ratio") or "adaptive",
             "duration": self.get_parameter_value("duration"),
             "generate_audio": self.get_parameter_value("generate_audio"),
@@ -775,10 +872,20 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         }
 
     def _validate_parameters(self, params: dict[str, Any]) -> None:
-        """Validate the task, its media inputs, and its ratio/duration constraints."""
+        """Validate the model, the task, its media inputs, and its ratio/duration constraints."""
+        model_id = params["model_id"]
+        if model_id not in SEEDANCE_MODEL_CAPABILITIES:
+            supported = ", ".join(SEEDANCE_MODEL_CAPABILITIES)
+            msg = f"Unknown model {model_id!r}. Supported models: {supported}."
+            raise ValueError(msg)
+        capabilities = SEEDANCE_MODEL_CAPABILITIES[model_id]
+
         mode = params["mode"]
         if mode not in set(GenerationMode):
             msg = f"Unknown mode {mode!r}. Choose Normal, Draft, or Final."
+            raise ValueError(msg)
+        if mode != GenerationMode.NORMAL and not capabilities.supports_draft:
+            msg = f"{_model_display_name(model_id)} does not support {mode} mode. Use Normal, or switch the model."
             raise ValueError(msg)
         if mode == GenerationMode.FINAL:
             draft_task_id = params.get("draft_task_id")
@@ -801,10 +908,10 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         constraints = TASK_CONSTRAINTS[SeedanceTask(task)]
 
         self._validate_media_matches_task(params, task, constraints)
-        self._validate_reference_counts(params)
+        self._validate_reference_counts(params, capabilities)
         self._validate_trigger_keywords(params, task, constraints)
         if mode == GenerationMode.NORMAL:
-            self._validate_resolution(params)
+            self._validate_resolution(params, capabilities)
         self._validate_ratio_and_duration(params, task, constraints)
 
         # Private-asset references require Griptape auth (not BYOK). Gate first so the user gets a
@@ -856,21 +963,22 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             )
             raise ValueError(msg)
 
-    def _validate_reference_counts(self, params: dict[str, Any]) -> None:
-        """Raise if any reference list exceeds the provider's cap for that kind.
+    def _validate_reference_counts(self, params: dict[str, Any], capabilities: SeedanceModelCapabilities) -> None:
+        """Raise if any reference list exceeds the selected model's cap for that kind.
 
-        The per-kind caps sum to MAX_TOTAL_REFERENCE_ASSETS, so satisfying all three also satisfies
-        the documented total cap; there is no separate total check to make.
+        Each model's per-kind caps sum to its documented total cap, so satisfying all three also
+        satisfies the total; there is no separate total check to make.
         """
         caps = {
-            REFERENCE_IMAGES_PARAMETER: (MAX_REFERENCE_IMAGES, "reference images"),
-            REFERENCE_VIDEOS_PARAMETER: (MAX_REFERENCE_VIDEOS, "reference videos"),
-            REFERENCE_AUDIO_PARAMETER: (MAX_REFERENCE_AUDIO, "reference audio clips"),
+            REFERENCE_IMAGES_PARAMETER: (capabilities.max_reference_images, "reference images"),
+            REFERENCE_VIDEOS_PARAMETER: (capabilities.max_reference_videos, "reference videos"),
+            REFERENCE_AUDIO_PARAMETER: (capabilities.max_reference_audio, "reference audio clips"),
         }
+        model_name = _model_display_name(params["model_id"])
         for parameter_name, (cap, label) in caps.items():
             count = len(params.get(parameter_name) or [])
             if count > cap:
-                msg = f"Seedance 2.5 supports up to {cap} {label}, got {count}."
+                msg = f"{model_name} supports up to {cap} {label}, got {count}."
                 raise ValueError(msg)
 
     def _validate_trigger_keywords(self, params: dict[str, Any], task: str, constraints: TaskConstraints) -> None:
@@ -894,16 +1002,16 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         )
         raise ValueError(msg)
 
-    def _validate_resolution(self, params: dict[str, Any]) -> None:
-        """Raise if resolution is outside what the provider accepts.
+    def _validate_resolution(self, params: dict[str, Any], capabilities: SeedanceModelCapabilities) -> None:
+        """Raise if resolution is outside what the selected model accepts.
 
         The dropdown is already restricted to the supported values, but the value can arrive over a
-        connection. Resolution is task-independent for Seedance 2.5 — every task supports all four.
+        connection. Resolution depends on the model only; every task supports all of a model's tiers.
         """
         resolution = params.get("resolution")
-        if resolution not in RESOLUTION_CHOICES:
-            accepted = ", ".join(RESOLUTION_CHOICES)
-            msg = f"Seedance 2.5 supports resolution {accepted}, got {resolution!r}."
+        if resolution not in capabilities.resolutions:
+            accepted = ", ".join(capabilities.resolutions)
+            msg = f"{_model_display_name(params['model_id'])} supports resolution {accepted}, got {resolution!r}."
             raise ValueError(msg)
 
     def _validate_ratio_and_duration(self, params: dict[str, Any], task: str, constraints: TaskConstraints) -> None:
@@ -992,7 +1100,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
         self._validate_parameters(params)
         if params["mode"] == GenerationMode.FINAL:
             return {
-                "model": SEEDANCE_2_5_MODEL_ID,
+                "model": params["model_id"],
                 "resolution": params["final_resolution"],
                 "content": [{"type": "draft_task", "draft_task": {"id": params["draft_task_id"].strip()}}],
                 "output_format": params["output_format"],
@@ -1002,7 +1110,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
 
         self._log(
             f"{self.name} parameter summary: "
-            f"model_id={SEEDANCE_2_5_MODEL_ID}, "
+            f"model_id={params['model_id']}, "
             f"task={params['task']}, "
             f"first_frame_present={params['first_frame'] is not None}, "
             f"last_frame_present={params['last_frame'] is not None}, "
@@ -1011,7 +1119,7 @@ class Seedance25VideoGeneration(SeedanceProxyNode):
             f"reference_audio={len(params[REFERENCE_AUDIO_PARAMETER])}"
         )
 
-        payload: dict[str, Any] = {"model": SEEDANCE_2_5_MODEL_ID}
+        payload: dict[str, Any] = {"model": params["model_id"]}
         if params["mode"] == GenerationMode.DRAFT:
             payload["draft"] = True
             payload["resolution"] = DRAFT_RESOLUTION

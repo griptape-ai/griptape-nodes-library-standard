@@ -26,7 +26,9 @@ from griptape_nodes_library.video.seedance_2_5_video_generation import (
     MAX_REFERENCE_VIDEOS,
     MAX_TOTAL_REFERENCE_ASSETS,
     RESOLUTION_CHOICES,
+    SEEDANCE_2_5_FLASH_MODEL_ID,
     SEEDANCE_2_5_MODEL_ID,
+    SEEDANCE_MODEL_CAPABILITIES,
     SMART_DURATION,
     TASK_CONSTRAINTS,
     GenerationMode,
@@ -70,13 +72,31 @@ def _editing_node(name: str = "Seedance25") -> Seedance25VideoGeneration:
     return node
 
 
+def _flash_node(name: str = "Seedance25") -> Seedance25VideoGeneration:
+    node = Seedance25VideoGeneration(name=name)
+    node.set_parameter_value("model_id", SEEDANCE_2_5_FLASH_MODEL_ID)
+    return node
+
+
 # --- Model id and task selector --------------------------------------------------------------
 
 
-def test_model_id_is_fixed_to_seedance_2_5() -> None:
+def test_model_defaults_to_seedance_2_5() -> None:
     node = Seedance25VideoGeneration(name="Seedance25")
     assert node._get_api_model_id() == SEEDANCE_2_5_MODEL_ID
     assert node._get_catalog_model_id() == SEEDANCE_2_5_MODEL_ID
+
+
+def test_model_dropdown_offers_seedance_2_5_and_flash() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    assert node._model_access is not None
+    assert node._model_access.model_choices == [SEEDANCE_2_5_MODEL_ID, SEEDANCE_2_5_FLASH_MODEL_ID]
+
+
+def test_flash_selection_reaches_the_api_and_catalog_model_id() -> None:
+    node = _flash_node()
+    assert node._get_api_model_id() == SEEDANCE_2_5_FLASH_MODEL_ID
+    assert node._get_catalog_model_id() == SEEDANCE_2_5_FLASH_MODEL_ID
 
 
 def test_task_dropdown_offers_all_five_tasks() -> None:
@@ -1170,3 +1190,149 @@ async def test_connected_final_mode_and_task_id(monkeypatch: pytest.MonkeyPatch)
     assert (await node._build_payload())["content"] == [
         {"type": "draft_task", "draft_task": {"id": "connected-provider-id"}}
     ]
+
+
+# --- Seedance 2.5 Flash ------------------------------------------------------------------------
+
+FLASH = SEEDANCE_MODEL_CAPABILITIES[SEEDANCE_2_5_FLASH_MODEL_ID]
+
+
+def test_flash_offers_only_480p_and_720p() -> None:
+    node = _flash_node()
+    assert _option_choices(node, "resolution") == ["480p", "720p"]
+
+
+@pytest.mark.parametrize("resolution", ["1080p", "4k"])
+def test_switching_to_flash_falls_back_to_720p(resolution: str) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", resolution)
+    node.set_parameter_value("model_id", SEEDANCE_2_5_FLASH_MODEL_ID)
+    assert node.get_parameter_value("resolution") == "720p"
+
+
+def test_switching_to_flash_keeps_a_supported_resolution() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("resolution", "480p")
+    node.set_parameter_value("model_id", SEEDANCE_2_5_FLASH_MODEL_ID)
+    assert node.get_parameter_value("resolution") == "480p"
+
+
+def test_switching_back_from_flash_restores_every_tier() -> None:
+    node = _flash_node()
+    node.set_parameter_value("model_id", SEEDANCE_2_5_MODEL_ID)
+    assert _option_choices(node, "resolution") == RESOLUTION_CHOICES
+    assert _option_choices(node, "mode") == [mode.value for mode in GenerationMode]
+
+
+@pytest.mark.parametrize("resolution", ["1080p", "4k"])
+def test_flash_rejects_high_resolution_arriving_over_a_connection(resolution: str) -> None:
+    node = _flash_node()
+    params = node._get_parameters()
+    params["resolution"] = resolution
+
+    with pytest.raises(ValueError, match="Seedance 2.5 Flash supports resolution 480p, 720p"):
+        node._validate_parameters(params)
+
+
+def test_flash_offers_only_normal_mode() -> None:
+    node = _flash_node()
+    assert _option_choices(node, "mode") == [GenerationMode.NORMAL]
+    assert _parameter_by_name(node, "draft_task_id").ui_options.get("hide") is True
+
+
+@pytest.mark.parametrize("mode", [GenerationMode.DRAFT, GenerationMode.FINAL])
+def test_switching_to_flash_resets_draft_and_final_to_normal(mode: GenerationMode) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    node.set_parameter_value("mode", mode)
+    node.set_parameter_value("model_id", SEEDANCE_2_5_FLASH_MODEL_ID)
+    assert node.get_parameter_value("mode") == GenerationMode.NORMAL
+    assert _parameter_by_name(node, "draft_task_id").ui_options.get("hide") is True
+    assert _parameter_by_name(node, "final_resolution").ui_options.get("hide") is True
+
+
+@pytest.mark.parametrize("mode", [GenerationMode.DRAFT, GenerationMode.FINAL])
+def test_flash_rejects_draft_and_final_arriving_over_a_connection(mode: GenerationMode) -> None:
+    node = _flash_node()
+    params = node._get_parameters()
+    params["mode"] = mode
+    params["draft_task_id"] = "cgt-draft-123"
+    params["final_resolution"] = "1080p"
+
+    with pytest.raises(ValueError, match=f"Seedance 2.5 Flash does not support {mode} mode"):
+        node._validate_parameters(params)
+
+
+def test_flash_reference_caps_match_its_documented_limits() -> None:
+    assert (FLASH.max_reference_images, FLASH.max_reference_videos, FLASH.max_reference_audio) == (10, 5, 5)
+
+
+@pytest.mark.parametrize(
+    ("parameter_name", "cap", "label", "item"),
+    [
+        ("reference_images", FLASH.max_reference_images, "reference images", "data:image/png;base64,{}"),
+        ("reference_videos", FLASH.max_reference_videos, "reference videos", "https://public.example/{}.mp4"),
+        ("reference_audio", FLASH.max_reference_audio, "reference audio clips", "data:audio/wav;base64,{}"),
+    ],
+)
+def test_flash_rejects_references_over_its_caps(parameter_name: str, cap: int, label: str, item: str) -> None:
+    node = _flash_node()
+    node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
+    params = node._get_parameters()
+    params[parameter_name] = [item.format(index) for index in range(cap + 1)]
+
+    with pytest.raises(ValueError, match=f"Seedance 2.5 Flash supports up to {cap} {label}"):
+        node._validate_parameters(params)
+
+
+def test_flash_accepts_references_at_its_caps() -> None:
+    node = _flash_node()
+    node.set_parameter_value("task", SeedanceTask.REFERENCE_TO_VIDEO)
+    params = node._get_parameters()
+    params["reference_images"] = [f"data:image/png;base64,{index}" for index in range(FLASH.max_reference_images)]
+    params["reference_videos"] = [f"https://public.example/{index}.mp4" for index in range(FLASH.max_reference_videos)]
+    params["reference_audio"] = [f"data:audio/wav;base64,{index}" for index in range(FLASH.max_reference_audio)]
+
+    node._validate_parameters(params)
+
+
+def test_unknown_model_arriving_over_a_connection_is_rejected() -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    params = node._get_parameters()
+    params["model_id"] = "dreamina-seedance-9-9"
+
+    with pytest.raises(ValueError, match="Unknown model"):
+        node._validate_parameters(params)
+
+
+@pytest.mark.asyncio
+async def test_flash_payload_names_the_flash_model() -> None:
+    node = _flash_node()
+    node.set_parameter_value("prompt", "A fox")
+    node.set_parameter_value("resolution", "480p")
+    payload = await node._build_payload()
+    assert payload["model"] == SEEDANCE_2_5_FLASH_MODEL_ID
+    assert payload["resolution"] == "480p"
+    assert "draft" not in payload
+
+
+@pytest.mark.parametrize(
+    ("saved", "expected"),
+    [
+        # A workflow saved before the model choice existed has no model_id and keeps its settings.
+        ({"mode": GenerationMode.DRAFT, "resolution": "1080p"}, (SEEDANCE_2_5_MODEL_ID, "Draft", "1080p")),
+        (
+            {"model_id": SEEDANCE_2_5_FLASH_MODEL_ID, "mode": GenerationMode.NORMAL, "resolution": "480p"},
+            (SEEDANCE_2_5_FLASH_MODEL_ID, "Normal", "480p"),
+        ),
+    ],
+)
+def test_workflow_load_keeps_saved_model_mode_and_resolution(saved: dict, expected: tuple) -> None:
+    node = Seedance25VideoGeneration(name="Seedance25")
+    for name, value in saved.items():
+        node.set_parameter_value(name, value, initial_setup=True)
+
+    assert (
+        node.get_parameter_value("model_id"),
+        node.get_parameter_value("mode"),
+        node.get_parameter_value("resolution"),
+    ) == expected
