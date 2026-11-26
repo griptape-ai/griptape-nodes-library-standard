@@ -99,6 +99,7 @@ NODE_MODEL_CASES: list[tuple[str, str, str, str]] = [
     ("WorldLabsWorldGeneration", "gtc_marble_1_0_draft", "marble-1.0-draft", "model"),
     ("SeedanceVideoGeneration", "gtc_seedance_1_0_pro_fast", "seedance-1-0-pro-fast-251015", "model_id"),
     ("Seedance20VideoGeneration", "gtc_seedance_2_0_fast", "dreamina-seedance-2-0-fast-260128", "model_id"),
+    ("Seedance25VideoGeneration", "gtc_seedance_2_5_flash", "dreamina-seedance-2-5-flash-261115", "model_id"),
     ("GrokVideoGeneration", "gtc_grok_imagine_video", "grok-imagine-video", "model"),  # only declared model
     ("GrokVideoEdit", "gtc_grok_imagine_video", "grok-imagine-video", "model"),  # only declared model
     ("MinimaxHailuoVideoGeneration", "gtc_minimax_hailuo_2_3_fast", "MiniMax-Hailuo-2.3-Fast", "model_id"),
