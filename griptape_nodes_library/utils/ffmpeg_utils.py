@@ -11,7 +11,11 @@ from typing import Any, NamedTuple
 import static_ffmpeg.run  # type: ignore[import-untyped]
 
 DEFAULT_FRAME_RATE = 24.0
-RATE_TOLERANCE = 0.1
+# NTSC rates are exactly 30000/1001 and 60000/1001; ffprobe may round them (e.g. 2997/100).
+# Kept well under the 0.03 gap to 30 and 60 so true 30/60 fps video is never treated as NTSC.
+NTSC_RATE_30FPS = 30000 / 1001
+NTSC_RATE_60FPS = 60000 / 1001
+NTSC_RATE_TOLERANCE = 0.005
 MIN_SEGMENT_DURATION_FOR_STREAM_COPY = 2.0  # seconds — below this stream copy is unreliable
 
 
@@ -201,7 +205,9 @@ def detect_video_properties(
     stream = data["streams"][0]
     frame_rate = _parse_fraction_string(stream.get("r_frame_rate", "24/1")) or DEFAULT_FRAME_RATE
 
-    drop_frame = abs(frame_rate - 29.97) < RATE_TOLERANCE or abs(frame_rate - 59.94) < RATE_TOLERANCE
+    drop_frame = any(
+        abs(frame_rate - ntsc_rate) < NTSC_RATE_TOLERANCE for ntsc_rate in (NTSC_RATE_30FPS, NTSC_RATE_60FPS)
+    )
 
     duration = 0.0
     if "format" in data and "duration" in data["format"]:
@@ -213,14 +219,18 @@ def detect_video_properties(
 
 
 def seconds_to_ts(sec: float) -> str:
-    """Return HH:MM:SS.mmm for ffmpeg."""
-    sec = max(sec, 0)
-    whole = int(sec)
-    ms = round((sec - whole) * 1000)
+    """Return HH:MM:SS.ffffff for ffmpeg.
+
+    Microsecond precision keeps a cut on a frame boundary even when frame times aren't
+    whole milliseconds (e.g. frame 2 at 30 fps is 0.0666…s). Rounded to the millisecond,
+    the cut can land past its frame and drop or add a frame at either end.
+    """
+    total_us = round(max(sec, 0) * 1_000_000)
+    whole, us = divmod(total_us, 1_000_000)
     h = whole // 3600
     m = (whole % 3600) // 60
     s = whole % 60
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+    return f"{h:02d}:{m:02d}:{s:02d}.{us:06d}"
 
 
 def _parse_fraction_string(fraction_str: str) -> float:
