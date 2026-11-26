@@ -38,6 +38,8 @@ Required. Ask one narrow thing, for example `Does the customer ask for a refund?
 
 A collapsed group with `yes_means` and `no_means`. Describe what should count as each answer when the question alone is ambiguous.
 
+Both fields, and the question, accept JSON. For example, `yes_means` can be `{"what": "visible to the audience on screen", "not_for": ["artifacts hidden behind a wipe or a cut"]}`. See [Writing options as JSON](JevPickOne.md#writing-options-as-json).
+
 ### threshold
 
 The minimum probability for a Yes. The default is 0.5. Raise it to require more certainty.

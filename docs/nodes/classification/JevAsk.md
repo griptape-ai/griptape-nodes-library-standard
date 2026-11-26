@@ -63,6 +63,8 @@ The node returned these answers:
 
 The numbers for `size` are an example of the shape. A rating's `score` is the average of the levels weighted by their probabilities, counting from 1, so it falls between levels. `level` is the score rounded to the nearest level, and `probabilities` is keyed by level number.
 
+Any text field on the question nodes can hold JSON: the question, Yes means and No means, option descriptions and rating levels. A JSON rubric helps most when two options overlap, such as FX and Comp for a shot note. See [Writing options as JSON](JevPickOne.md#writing-options-as-json).
+
 ## What it needs
 
 - A Griptape Nodes license or a Griptape Cloud API key (`GT_CLOUD_API_KEY`). To use your own TypeSafe key (`TYPESAFE_API_KEY`) instead, set **API Key Provider** to **Customer**.

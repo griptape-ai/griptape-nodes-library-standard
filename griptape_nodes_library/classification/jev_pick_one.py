@@ -76,7 +76,8 @@ class JevPickOne(RowOutputsMixin, GriptapeProxyNode):
             name="options",
             display_name="Options",
             tooltip="One option per row. Write a short label, or 'Label: description' to tell JEV what "
-            "the option means. Each option gets its own flow output.",
+            'the option means. The description can be JSON, for example \'Lighting: {"what": ..., "not_for": ...}\'. '
+            "Each option gets its own flow output.",
             type="str",
             ui_options={"placeholder_text": "label: description"},
             max_items=MAX_OPTIONS,
