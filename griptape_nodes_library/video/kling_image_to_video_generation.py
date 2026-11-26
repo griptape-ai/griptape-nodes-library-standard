@@ -334,7 +334,16 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
                 default_value=kling_4.RESOLUTION_1080P,
                 tooltip="Output resolution (Kling 4.0 models). Kling 4.0 Flash is 720p only.",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P])},
+                traits={Options(choices=[kling_4.RESOLUTION_720P, kling_4.RESOLUTION_1080P, kling_4.RESOLUTION_4K])},
+                ui_options={"hide": True},
+            )
+
+            ParameterString(
+                name="dynamic_range",
+                default_value=kling_4.DYNAMIC_RANGE_SDR,
+                tooltip="Dynamic range (Kling 4.0 at 1080p and 4k). HDR renders 10-bit HDR video for an extra per-second fee.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=kling_4.DYNAMIC_RANGES)},
                 ui_options={"hide": True},
             )
         self.add_node_element(gen_settings_group)
@@ -427,6 +436,9 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
         """Handle parameter value changes to show/hide dependent parameters."""
         super().after_value_set(parameter, value)
 
+        if parameter.name == "resolution":
+            kling_4.sync_dynamic_range(self, str(self.get_parameter_value("model_name")))
+
         if parameter.name == "model_name":
             self._update_parameter_visibility_for_model(value)
             self._update_multi_shot_parameter_visibility()
@@ -465,6 +477,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             return
 
         self.hide_parameter_by_name("resolution")
+        kling_4.sync_dynamic_range(self, model_id)
         self._apply_kling_4_only_input_visibility()
         self.show_parameter_by_name(["cfg_scale", "negative_prompt"])
 
@@ -518,6 +531,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             "resolution", capabilities.resolutions, kling_4.resolution_choice(model_id, current)
         )
         self.show_parameter_by_name("resolution")
+        kling_4.sync_dynamic_range(self, model_id)
 
     def _apply_generation_settings_visibility(self, model_id: str) -> None:
         """Apply mode/duration/sound visibility for selected model."""
@@ -778,6 +792,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             "settings": kling_4.build_settings(
                 resolution=self.get_parameter_value("resolution") or capabilities.default_resolution,
                 duration=int(self.get_parameter_value("duration") or 5),
+                dynamic_range=self.get_parameter_value("dynamic_range"),
             ),
         }
 
@@ -998,6 +1013,7 @@ class KlingImageToVideoGeneration(GriptapeProxyNode):
             prompt=self.get_parameter_value("prompt"),
             resolution=self.get_parameter_value("resolution"),
             duration=self.get_parameter_value("duration"),
+            dynamic_range=self.get_parameter_value("dynamic_range"),
         )
 
         if not self.get_parameter_value("image"):
