@@ -14,6 +14,15 @@ from griptape_nodes.exe_types.param_types.parameter_dict import ParameterDict
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
+from griptape_nodes.exe_types.validators import (
+    AllowedFormats,
+    AspectRatioRange,
+    IfParameter,
+    MaxDuration,
+    MaxFileSize,
+    MinDuration,
+    SideRange,
+)
 from griptape_nodes.traits.options import Options
 
 from griptape_nodes_library.media.public_urls import adelete_uploaded_artifacts, gather_limited
@@ -25,6 +34,29 @@ __all__ = ["KlingMotionControl"]
 
 # Constants
 MAX_PROMPT_LENGTH = 2500
+
+# Kling's documented limits on POST /v1/videos/motion-control.
+# Image: "Supported image formats: .jpg / .jpeg / .png" and "File size: ≤10MB, dimensions:
+# 300px ~ 65536px, aspect ratio: 1:2.5 ~ 2.5:1".
+# Video: "Supported formats: .mp4 / .mov, file size: ≤100MB, dimensions: 340px ~ 3850px" and
+# "minimum 3 seconds, maximum depends on character_orientation" (30 s for "video", 10 s for "image").
+# https://kling.ai/document-api/api/video/motion-control/legacy
+INPUT_LIMITS_URL = "https://kling.ai/document-api/api/video/motion-control/legacy"
+REFERENCE_IMAGE_LIMITS = (
+    AllowedFormats("image/jpeg", "image/png"),
+    MaxFileSize(10 * 1024 * 1024),
+    SideRange(min=300, max=65536),
+    AspectRatioRange("1:2.5", "2.5:1"),
+)
+MIN_VIDEO_SECONDS = 3
+REFERENCE_VIDEO_LIMITS = (
+    MaxFileSize(100 * 1024 * 1024),
+    AllowedFormats("video/mp4", "video/quicktime"),
+    MinDuration(MIN_VIDEO_SECONDS),
+    # The longest clip depends on 'character orientation'.
+    IfParameter("character_orientation", {"image": [MaxDuration(10)]}, default=[MaxDuration(30)]),
+    SideRange(min=340, max=3850),
+)
 
 
 class KlingMotionControl(GriptapeProxyNode):
@@ -77,6 +109,7 @@ class KlingMotionControl(GriptapeProxyNode):
                 tooltip="Reference image with character (required). Supports .jpg/.jpeg/.png, max 10MB.",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
+                pre_run_validators=REFERENCE_IMAGE_LIMITS,
             ),
             disclaimer_message="The Kling Motion Control service utilizes this URL to access the image for generation.",
         )
@@ -90,6 +123,7 @@ class KlingMotionControl(GriptapeProxyNode):
                 tooltip="Reference video with actions to transfer (required). Supports .mp4/.mov, max 100MB.",
                 allowed_modes={ParameterMode.INPUT},
                 hide_property=True,
+                pre_run_validators=REFERENCE_VIDEO_LIMITS,
             ),
             disclaimer_message="The Kling Motion Control service utilizes this URL to access the video for generation.",
         )
@@ -270,3 +304,6 @@ class KlingMotionControl(GriptapeProxyNode):
             exceptions.append(ValueError("A reference video is required. Connect one to 'reference_video'."))
 
         return exceptions if exceptions else None
+
+    def input_limits_url(self) -> str | None:
+        return INPUT_LIMITS_URL
