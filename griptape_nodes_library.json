@@ -39,7 +39,7 @@
     "author": "Griptape, Inc",
     "description": "Default nodes for Griptape Nodes",
     "library_version": "0.92.0",
-    "engine_version": "0.108.0",
+    "engine_version": "0.114.0",
     "tags": [
       "Griptape",
       "AI"
@@ -7558,7 +7558,7 @@
       "file_path": "griptape_nodes_library/files/move_files.py",
       "metadata": {
         "category": "files",
-        "description": "Move files and/or directories from source to destination. Implemented as copy + delete. Supports glob patterns and multiple sources.",
+        "description": "Move files and/or directories from source to destination. Each item is moved with a rename, so nothing is copied. Supports glob patterns and multiple sources.",
         "display_name": "Move Files",
         "icon": "ArrowRight",
         "tags": [

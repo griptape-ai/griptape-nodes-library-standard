@@ -9,10 +9,6 @@ from griptape_nodes.exe_types.core_types import Parameter
 from griptape_nodes.files.file import FileLoadError
 from griptape_nodes.files.path_utils import sanitize_path_string
 from griptape_nodes.retained_mode.events.os_events import (
-    DeleteFileRequest,
-    DeleteFileResultFailure,
-    GetFileInfoRequest,
-    GetFileInfoResultSuccess,
     RenameFileRequest,
     RenameFileResultFailure,
     RenameFileResultSuccess,
@@ -45,7 +41,7 @@ class MoveFiles(CopyFiles):
     """Move files and/or directories from source to destination.
 
     Directories are moved recursively with all their contents.
-    Uses RenameFileRequest which performs atomic move operations.
+    Uses RenameFileRequest, so each item is renamed into place rather than copied.
     Accepts single path (str) or multiple paths (list[str]) for source_paths.
     Supports glob patterns (e.g., "/path/to/*.txt") for matching multiple files.
     """
@@ -53,7 +49,9 @@ class MoveFiles(CopyFiles):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
 
-        # Add moved_paths output parameter (copied_paths_output from parent will remain but won't be used)
+        # Moves report through moved_paths, so the inherited copied_paths output is removed
+        self.remove_parameter_element_by_name(self.copied_paths_output.name)
+
         self.moved_paths_output = Parameter(
             name="moved_paths",
             allow_input=False,
@@ -76,42 +74,18 @@ class MoveFiles(CopyFiles):
         Args:
             target: MoveFileInfo with source_path set
             destination_dir: Destination directory
-            overwrite: Whether to overwrite existing files
+            overwrite: Whether to replace an existing destination
         """
         # Resolve destination path
         destination_path = self._resolve_destination_path(target.source_path, destination_dir)
         target.destination_path = destination_path
 
-        # If overwrite is True and destination exists, delete it first
-        if overwrite:
-            dest_info_request = GetFileInfoRequest(path=destination_path, workspace_only=False)
-            dest_info_result = GriptapeNodes.handle_request(dest_info_request)
-
-            if isinstance(dest_info_result, GetFileInfoResultSuccess) and dest_info_result.file_entry is not None:
-                # Destination exists - delete it first
-                delete_request = DeleteFileRequest(path=destination_path, workspace_only=False)
-                delete_result = GriptapeNodes.handle_request(delete_request)
-
-                if isinstance(delete_result, DeleteFileResultFailure):
-                    target.status = MoveStatus.FAILED
-                    failure_reason = (
-                        delete_result.failure_reason.value
-                        if hasattr(delete_result.failure_reason, "value")
-                        else "Unknown error"
-                    )
-                    # Include detailed error message if available
-                    error_details = ""
-                    if delete_result.result_details:
-                        # ResultDetails.__str__() returns concatenated messages from all ResultDetail objects
-                        error_details = f" - {delete_result.result_details}"
-                    target.failure_reason = f"Failed to delete existing destination: {failure_reason}{error_details}"
-                    return
-
-        # Execute move using RenameFileRequest (which performs atomic move)
+        # Execute move using RenameFileRequest
         rename_request = RenameFileRequest(
             old_path=target.source_path,
             new_path=destination_path,
             workspace_only=False,
+            overwrite=overwrite,
         )
         rename_result = GriptapeNodes.handle_request(rename_request)
 
