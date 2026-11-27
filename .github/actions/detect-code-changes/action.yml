@@ -1,0 +1,44 @@
+name: Detect code changes
+description: >
+  Set `code` to `false` when every file changed since the event's base commit is documentation
+  (Markdown, `docs/`, `LICENSE`), so jobs can skip checks that docs cannot affect. Any event without
+  a base commit, or a base that cannot be fetched, sets `code` to `true`.
+
+outputs:
+  code:
+    description: "`true` if any changed file can affect checks or tests."
+    value: ${{ steps.detect.outputs.code }}
+
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+      run: |
+        case "$EVENT_NAME" in
+          pull_request) base="$PR_BASE" ;;
+          merge_group) base="$MERGE_GROUP_BASE" ;;
+          push) base="$PUSH_BEFORE" ;;
+          *) base="" ;;
+        esac
+
+        code=true
+        if [[ -n "$base" && "$base" != 0000000000000000000000000000000000000000 ]] \
+          && git fetch --no-tags --depth=1 origin "$base" \
+          && files=$(git diff --name-only --no-renames "$base" HEAD); then
+          code=false
+          while IFS= read -r file; do
+            case "$file" in
+              *.md | docs/* | LICENSE) ;;
+              *) code=true; break ;;
+            esac
+          done <<< "$files"
+        fi
+
+        echo "Code changed: $code"
+        echo "code=$code" >> "$GITHUB_OUTPUT"

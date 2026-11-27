@@ -12,7 +12,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect code changes
+        id: changes
+        uses: ./.github/actions/detect-code-changes
+
   workflow-tests:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env:
       GT_CLOUD_API_KEY: ${{ secrets.GT_CLOUD_API_KEY }}
